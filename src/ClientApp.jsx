@@ -159,10 +159,10 @@ const SessionSheet = ({session,token,onClose}) => {
         </div>
 
         <SL>Exercises</SL>
-        {(session.exercises||[]).length===0
+        {!exsData ? <Spinner/> : exsData.length===0
           ? <Empty msg="No exercises logged yet"/>
           : <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:20}}>
-              {session.exercises.map((ex,i)=>(
+              {exsData.map((ex,i)=>(
                 <div key={i} style={{background:C.surface2,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between"}}>
                   <div style={{color:C.white,fontSize:14,fontWeight:600}}>{ex.name}</div>
                   <div style={{color:C.cyan,fontSize:13,fontWeight:700}}>{ex.sets}×{ex.reps} · {ex.weight}</div>
