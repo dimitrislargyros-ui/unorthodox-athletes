@@ -837,9 +837,9 @@ export default function App() {
   useEffect(()=>{
     const init = async () => {
       try {
-        const saved = localStorage.getItem("ua_client_session"); const savedObj = saved ? {value: saved} : null;
-        if(savedObj){
-          const {token,userId,expiresAt} = JSON.parse(savedObj.value);
+        const saved = localStorage.getItem("ua_client_session");
+        if(saved){
+          const {token,userId,expiresAt} = JSON.parse(saved);
           if(Date.now() < expiresAt*1000){
             await loadData(token,userId);
             return;
