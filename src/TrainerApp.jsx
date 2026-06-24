@@ -411,7 +411,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [activeSession,setAS]=useState(null);
   const [showPkg,setShowPkg]=useState(false);
   const [newPkgTotal,setNPT]=useState("10");
-  const [showLogSess,setShowLog]=useState(false);
+  const [showLog,setShowLog]=useState(false);
   const [logDate,setLogDate]=useState(today());
   const [logTime,setLogTime]=useState(300);
   const [logging,setLogging]=useState(false);
