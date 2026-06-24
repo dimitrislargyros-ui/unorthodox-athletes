@@ -47,7 +47,7 @@ const dbUpsert = (table,data,tk)      => sb(`/rest/v1/${table}`,"POST",data,tk,"
 
 const getProfile   = (uid,tk) => dbGet("profiles",`id=eq.${uid}&select=*`,tk).then(r=>r?.[0]);
 const getPackage   = (uid,tk) => dbGet("packages",`client_id=eq.${uid}&is_active=eq.true&order=created_at.desc&limit=1`,tk).then(r=>r?.[0]);
-const getSessions=(uid,tk)=>Promise.resolve([]);
+const getSessions=(uid,tk)=>dbGet("sessions",`client_id=eq.${uid}&order=session_date.desc&select=*`,tk);
 const getPRs       = (uid,tk) => dbGet("personal_records",`client_id=eq.${uid}&order=record_date.desc`,tk);
 const getSlots     = (dow,tk) => dbGet("schedule_slots",`day_of_week=eq.${dow}&is_active=eq.true&order=start_time_min.asc`,tk);
 const getDayBooks  = (date,tk)=> dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=slot_id`,tk);
