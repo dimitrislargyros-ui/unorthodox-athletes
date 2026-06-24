@@ -750,7 +750,7 @@ export default function App(){
   useEffect(()=>{
     const init=async()=>{
       try{
-        const saved=localStorage.getItem("ua_trainer_session"); const savedObj=saved?{value:saved}:null;
+        const saved=localStorage.getItem("ua_trainer_auth"); const savedObj=saved?{value:saved}:null;
         if(savedObj){
           const {token,userId,expiresAt}=JSON.parse(savedObj.value);
           if(Date.now()<expiresAt*1000){ await loadData(token,userId); return; }
@@ -782,13 +782,13 @@ export default function App(){
     const {access_token,expires_at,user}=data;
     const profile=await getProfile(user.id,access_token);
     if(profile?.role!=="trainer") throw new Error("CLIENT_ROLE");
-    localStorage.setItem("ua_trainer_session",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
+    localStorage.setItem("ua_trainer_auth",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
     await loadData(access_token,user.id);
   };
 
   const handleLogout=async()=>{
     try{ await authLogout(auth.token); }catch(e){}
-    try{ localStorage.removeItem("ua_trainer_session"); }catch(e){}
+    try{ localStorage.removeItem("ua_trainer_auth"); }catch(e){}
     setAuth({loading:false,token:null,userId:null,profile:null});
     setClients([]); setScreen("today"); setSel(null);
   };
