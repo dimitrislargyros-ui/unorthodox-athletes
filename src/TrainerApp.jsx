@@ -84,12 +84,12 @@ const today  = () => new Date().toISOString().split("T")[0];
 const todayDow=() => { const d=new Date().getDay(); return d===0?6:d-1; };
 const fmtDate= (iso) => { if(!iso) return ""; return new Date(iso+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"2-digit"}); };
 const weekOf = (iso) => { const d=new Date(iso+"T12:00:00"); const dow=d.getDay()===0?6:d.getDay()-1; const mon=new Date(d); mon.setDate(d.getDate()-dow); return `Week of ${mon.toLocaleDateString("en-GB",{day:"numeric",month:"short"})}`; };
-const calcDayNum = async (clientId,date,tk) => {
-  const d=new Date(date+"T12:00:00"); const dow=d.getDay()===0?6:d.getDay()-1;
-  const mon=new Date(d); mon.setDate(d.getDate()-dow);
-  const monIso=mon.toISOString().split("T")[0];
-  const prev = await dbGet("sessions",`client_id=eq.${clientId}&session_date=gte.${monIso}&session_date=lt.${date}&status=neq.cancelled`,tk);
-  return (prev?.length||0)+1;
+const calcDayNum = async (clientId, date, tk, sessionsPerWeek=3) => {
+  // Count ALL previous completed sessions for this client
+  const prev = await dbGet("sessions",`client_id=eq.${clientId}&session_date=lte.${date}&status=eq.completed`,tk).catch(()=>[]);
+  const total = (prev?.length||0);
+  // Cycle based on sessions_per_week: 0->Day1, 1->Day2, 2->Day3, 3->Day1...
+  return (total % sessionsPerWeek) + 1;
 };
 
 const WDAYS=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
@@ -444,7 +444,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const handleLogSession=async()=>{
     setLogging(true);
     try{
-      const dayNum=await calcDayNum(client.id,logDate,token);
+      const spw = pkg?.sessions_per_week||3;
+      const dayNum=await calcDayNum(client.id,logDate,token,spw);
       const wLabel=weekOf(logDate);
       const sessData={client_id:client.id,trainer_id:trainerId,session_date:logDate,start_time_min:logTime,week_label:wLabel,day_num:dayNum,status:"completed"};
       const res=await createSession(sessData,token);
