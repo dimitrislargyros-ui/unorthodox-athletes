@@ -123,7 +123,8 @@ const SessionEditor=({session,token,onClose,onSaved})=>{
   const addEx=()=>{ if(!newEx.name) return; setExs(p=>[...p,{...newEx}]); setNewEx({name:"",sets:"",reps:"",weight:""}); setShowAdd(false); };
   const removeEx=(i)=>setExs(p=>p.filter((_,j)=>j!==i));
 
-  const save=async()=>{
+  const save=async()=>{ if(saving||saved) return;
+    if(saving||saved) return;
     setSaving(true);
     try{
       await saveNote(session.id,tNote,token);
