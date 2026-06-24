@@ -200,7 +200,7 @@ const LoginScreen=({onLogin})=>{
     if(!email||!pw) return; setL(true); setErr("");
     try{ await onLogin(email,pw); }
     catch(e){
-      if(e.message==="CLIENT_ROLE") setErr("This is the Trainer Portal. Use the client app.");
+      if(e.message==="TRAINER_ROLE") setErr("This is the Trainer Portal. Use the client app.");
       else {
         try { const parsed=JSON.parse(e.message); setErr(parsed.error_description||parsed.msg||parsed.message||e.message); }
         catch(_) { setErr(e.message||"Login failed. Check credentials."); }
