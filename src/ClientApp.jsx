@@ -218,13 +218,13 @@ const LoginScreen=({onLogin})=>{
           <div style={{fontSize:26,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1,background:`linear-gradient(90deg,${C.cyan},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>ATHLETES</div>
           <div style={{color:C.muted,fontSize:11,letterSpacing:3,marginTop:8,textTransform:"uppercase"}}>Think · Perform · Develop</div>
         </div>
-        <div style={{background:C.pink+"22",border:`1px solid ${C.pink}55`,borderRadius:20,padding:"5px 16px",color:C.pink,fontSize:12,fontWeight:700,letterSpacing:1}}>TRAINER PORTAL</div>
+        <div style={{background:C.pink+"22",border:`1px solid ${C.pink}55`,borderRadius:20,padding:"5px 16px",color:C.pink,fontSize:12,fontWeight:700,letterSpacing:1}}>CLIENT LOGIN</div>
       </div>
       <div style={{width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:12}}>
-        <input style={inp} placeholder="Trainer email" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <input style={inp} placeholder="Email address" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         <input style={inp} type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {err&&<div style={{color:C.pink,fontSize:13,textAlign:"center"}}>{err}</div>}
-        <GBtn label={loading?"Entering...":"Enter →"} onClick={handle} disabled={loading} style={{marginTop:4,width:"100%"}}/>
+        <GBtn label={loading?"Logging in...":"Let's Go →"} onClick={handle} disabled={loading} style={{marginTop:4,width:"100%"}}/>
       </div>
     </div>
   );
