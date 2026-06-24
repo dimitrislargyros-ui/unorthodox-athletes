@@ -4,7 +4,7 @@ import ClientApp from './ClientApp.jsx'
 import TrainerApp from './TrainerApp.jsx'
 import './index.css'
 
-const isTrainer = window.location.pathname.startsWith('/trainer')
+console.log("PATHNAME:",window.location.pathname);const isTrainer = window.location.pathname.startsWith('/trainer')
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   React.createElement(React.StrictMode, null,
