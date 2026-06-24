@@ -53,7 +53,14 @@ const getSlots         = (dow,tk)      => dbGet("schedule_slots",`day_of_week=eq
 const getDayBookCounts = (date,tk)     => dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=slot_id`,tk);
 
 const createSession  = (d,tk) => dbPost("sessions",d,tk);
-const saveNote       = (sessId,note,tk) => dbUpsert("session_notes",{session_id:sessId,trainer_note:note,updated_at:new Date().toISOString()},tk);
+const saveNote = async (sessId, note, tk) => {
+  const existing = await dbGet("session_notes", `session_id=eq.${sessId}`, tk);
+  if (existing && existing.length > 0) {
+    return dbPatch("session_notes", `session_id=eq.${sessId}`, {trainer_note: note, updated_at: new Date().toISOString()}, tk);
+  } else {
+    return dbPost("session_notes", {session_id: sessId, trainer_note: note, updated_at: new Date().toISOString()}, tk);
+  }
+};
 const saveExercises  = async (sessId,exs,tk) => {
   await dbDelete("exercises",`session_id=eq.${sessId}`,tk);
   if(exs.length>0) await dbPost("exercises",exs.map((e,i)=>({...e,session_id:sessId,order_index:i})),tk);
@@ -123,7 +130,7 @@ const SessionEditor=({session,token,onClose,onSaved})=>{
   const addEx=()=>{ if(!newEx.name) return; setExs(p=>[...p,{...newEx}]); setNewEx({name:"",sets:"",reps:"",weight:""}); setShowAdd(false); };
   const removeEx=(i)=>setExs(p=>p.filter((_,j)=>j!==i));
 
-  const save=async()=>{ if(saving||saved) return;
+  const save=async()=>{ if(saving||saved) return; if(saving||saved) return;
     if(saving||saved) return;
     setSaving(true);
     try{
