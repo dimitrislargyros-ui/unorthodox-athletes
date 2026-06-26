@@ -58,9 +58,9 @@ const updateProfile=(uid,d,tk)=> dbPatch("profiles",`id=eq.${uid}`,d,tk);
 const uploadAvatar=async(uid,file,tk)=>{
   const ext=file.name.split('.').pop()||'jpg';
   const path=`${uid}/avatar.${ext}`;
-  const res=await fetch(`${SB_URL}/storage/v1/object/avatars/${path}`,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":`Bearer ${tk}`,"Content-Type":file.type,"x-upsert":"true"},body:file});
+  const res=await fetch(`${SB_URL}/storage/v1/object/avatars/${path}`,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":`Bearer ${tk}`,"Content-Type":file.type||"image/jpeg","x-upsert":"true"},body:file});
   if(!res.ok) throw new Error(await res.text());
-  return `${SB_URL}/storage/v1/object/public/avatars/${path}`;
+  return `${SB_URL}/storage/v1/object/public/avatars/${path}?t=${Date.now()}`;
 };
 
 const saveClientNote = async (sessId, note, tk) => {
@@ -199,11 +199,11 @@ const LoginScreen=({onLogin,onSignUp})=>{
 
 // ── Sign Up ──
 const SignUpScreen=({onSignUp,onBack})=>{
-  const [name,setName]=useState(""); const [email,setE]=useState(""); const [pw,setPw]=useState("");
+  const [name,setName]=useState(""); const [email,setE]=useState(""); const [pw,setPw]=useState(""); const [phone,setPhone]=useState("");
   const [loading,setL]=useState(false); const [err,setErr]=useState(""); const [done,setDone]=useState(false);
   const handle=async()=>{
     if(!name||!email||!pw) return; setL(true); setErr("");
-    try{ const ok=await onSignUp(name.trim(),email,pw); if(!ok) setDone(true); }
+    try{ const ok=await onSignUp(name.trim(),email,pw,phone.trim()||null); if(!ok) setDone(true); }
     catch(e){ setErr(e.message||"Sign up failed."); }
     setL(false);
   };
@@ -229,6 +229,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
         <input style={inp} placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         <input style={inp} placeholder="Email address" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         <input style={inp} type="password" placeholder="Password (min 6 chars)" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <input style={{...inp,opacity:0.7}} placeholder="Phone number (optional)" value={phone} onChange={e=>setPhone(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {err&&<div style={{color:C.pink,fontSize:13,textAlign:"center"}}>{err}</div>}
         <GBtn label={loading?"Creating account...":"Create Account →"} onClick={handle} disabled={loading} style={{marginTop:4,width:"100%"}}/>
         <button onClick={onBack} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",padding:"8px",fontFamily:"inherit",textAlign:"center"}}>← Back to login</button>
@@ -239,11 +240,46 @@ const SignUpScreen=({onSignUp,onBack})=>{
 
 // ── Home ──
 const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession})=>{
-  const left = pkg?pkg.sessions_total-pkg.sessions_used:0;
-  const pct  = pkg?(pkg.sessions_used/pkg.sessions_total)*100:0;
-  const spw  = pkg?.sessions_per_week||3;
-  const next = sessions.find(s=>s.status==="booked");
+  const [now,setNow]=useState(new Date());
+  useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),60000); return()=>clearInterval(t); },[]);
+
+  const left=pkg?pkg.sessions_total-pkg.sessions_used:0;
+  const pct =pkg?(pkg.sessions_used/pkg.sessions_total)*100:0;
+  const spw =pkg?.sessions_per_week||3;
+
+  const upcoming=sessions
+    .filter(s=>s.status==="booked")
+    .sort((a,b)=>{
+      const ta=new Date(a.session_date+"T00:00:00").getTime()+a.start_time_min*60000;
+      const tb=new Date(b.session_date+"T00:00:00").getTime()+b.start_time_min*60000;
+      return ta-tb;
+    });
+  const next=upcoming[0];
   const recent=sessions.filter(s=>s.status==="completed").slice(0,3);
+
+  const cdFull=(s)=>{
+    const [yr,mo,dy]=s.session_date.split('-').map(Number);
+    const dt=new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0);
+    const m=Math.round((dt-now)/60000);
+    if(m<=0) return "Starting now!";
+    const d=Math.floor(m/1440),h=Math.floor((m%1440)/60),mn=m%60;
+    if(d>=2) return `${d} days`;
+    if(d===1) return h>0?`1 day and ${h}h`:"Tomorrow";
+    if(h>0&&mn>0) return `${h} hour${h!==1?"s":""} ${mn} minute${mn!==1?"s":""}`;
+    if(h>0) return `${h} hour${h!==1?"s":""}`;
+    return `${mn} minute${mn!==1?"s":""}`;
+  };
+  const cdShort=(s)=>{
+    const [yr,mo,dy]=s.session_date.split('-').map(Number);
+    const dt=new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0);
+    const m=Math.round((dt-now)/60000);
+    if(m<=0) return "now";
+    const d=Math.floor(m/1440),h=Math.floor((m%1440)/60),mn=m%60;
+    if(d>=1) return `${d}d ${h}h`;
+    if(h>0) return `${h}h ${mn}m`;
+    return `${mn}m`;
+  };
+
   return(
     <div style={{paddingBottom:80}}>
       <div style={{padding:"22px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -279,29 +315,44 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession})=>{
         )}
       </div>
 
-      {/* Next session */}
+      {/* Next session — countdown */}
       {next&&(
         <div style={{padding:"14px 20px 0"}}>
           <SL>Next Session</SL>
-          <div style={{background:C.cyan,borderRadius:16,padding:"20px"}}>
-            <div style={{display:"flex",justifyContent:"space-between"}}>
-              <div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                  <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",opacity:0.75}}>Personal Training</div>
-                  {next.day_num&&<span style={{background:"rgba(0,0,0,0.25)",color:C.bg,fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:20}}>Day {next.day_num}</span>}
-                </div>
-                <div style={{color:C.bg,fontSize:28,fontWeight:900,lineHeight:1.1}}>{toTime(next.start_time_min)}</div>
-                <div style={{color:C.bg,fontSize:13,opacity:0.8,marginTop:6,fontWeight:600}}>{fmtDate(next.session_date)} · 90 min</div>
-              </div>
-              <div style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 14px",textAlign:"center",alignSelf:"flex-start"}}>
-                <div style={{color:C.bg,fontSize:11,fontWeight:700}}>Status</div>
-                <div style={{color:C.bg,fontSize:13,fontWeight:800,marginTop:2}}>Booked ✓</div>
-              </div>
+          <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:16,padding:"20px"}}>
+            <div style={{color:C.bg,fontSize:13,fontWeight:700,opacity:0.9,marginBottom:10,lineHeight:1.5}}>
+              ⏱ <span style={{fontWeight:900}}>{cdFull(next)}</span> until your next session{next.day_num?` · Day ${next.day_num}`:""}
             </div>
-            <button onClick={()=>onOpenSession(next)} style={{width:"100%",background:C.bg,border:"none",borderRadius:8,padding:"10px",color:C.cyan,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit",marginTop:14}}>
-              Session Notes
-            </button>
+            <div style={{color:C.bg,fontSize:32,fontWeight:900,lineHeight:1.1}}>{toTime(next.start_time_min)}</div>
+            <div style={{color:C.bg,fontSize:13,opacity:0.8,marginTop:6,fontWeight:600}}>{fmtDate(next.session_date)} · 90 min</div>
+            <div style={{height:1,background:"rgba(0,0,0,0.15)",margin:"14px 0"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{background:"rgba(0,0,0,0.2)",borderRadius:20,padding:"4px 12px",color:C.bg,fontSize:12,fontWeight:700}}>Booked ✓</span>
+              <button onClick={()=>onOpenSession(next)} style={{background:"rgba(0,0,0,0.25)",border:"none",borderRadius:8,padding:"8px 16px",color:C.bg,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Notes →</button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* All upcoming sessions list */}
+      {upcoming.length>1&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <SL>All Upcoming Sessions</SL>
+          {upcoming.slice(1).map((s,i)=>{
+            const dn=s.day_num;
+            return(
+              <button key={i} onClick={()=>onOpenSession(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8}}>
+                <div style={{textAlign:"left"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
+                    {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                  </div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:3}}>in {cdShort(s)}</div>
+                </div>
+                <span style={{color:C.cyan,fontSize:12,fontWeight:700}}>Notes →</span>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -547,6 +598,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
   const [editing,setEditing]=useState(false);
   const [newName,setNewName]=useState(profile?.name||"");
   const [savingName,setSavingN]=useState(false);
+  const [phone,setPhone]=useState(profile?.phone||"");
   const [avatarUrl,setAvatarUrl]=useState(profile?.avatar_url||null);
   const [uploading,setUploading]=useState(false);
   const handleAvatarChange=async(e)=>{
@@ -572,7 +624,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
   const saveName=async()=>{
     if(!newName.trim()) return; setSavingN(true);
     const initials=newName.trim().split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
-    try{ await updateProfile(userId,{name:newName.trim(),initials},token); setEditing(false); }catch(e){ alert("Error: "+e.message); }
+    try{ await updateProfile(userId,{name:newName.trim(),initials,phone:phone.trim()||null},token); setEditing(false); }catch(e){ alert("Error: "+e.message); }
     setSavingN(false);
   };
   const inp=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1}}/>);
@@ -598,9 +650,10 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
         {editing?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,width:"100%",maxWidth:260}}>
             <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Full name" autoFocus style={{background:C.surface2,border:`1px solid ${C.cyan}66`,borderRadius:10,padding:"10px 14px",color:C.white,fontSize:16,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"center"}}/>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Phone (optional)" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"center"}}/>
             <div style={{display:"flex",gap:8,width:"100%"}}>
               <GBtn label={savingName?"Saving...":"Save"} onClick={saveName} disabled={savingName} sm style={{flex:1}}/>
-              <GBtn label="Cancel" onClick={()=>{setEditing(false);setNewName(profile?.name||"");}} sm ghost color={C.muted} style={{flex:1}}/>
+              <GBtn label="Cancel" onClick={()=>{setEditing(false);setNewName(profile?.name||"");setPhone(profile?.phone||"");}} sm ghost color={C.muted} style={{flex:1}}/>
             </div>
           </div>
         ):(
@@ -610,6 +663,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
               <button onClick={()=>setEditing(true)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 8px",color:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Edit</button>
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:4}}>{profile?.email}</div>
+            {phone&&<div style={{color:C.muted,fontSize:13,marginTop:2}}>📞 {phone}</div>}
           </div>
         )}
       </div>
@@ -743,13 +797,13 @@ export default function App(){
     }
   };
 
-  const handleSignUp=async(name,email,pw)=>{
+  const handleSignUp=async(name,email,pw,phone=null)=>{
     const data=await authSignUp(email,pw);
     if(data?.error) throw new Error(data.error_description||data.error);
     const {access_token,expires_at,user}=data||{};
     if(!access_token) return false;
     const initials=name.trim().split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
-    await dbPost("profiles",{id:user.id,role:"client",name:name.trim(),email,initials},access_token).catch(()=>{});
+    await dbPost("profiles",{id:user.id,role:"client",name:name.trim(),email,initials,...(phone&&{phone})},access_token).catch(()=>{});
     localStorage.setItem("ua_client_auth",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
     await loadData(access_token,user.id);
     return true;
