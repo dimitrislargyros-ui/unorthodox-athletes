@@ -85,7 +85,7 @@ const GBtn=({label,onClick,style={},sm,ghost,color,disabled})=>{
   if(ghost) return <button onClick={onClick} disabled={disabled} style={{...base,background:(color||C.cyan)+"20",border:`1px solid ${color||C.cyan}55`,color:color||C.cyan}}>{label}</button>;
   return <button onClick={onClick} disabled={disabled} style={{...base,background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",color:C.white}}>{label}</button>;
 };
-const Avatar=({initials,size=44})=>(<div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.cyan}55,${C.pink}55)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.white,fontWeight:800,fontSize:size*0.3,flexShrink:0}}>{initials||"?"}</div>);
+const Avatar=({initials,size=44,avatarUrl})=>(avatarUrl?<img src={avatarUrl} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",flexShrink:0}} alt="av"/>:<div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.cyan}55,${C.pink}55)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.white,fontWeight:800,fontSize:size*0.3,flexShrink:0}}>{initials||"?"}</div>);
 const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.pink,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
 const BottomNav=({active,onNav})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><span style={{fontSize:20}}>{t.i}</span><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
@@ -244,7 +244,7 @@ const TodayScreen=({trainerName,token,clients,onViewClient})=>{
             {alerts.map(c=>{
               const left=c._pkg.sessions_total-c._pkg.sessions_used;
               return(<div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}><Avatar initials={c.initials} size={28}/><div style={{color:C.white,fontSize:13,fontWeight:600}}>{c.name}</div></div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}><Avatar initials={c.initials} size={28} avatarUrl={c.avatar_url}/><div style={{color:C.white,fontSize:13,fontWeight:600}}>{c.name}</div></div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{color:left===1?C.pink:C.amber,fontSize:12,fontWeight:700}}>{left} left</span>
                   <button onClick={()=>onViewClient(c)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Renew →</button>
@@ -300,7 +300,7 @@ const ClientsScreen=({clients,onViewClient})=>{
           return(<button key={c.id} onClick={()=>onViewClient(c)} style={{background:C.surface,border:`1px solid ${isLow?C.pink+"44":C.border}`,borderRadius:14,padding:"16px",cursor:"pointer",textAlign:"left",width:"100%"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:pkg?12:0}}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <Avatar initials={c.initials}/>
+                <Avatar initials={c.initials} avatarUrl={c.avatar_url}/>
                 <div>
                   <div style={{color:C.white,fontSize:15,fontWeight:700}}>{c.name}</div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{pkg?`${pkg.sessions_total}-Session · ${pkg.sessions_per_week||3}x/week · ends ${fmtDate(pkg.end_date)}`:"No active package"}</div>
@@ -379,7 +379,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 
       {/* Client info */}
       <div style={{padding:"16px 20px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
-        <Avatar initials={client.initials} size={72}/>
+        <Avatar initials={client.initials} size={72} avatarUrl={client.avatar_url}/>
         <div style={{textAlign:"center"}}>
           <div style={{color:C.white,fontSize:20,fontWeight:800}}>{client.name}</div>
           <div style={{color:C.muted,fontSize:13,marginTop:3}}>{client.email}</div>
