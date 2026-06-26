@@ -63,8 +63,10 @@ const todayISO= ()    => new Date().toISOString().split("T")[0];
 const todayDow= ()    => { const d=new Date().getDay(); return d===0?6:d-1; };
 
 // Day num: cycles based on sessions_per_week
-const calcDayNum = async (clientId, date, tk, spw=3) => {
-  const all = await dbGet("sessions",`client_id=eq.${clientId}&session_date=lte.${date}&status=eq.completed`,tk).catch(()=>[]);
+const calcDayNum = async (clientId, date, tk, spw=3, pkgStart=null) => {
+  let q = `client_id=eq.${clientId}&session_date=lte.${date}&status=in.(booked,completed)`;
+  if(pkgStart) q += `&session_date=gte.${pkgStart}`;
+  const all = await dbGet("sessions", q, tk).catch(()=>[]);
   return ((all?.length||0) % spw) + 1;
 };
 
@@ -356,12 +358,23 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const handleLog=async()=>{
     setLogging(true);
     try{
-      const dayNum=await calcDayNum(client.id,logDate,token,spw);
-      const res=await createSession({client_id:client.id,trainer_id:trainerId,session_date:logDate,start_time_min:logTime,day_num:dayNum,status:"completed"},token);
+      const h=Math.floor(logTime/60),m=logTime%60;
+      const sessDateTime=new Date(`${logDate}T${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`);
+      const status=sessDateTime>new Date()?"booked":"completed";
+      const dayNum=await calcDayNum(client.id,logDate,token,spw,pkg?.start_date);
+      const res=await createSession({client_id:client.id,trainer_id:trainerId,session_date:logDate,start_time_min:logTime,day_num:dayNum,status},token);
       const created=Array.isArray(res)?res[0]:res;
+      if(pkg){
+        const newUsed=(pkg.sessions_used||0)+1;
+        await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
+        const updPkg={...pkg,sessions_used:newUsed};
+        setPkg(updPkg);
+        onClientUpdated({...client,_pkg:updPkg});
+      }
       const full={...created,session_notes:[],exercises:[]};
       setSessions(p=>[full,...p]);
-      setAS(full); setShowLog(false);
+      if(status==="completed") setAS(full);
+      setShowLog(false);
     }catch(e){ alert("Error: "+e.message); }
     setLogging(false);
   };

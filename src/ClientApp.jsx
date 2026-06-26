@@ -267,7 +267,12 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   const spw =pkg?.sessions_per_week||3;
 
   const upcoming=sessions
-    .filter(s=>s.status==="booked")
+    .filter(s=>{
+      if(s.status!=="booked") return false;
+      const [yr,mo,dy]=s.session_date.split('-').map(Number);
+      const dt=new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0);
+      return dt>now;
+    })
     .sort((a,b)=>{
       const ta=new Date(a.session_date+"T00:00:00").getTime()+a.start_time_min*60000;
       const tb=new Date(b.session_date+"T00:00:00").getTime()+b.start_time_min*60000;
