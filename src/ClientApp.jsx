@@ -36,6 +36,7 @@ const sb = async (path, method="GET", body=null, token=null, prefer="return=repr
 
 const authLogin  = (e,p) => sb("/auth/v1/token?grant_type=password","POST",{email:e,password:p});
 const authLogout = (tk)  => sb("/auth/v1/logout","POST",null,tk);
+const authSignUp = (e,p) => sb("/auth/v1/signup","POST",{email:e,password:p});
 const dbGet      = (tbl,q,tk)   => sb(`/rest/v1/${tbl}?${q}`,"GET",null,tk);
 const dbPost     = (tbl,d,tk)   => sb(`/rest/v1/${tbl}`,"POST",d,tk);
 const dbPatch    = (tbl,q,d,tk) => sb(`/rest/v1/${tbl}?${q}`,"PATCH",d,tk);
@@ -54,6 +55,13 @@ const cancelBook  = (id,tk)  => dbPatch("bookings",`id=eq.${id}`,{status:"cancel
 const addPR       = (uid,d,tk)=> dbPost("personal_records",{...d,client_id:uid,record_date:new Date().toISOString().split("T")[0]},tk);
 const deletePR    = (id,tk)  => dbDelete("personal_records",`id=eq.${id}`,tk);
 const updateProfile=(uid,d,tk)=> dbPatch("profiles",`id=eq.${uid}`,d,tk);
+const uploadAvatar=async(uid,file,tk)=>{
+  const ext=file.name.split('.').pop()||'jpg';
+  const path=`${uid}/avatar.${ext}`;
+  const res=await fetch(`${SB_URL}/storage/v1/object/avatars/${path}`,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":`Bearer ${tk}`,"Content-Type":file.type,"x-upsert":"true"},body:file});
+  if(!res.ok) throw new Error(await res.text());
+  return `${SB_URL}/storage/v1/object/public/avatars/${path}`;
+};
 
 const saveClientNote = async (sessId, note, tk) => {
   const ex = await dbGet("session_notes",`session_id=eq.${sessId}`,tk).catch(()=>[]);
@@ -158,7 +166,7 @@ const SessionSheet=({session,token,onClose})=>{
 };
 
 // ── Login ──
-const LoginScreen=({onLogin})=>{
+const LoginScreen=({onLogin,onSignUp})=>{
   const [email,setE]=useState(""); const [pw,setPw]=useState("");
   const [loading,setL]=useState(false); const [err,setErr]=useState("");
   const handle=async()=>{
@@ -183,6 +191,47 @@ const LoginScreen=({onLogin})=>{
         <input style={inp} type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {err&&<div style={{color:C.pink,fontSize:13,textAlign:"center"}}>{err}</div>}
         <GBtn label={loading?"Logging in...":"Let's Go →"} onClick={handle} disabled={loading} style={{marginTop:4,width:"100%"}}/>
+        <button onClick={onSignUp} style={{background:"none",border:"none",color:C.cyan,fontSize:13,cursor:"pointer",padding:"8px",fontFamily:"inherit",textAlign:"center",width:"100%"}}>Don't have an account? Sign up →</button>
+      </div>
+    </div>
+  );
+};
+
+// ── Sign Up ──
+const SignUpScreen=({onSignUp,onBack})=>{
+  const [name,setName]=useState(""); const [email,setE]=useState(""); const [pw,setPw]=useState("");
+  const [loading,setL]=useState(false); const [err,setErr]=useState(""); const [done,setDone]=useState(false);
+  const handle=async()=>{
+    if(!name||!email||!pw) return; setL(true); setErr("");
+    try{ const ok=await onSignUp(name.trim(),email,pw); if(!ok) setDone(true); }
+    catch(e){ setErr(e.message||"Sign up failed."); }
+    setL(false);
+  };
+  const inp={background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",color:C.white,fontSize:15,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
+  if(done) return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 28px",textAlign:"center"}}>
+      <div style={{fontSize:52,marginBottom:16}}>✓</div>
+      <div style={{color:C.white,fontSize:20,fontWeight:800,marginBottom:8}}>Account Created!</div>
+      <div style={{color:C.muted,fontSize:14,marginBottom:28,lineHeight:1.6}}>Check your email to confirm your account,<br/>then log in below.</div>
+      <GBtn label="Back to Login" onClick={onBack} style={{width:"100%",maxWidth:320}}/>
+    </div>
+  );
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 28px"}}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,marginBottom:40}}>
+        <Logo size={88}/>
+        <div style={{textAlign:"center"}}>
+          <div style={{color:C.white,fontSize:22,fontWeight:900,letterSpacing:2,textTransform:"uppercase"}}>Create Account</div>
+          <div style={{color:C.muted,fontSize:13,marginTop:6}}>Join Unorthodox Athletes</div>
+        </div>
+      </div>
+      <div style={{width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:12}}>
+        <input style={inp} placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <input style={inp} placeholder="Email address" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <input style={inp} type="password" placeholder="Password (min 6 chars)" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        {err&&<div style={{color:C.pink,fontSize:13,textAlign:"center"}}>{err}</div>}
+        <GBtn label={loading?"Creating account...":"Create Account →"} onClick={handle} disabled={loading} style={{marginTop:4,width:"100%"}}/>
+        <button onClick={onBack} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",padding:"8px",fontFamily:"inherit",textAlign:"center"}}>← Back to login</button>
       </div>
     </div>
   );
@@ -491,13 +540,26 @@ const AvailabilityScreen=({token})=>{
 };
 
 // ── Profile ──
-const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout})=>{
+const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onAvatarChange})=>{
   const [prs,setPRs]=useState(initPRs||[]);
   const [showAddPR,setShowAddPR]=useState(false);
   const [newPR,setNew]=useState({exercise:"",weight:"",unit:"kg",reps:"1"});
   const [editing,setEditing]=useState(false);
   const [newName,setNewName]=useState(profile?.name||"");
   const [savingName,setSavingN]=useState(false);
+  const [avatarUrl,setAvatarUrl]=useState(profile?.avatar_url||null);
+  const [uploading,setUploading]=useState(false);
+  const handleAvatarChange=async(e)=>{
+    const file=e.target.files?.[0]; if(!file) return;
+    setUploading(true);
+    try{
+      const url=await uploadAvatar(userId,file,token);
+      await updateProfile(userId,{avatar_url:url},token);
+      setAvatarUrl(url); onAvatarChange?.(url);
+    }catch(e){ alert("Upload failed: "+e.message); }
+    setUploading(false);
+    e.target.value="";
+  };
   const spw=pkg?.sessions_per_week||3;
   const left=pkg?pkg.sessions_total-pkg.sessions_used:0;
 
@@ -521,9 +583,18 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout})=>
 
       {/* Avatar + name */}
       <div style={{padding:"20px",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-        <div style={{width:80,height:80,borderRadius:"50%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,display:"flex",alignItems:"center",justifyContent:"center",color:C.white,fontWeight:900,fontSize:26}}>
-          {(newName||profile?.name||"?").trim().split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}
+        <div style={{position:"relative",cursor:"pointer"}} onClick={()=>document.getElementById("ua-avatar-upload").click()}>
+          {avatarUrl
+            ? <img src={avatarUrl} alt="avatar" style={{width:80,height:80,borderRadius:"50%",objectFit:"cover",display:"block"}}/>
+            : <div style={{width:80,height:80,borderRadius:"50%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,display:"flex",alignItems:"center",justifyContent:"center",color:C.white,fontWeight:900,fontSize:26}}>
+                {(newName||profile?.name||"?").trim().split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}
+              </div>
+          }
+          <div style={{position:"absolute",bottom:0,right:0,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:"50%",width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>
+            {uploading?"⏳":"📷"}
+          </div>
         </div>
+        <input id="ua-avatar-upload" type="file" accept="image/*" style={{display:"none"}} onChange={handleAvatarChange}/>
         {editing?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,width:"100%",maxWidth:260}}>
             <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Full name" autoFocus style={{background:C.surface2,border:`1px solid ${C.cyan}66`,borderRadius:10,padding:"10px 14px",color:C.white,fontSize:16,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"center"}}/>
@@ -644,6 +715,7 @@ export default function App(){
   const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[]});
   const [screen,setScreen]=useState("home");
   const [openSess,setOpenSess]=useState(null);
+  const [showSignUp,setShowSignUp]=useState(false);
 
   useEffect(()=>{
     const init=async()=>{
@@ -671,6 +743,18 @@ export default function App(){
     }
   };
 
+  const handleSignUp=async(name,email,pw)=>{
+    const data=await authSignUp(email,pw);
+    if(data?.error) throw new Error(data.error_description||data.error);
+    const {access_token,expires_at,user}=data||{};
+    if(!access_token) return false;
+    const initials=name.trim().split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
+    await dbPost("profiles",{id:user.id,role:"client",name:name.trim(),email,initials},access_token).catch(()=>{});
+    localStorage.setItem("ua_client_auth",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
+    await loadData(access_token,user.id);
+    return true;
+  };
+
   const handleLogin=async(email,pw)=>{
     const data=await authLogin(email,pw);
     if(data.error) throw new Error(data.error_description||data.error);
@@ -692,7 +776,10 @@ export default function App(){
   );
   if(!auth.token) return(
     <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
-      <LoginScreen onLogin={handleLogin}/>
+      {showSignUp
+        ? <SignUpScreen onSignUp={handleSignUp} onBack={()=>setShowSignUp(false)}/>
+        : <LoginScreen onLogin={handleLogin} onSignUp={()=>setShowSignUp(true)}/>
+      }
     </div>
   );
 
@@ -701,7 +788,7 @@ export default function App(){
       case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={setScreen} onOpenSession={setOpenSess}/>;
       case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg}/>;
       case "availability": return <AvailabilityScreen token={auth.token}/>;
-      case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout}/>;
+      case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;
     }
   };
