@@ -239,10 +239,29 @@ const SignUpScreen=({onSignUp,onBack})=>{
 };
 
 // ── Home ──
-const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession})=>{
+const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   const [now,setNow]=useState(new Date());
+  const [todaySlots,setTodaySlots]=useState([]);
+  const [todayCounts,setTodayCounts]=useState({});
+  const [myTodayBook,setMyBook]=useState(null);
+  const [slotsLoaded,setSlotsLoaded]=useState(false);
+
   useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),60000); return()=>clearInterval(t); },[]);
 
+  useEffect(()=>{
+    const dow=todayDow(); const today=todayISO();
+    Promise.all([
+      getSlots(dow,token),
+      getDayBooks(today,token),
+      getMyBooks(userId,today,token),
+    ]).then(([slots,books,myBooks])=>{
+      setTodaySlots(slots||[]);
+      const c={}; (books||[]).forEach(b=>{c[b.slot_id]=(c[b.slot_id]||0)+1;}); setTodayCounts(c);
+      setMyBook((myBooks||[]).find(b=>b.status==="booked")||null);
+    }).catch(()=>{}).finally(()=>setSlotsLoaded(true));
+  },[token,userId]);
+
+  const today=todayISO();
   const left=pkg?pkg.sessions_total-pkg.sessions_used:0;
   const pct =pkg?(pkg.sessions_used/pkg.sessions_total)*100:0;
   const spw =pkg?.sessions_per_week||3;
@@ -255,7 +274,13 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession})=>{
       return ta-tb;
     });
   const next=upcoming[0];
+  const nextIsFuture=next&&next.session_date>today;
   const recent=sessions.filter(s=>s.status==="completed").slice(0,3);
+
+  const myBookedSlot=myTodayBook?todaySlots.find(s=>s.id===myTodayBook.slot_id):null;
+  const otherSlots=todaySlots.filter(s=>s.id!==myBookedSlot?.id);
+  const todaySession=sessions.find(s=>s.session_date===today&&s.status==="booked");
+  const bookedSynth=myBookedSlot?{session_date:today,start_time_min:myBookedSlot.start_time_min}:null;
 
   const cdFull=(s)=>{
     const [yr,mo,dy]=s.session_date.split('-').map(Number);
@@ -315,8 +340,62 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession})=>{
         )}
       </div>
 
-      {/* Next session — countdown */}
-      {next&&(
+      {/* Today's schedule — always shown on weekdays */}
+      {todayDow()!==6&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <SL>Today's Schedule</SL>
+
+          {/* Booked slot — big countdown card */}
+          {myBookedSlot&&bookedSynth&&(
+            <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:16,padding:"20px",marginBottom:10}}>
+              <div style={{color:C.bg,fontSize:13,fontWeight:700,opacity:0.9,marginBottom:8,lineHeight:1.5}}>
+                ⏱ {cdFull(bookedSynth)==="Starting now!"
+                  ? <span style={{fontWeight:900}}>Starting now!</span>
+                  : <><span style={{fontWeight:900}}>{cdFull(bookedSynth)}</span> until your session</>}
+              </div>
+              <div style={{color:C.bg,fontSize:30,fontWeight:900,lineHeight:1.1}}>{toTime(myBookedSlot.start_time_min)}</div>
+              <div style={{color:C.bg,fontSize:13,opacity:0.8,marginTop:6,fontWeight:600}}>Your session today · 90 min</div>
+              {todaySession&&(<>
+                <div style={{height:1,background:"rgba(0,0,0,0.15)",margin:"12px 0"}}/>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{background:"rgba(0,0,0,0.2)",borderRadius:20,padding:"4px 12px",color:C.bg,fontSize:12,fontWeight:700}}>Booked ✓</span>
+                  <button onClick={()=>onOpenSession(todaySession)} style={{background:"rgba(0,0,0,0.25)",border:"none",borderRadius:8,padding:"8px 16px",color:C.bg,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Notes →</button>
+                </div>
+              </>)}
+            </div>
+          )}
+
+          {/* Other slots — compact rows */}
+          {!slotsLoaded&&!myBookedSlot&&<Spinner/>}
+          {slotsLoaded&&todaySlots.length===0&&<Empty msg="No sessions scheduled today"/>}
+          {otherSlots.map(slot=>{
+            const cnt=todayCounts[slot.id]||0;
+            const pct=Math.min((cnt/GYM_CAP)*100,100);
+            const barCol=pct>=100?C.pink:pct>=75?C.amber:C.cyan;
+            const full=cnt>=GYM_CAP;
+            return(
+              <div key={slot.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px 16px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>{toTime(slot.start_time_min)}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
+                    <div style={{width:52,height:3,background:C.surface2,borderRadius:2,overflow:"hidden"}}>
+                      <div style={{width:`${pct}%`,height:"100%",background:barCol,borderRadius:2}}/>
+                    </div>
+                    <span style={{color:C.muted,fontSize:11}}>{cnt}/{GYM_CAP}</span>
+                  </div>
+                </div>
+                {full
+                  ? <span style={{color:C.pink,fontSize:12,fontWeight:700}}>Full</span>
+                  : <button onClick={()=>onNav("schedule")} style={{background:C.cyan+"20",border:`1px solid ${C.cyan}44`,borderRadius:8,padding:"6px 12px",color:C.cyan,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Book →</button>
+                }
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Next upcoming session — only when NOT today */}
+      {next&&nextIsFuture&&(
         <div style={{padding:"14px 20px 0"}}>
           <SL>Next Session</SL>
           <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:16,padding:"20px"}}>
@@ -839,7 +918,7 @@ export default function App(){
 
   const renderScreen=()=>{
     switch(screen){
-      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={setScreen} onOpenSession={setOpenSess}/>;
+      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={setScreen} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId}/>;
       case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg}/>;
       case "availability": return <AvailabilityScreen token={auth.token}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
