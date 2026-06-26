@@ -16,7 +16,10 @@ const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 const sb = async (path,method="GET",body=null,token=null,prefer="return=representation") => {
   const res = await fetch(`${SB_URL}${path}`,{method,headers:{"apikey":SB_KEY,"Authorization":`Bearer ${token||SB_KEY}`,"Content-Type":"application/json","Prefer":prefer},body:body?JSON.stringify(body):undefined});
-  if(!res.ok) throw new Error(await res.text());
+  if(!res.ok){
+    if(res.status===401||res.status===403){ localStorage.removeItem("ua_trainer_auth"); window.location.reload(); return; }
+    throw new Error(await res.text());
+  }
   const t=await res.text(); return t?JSON.parse(t):null;
 };
 
@@ -85,7 +88,7 @@ const GBtn=({label,onClick,style={},sm,ghost,color,disabled})=>{
 const Avatar=({initials,size=44})=>(<div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.cyan}55,${C.pink}55)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.white,fontWeight:800,fontSize:size*0.3,flexShrink:0}}>{initials||"?"}</div>);
 const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.pink,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
-const BottomNav=({active,onNav})=>(<div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><span style={{fontSize:20}}>{t.i}</span><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
+const BottomNav=({active,onNav})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><span style={{fontSize:20}}>{t.i}</span><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
 
 // ── Session Editor ──
 const SessionEditor=({session,spw,token,onClose,onSaved})=>{
@@ -487,7 +490,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 
 // ── Schedule ──
 const ScheduleScreen=({trainerId,token})=>{
-  const [dayIdx,setDay]=useState(0);
+  const [dayIdx,setDay]=useState(todayDow());
   const [slots,setSlots]=useState([]);
   const [counts,setCounts]=useState({});
   const [loading,setLoad]=useState(false);
@@ -536,12 +539,12 @@ const ScheduleScreen=({trainerId,token})=>{
         <Logo size={40}/>
       </div>
       <div style={{padding:"0 20px 16px",display:"flex",gap:5}}>
-        {WDATES_BASE.map((d,i)=>(
-          <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:10,border:"none",cursor:"pointer",background:dayIdx===i?C.pink:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+        {WDATES_BASE.map((d,i)=>{const isToday=i===todayDow();return(
+          <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:10,border:`1px solid ${isToday&&dayIdx!==i?C.pink+"55":"transparent"}`,cursor:"pointer",background:dayIdx===i?C.pink:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <span style={{color:dayIdx===i?C.white:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
             <span style={{color:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
           </button>
-        ))}
+        );})}
       </div>
       {isSun?<div style={{padding:"0 20px"}}><Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>😴</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Rest Day</div><div style={{color:C.muted,fontSize:14,marginTop:6}}>Gym closed Sundays.</div></Card></div>:(
         <div style={{padding:"0 20px"}}>
@@ -631,9 +634,9 @@ export default function App(){
   const handleNav=(s)=>{ setScreen(s); setSel(null); };
   const handleClientUpdated=(updated)=>{ setClients(p=>p.map(c=>c.id===updated.id?updated:c)); setSel(updated); };
 
-  if(auth.loading) return(<div style={{fontFamily:"'Inter',-apple-system,sans-serif",maxWidth:430,margin:"0 auto",background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>);
+  if(auth.loading) return(<div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>);
 
-  if(!auth.token) return(<div style={{fontFamily:"'Inter',-apple-system,sans-serif",maxWidth:430,margin:"0 auto",background:C.bg,minHeight:"100vh"}}><LoginScreen onLogin={handleLogin}/></div>);
+  if(!auth.token) return(<div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}><LoginScreen onLogin={handleLogin}/></div>);
 
   const renderScreen=()=>{
     if(selClient) return <ClientDetail client={selClient} trainerId={auth.userId} token={auth.token} onBack={()=>setSel(null)} onClientUpdated={handleClientUpdated}/>;
@@ -646,7 +649,7 @@ export default function App(){
   };
 
   return(
-    <div style={{fontFamily:"'Inter',-apple-system,sans-serif",maxWidth:430,margin:"0 auto",background:C.bg,minHeight:"100vh"}}>
+    <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
       {renderScreen()}
       <BottomNav active={screen} onNav={handleNav}/>
     </div>

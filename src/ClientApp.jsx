@@ -26,7 +26,10 @@ const sb = async (path, method="GET", body=null, token=null, prefer="return=repr
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if(!res.ok) throw new Error(await res.text());
+  if(!res.ok){
+    if(res.status===401||res.status===403){ localStorage.removeItem("ua_client_auth"); window.location.reload(); return; }
+    throw new Error(await res.text());
+  }
   const t = await res.text();
   return t ? JSON.parse(t) : null;
 };
@@ -87,11 +90,12 @@ const GBtn=({label,onClick,style={},sm,ghost,color,disabled})=>{
 };
 const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.cyan,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
-const BottomNav=({active,onNav})=>(<div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"home",l:"Home",i:"⊞"},{id:"schedule",l:"Schedule",i:"◫"},{id:"availability",l:"Gym",i:"◎"},{id:"profile",l:"Profile",i:"◯"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.cyan:C.muted,padding:"0 8px"}}><span style={{fontSize:18}}>{t.i}</span><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
+const BottomNav=({active,onNav})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"home",l:"Home",i:"⊞"},{id:"schedule",l:"Schedule",i:"◫"},{id:"availability",l:"Gym",i:"◎"},{id:"profile",l:"Profile",i:"◯"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.cyan:C.muted,padding:"0 8px"}}><span style={{fontSize:18}}>{t.i}</span><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
 
 // ── Session Sheet ──
 const SessionSheet=({session,token,onClose})=>{
-  const noteObj = session.session_notes?.[0] || null;
+  const rawNotes = session.session_notes;
+  const noteObj = Array.isArray(rawNotes) ? (rawNotes[0]||null) : (rawNotes||null);
   const exercises = session.exercises || [];
   const spw = session._pkg_spw || 3;
   const dayNum = session.sessions_used_before!=null ? calcDayNum(session.sessions_used_before, spw) : session.day_num;
@@ -297,7 +301,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession})=>{
 
 // ── Schedule ──
 const ScheduleScreen=({userId,token,sessions,pkg})=>{
-  const [dayIdx,setDay]=useState(0);
+  const [dayIdx,setDay]=useState(todayDow());
   const [slots,setSlots]=useState([]);
   const [counts,setCounts]=useState({});
   const [myBooks,setMyB]=useState([]);
@@ -382,12 +386,12 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
       </div>
 
       <div style={{padding:"0 20px 16px",display:"flex",gap:5}}>
-        {WDATES_BASE.map((d,i)=>(
-          <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:11,border:"none",cursor:"pointer",background:dayIdx===i?C.cyan:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+        {WDATES_BASE.map((d,i)=>{const isToday=i===todayDow();return(
+          <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:11,border:`1px solid ${isToday&&dayIdx!==i?C.cyan+"55":"transparent"}`,cursor:"pointer",background:dayIdx===i?C.cyan:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <span style={{color:dayIdx===i?C.bg:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
             <span style={{color:dayIdx===i?C.bg:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
           </button>
-        ))}
+        );})}
       </div>
 
       <div style={{padding:"0 20px"}}>
@@ -489,7 +493,7 @@ const AvailabilityScreen=({token})=>{
 // ── Profile ──
 const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout})=>{
   const [prs,setPRs]=useState(initPRs||[]);
-  const [addPR,setAdd]=useState(false);
+  const [showAddPR,setShowAddPR]=useState(false);
   const [newPR,setNew]=useState({exercise:"",weight:"",unit:"kg",reps:"1"});
   const [editing,setEditing]=useState(false);
   const [newName,setNewName]=useState(profile?.name||"");
@@ -499,7 +503,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout})=>
 
   const savePR=async()=>{
     if(!newPR.exercise||!newPR.weight) return;
-    try{ const r=await addPR(userId,newPR,token); const c=Array.isArray(r)?r[0]:r; if(c)setPRs(p=>[c,...p]); setNew({exercise:"",weight:"",unit:"kg",reps:"1"}); setAdd(false); }
+    try{ const r=await addPR(userId,newPR,token); const c=Array.isArray(r)?r[0]:r; if(c)setPRs(p=>[c,...p]); setNew({exercise:"",weight:"",unit:"kg",reps:"1"}); setShowAddPR(false); }
     catch(e){ alert("Error: "+e.message); }
   };
   const removePR=async(id)=>{ try{ await deletePR(id,token); setPRs(p=>p.filter(x=>x.id!==id)); }catch(e){} };
@@ -581,9 +585,9 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout})=>
       <div style={{padding:"0 20px 16px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <SL style={{marginBottom:0}}>Personal Records</SL>
-          <button onClick={()=>setAdd(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 12px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{addPR?"▲ Cancel":"+ Add PR"}</button>
+          <button onClick={()=>setShowAddPR(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 12px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showAddPR?"▲ Cancel":"+ Add PR"}</button>
         </div>
-        {addPR&&(
+        {showAddPR&&(
           <Card style={{marginBottom:12}}>
             <div style={{display:"flex",gap:8,marginBottom:8}}>{inp(newPR.exercise,v=>setNew(p=>({...p,exercise:v})),"Exercise name")}</div>
             <div style={{display:"flex",gap:8,marginBottom:8}}>
@@ -684,10 +688,10 @@ export default function App(){
   };
 
   if(auth.loading) return(
-    <div style={{fontFamily:"'Inter',-apple-system,sans-serif",maxWidth:430,margin:"0 auto",background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>
+    <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>
   );
   if(!auth.token) return(
-    <div style={{fontFamily:"'Inter',-apple-system,sans-serif",maxWidth:430,margin:"0 auto",background:C.bg,minHeight:"100vh"}}>
+    <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
       <LoginScreen onLogin={handleLogin}/>
     </div>
   );
@@ -703,7 +707,7 @@ export default function App(){
   };
 
   return(
-    <div style={{fontFamily:"'Inter',-apple-system,sans-serif",maxWidth:430,margin:"0 auto",background:C.bg,minHeight:"100vh"}}>
+    <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
       {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
       {renderScreen()}
       <BottomNav active={screen} onNav={setScreen}/>
