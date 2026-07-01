@@ -55,18 +55,22 @@ const saveExercises = async (sessId,exs,tk) => {
   if(exs.length>0) await dbPost("exercises",exs.map((e,i)=>({...e,session_id:sessId,order_index:i})),tk);
 };
 
+const getTodaySessions    = (trainerId,date,tk) => dbGet("sessions",`trainer_id=eq.${trainerId}&session_date=eq.${date}&select=*,profiles(id,name,initials,avatar_url)&order=start_time_min.asc`,tk);
+const getAnnouncements    = (tk)                => dbGet("announcements","order=created_at.desc&limit=20",tk);
+const postAnnouncement    = (d,tk)              => dbPost("announcements",d,tk);
+const getPendingRequests  = (tk)                => dbGet("slot_requests","status=eq.pending&select=*,profiles(name,initials)&order=created_at.asc",tk);
+const resolveRequest      = (id,status,tk)      => dbPatch("slot_requests",`id=eq.${id}`,{status},tk);
+
 // ── Time utils ──
-const toTime  = (min) => { const h=Math.floor(min/60),m=min%60,ampm=h<12?"AM":"PM",h12=h===0?12:h>12?h-12:h; return `${h12}:${m.toString().padStart(2,"0")} ${ampm}`; };
+const toTime  = (min) => { const h=Math.floor(min/60),m=min%60; return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`; };
 const toSlot  = (s)   => `${toTime(s)} — ${toTime(s+SESS_MIN)}`;
 const fmtDate = (iso) => { if(!iso) return ""; return new Date(iso+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"2-digit"}); };
 const todayISO= ()    => new Date().toISOString().split("T")[0];
 const todayDow= ()    => { const d=new Date().getDay(); return d===0?6:d-1; };
 
-// Day num: cycles based on sessions_per_week
-const calcDayNum = async (clientId, date, tk, spw=3, pkgStart=null) => {
-  let q = `client_id=eq.${clientId}&session_date=lte.${date}&status=in.(booked,completed)`;
-  if(pkgStart) q += `&session_date=gte.${pkgStart}`;
-  const all = await dbGet("sessions", q, tk).catch(()=>[]);
+// Day num: (count of all client sessions up to date) % spw + 1
+const calcDayNum = async (clientId, date, tk, spw=3) => {
+  const all = await dbGet("sessions", `client_id=eq.${clientId}&session_date=lte.${date}`, tk).catch(()=>[]);
   return ((all?.length||0) % spw) + 1;
 };
 
@@ -90,7 +94,7 @@ const GBtn=({label,onClick,style={},sm,ghost,color,disabled})=>{
 const Avatar=({initials,size=44,avatarUrl})=>(avatarUrl?<img src={avatarUrl} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",flexShrink:0}} alt="av"/>:<div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.cyan}55,${C.pink}55)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.white,fontWeight:800,fontSize:size*0.3,flexShrink:0}}>{initials||"?"}</div>);
 const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.pink,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
-const BottomNav=({active,onNav})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><span style={{fontSize:20}}>{t.i}</span><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
+const BottomNav=({active,onNav,scheduleBadge=0})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><div style={{position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:20}}>{t.i}</span>{t.id==="schedule"&&scheduleBadge>0&&<span style={{position:"absolute",top:-4,right:-6,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
 
 // ── Session Editor ──
 const SessionEditor=({session,spw,token,onClose,onSaved})=>{
@@ -204,17 +208,42 @@ const LoginScreen=({onLogin})=>{
 };
 
 // ── Today ──
-const TodayScreen=({trainerName,token,clients,onViewClient})=>{
-  const [bookings,setBookings]=useState([]);
+const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
+  const [sessions,setSessions]=useState([]);
   const [loading,setLoad]=useState(true);
-  useEffect(()=>{getTodayBooks(todayISO(),token).then(b=>setBookings(b||[])).finally(()=>setLoad(false));
+  const [announcements,setAnn]=useState([]);
+  const [showAnnForm,setShowAnnForm]=useState(false);
+  const [annTitle,setAnnTitle]=useState("");
+  const [annBody,setAnnBody]=useState("");
+  const [annPosting,setAnnPosting]=useState(false);
+
+  useEffect(()=>{
+    Promise.all([
+      getTodaySessions(trainerId,todayISO(),token),
+      getAnnouncements(token),
+    ]).then(([sess,anns])=>{
+      setSessions(sess||[]);
+      setAnn(anns||[]);
+    }).finally(()=>setLoad(false));
   },[]);
 
   const bySlot={};
-  bookings.forEach(b=>{ const st=b.schedule_slots?.start_time_min; if(st!=null){if(!bySlot[st])bySlot[st]=[];bySlot[st].push(b);} });
-  const slots=Object.keys(bySlot).sort((a,b)=>a-b);
+  (sessions||[]).forEach(s=>{ const st=s.start_time_min; if(st!=null){if(!bySlot[st])bySlot[st]=[];bySlot[st].push(s);} });
+  const slots=Object.keys(bySlot).sort((a,b)=>Number(a)-Number(b));
   const alerts=clients.filter(c=>{const pkg=c._pkg;return pkg&&(pkg.sessions_total-pkg.sessions_used)<=2;});
   const todayStr=new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
+
+  const handlePostAnn=async()=>{
+    if(!annTitle.trim()||!annBody.trim()||annPosting) return;
+    setAnnPosting(true);
+    try{
+      const r=await postAnnouncement({title:annTitle.trim(),body:annBody.trim()},token);
+      const created=Array.isArray(r)?r[0]:r;
+      if(created) setAnn(p=>[created,...p]);
+      setAnnTitle(""); setAnnBody(""); setShowAnnForm(false);
+    }catch(e){ alert("Error: "+e.message); }
+    setAnnPosting(false);
+  };
 
   return(
     <div style={{paddingBottom:80}}>
@@ -226,9 +255,9 @@ const TodayScreen=({trainerName,token,clients,onViewClient})=>{
       {/* Summary */}
       <div style={{padding:"14px 20px 0"}}>
         <div style={{background:C.surface,border:`1px solid ${C.pink}33`,borderRadius:12,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{color:C.white,fontSize:14,fontWeight:700}}>Today's Overview</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{bookings.length} sessions · {clients.length} active clients</div></div>
+          <div><div style={{color:C.white,fontSize:14,fontWeight:700}}>Today's Overview</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{sessions.length} sessions · {clients.length} active clients</div></div>
           <div style={{display:"flex",gap:10}}>
-            {[{v:bookings.length,l:"Today",c:C.cyan},{v:clients.length,l:"Clients",c:C.pink}].map(s=>(
+            {[{v:sessions.length,l:"Today",c:C.cyan},{v:clients.length,l:"Clients",c:C.pink}].map(s=>(
               <div key={s.l} style={{background:C.surface2,borderRadius:8,padding:"8px 12px",textAlign:"center"}}>
                 <div style={{color:s.c,fontSize:20,fontWeight:900}}>{s.v}</div>
                 <div style={{color:C.muted,fontSize:9,fontWeight:700}}>{s.l}</div>
@@ -257,26 +286,59 @@ const TodayScreen=({trainerName,token,clients,onViewClient})=>{
         </div>
       )}
 
-      {/* Schedule */}
+      {/* Today's Sessions (all logged) */}
       <div style={{padding:"14px 20px 0"}}>
-        <SL>Today's Schedule</SL>
-        {loading?<Spinner/>:slots.length===0?<Card style={{textAlign:"center",padding:"28px"}}><Empty msg="No bookings for today"/></Card>:
+        <SL>Today's Sessions</SL>
+        {loading?<Spinner/>:slots.length===0?<Card style={{textAlign:"center",padding:"28px"}}><Empty msg="No sessions logged for today"/></Card>:
           slots.map(st=>{
-            const slotBookings=bySlot[st]; const pct=(slotBookings.length/GYM_CAP)*100;
+            const slotSessions=bySlot[st];
             return(<Card key={st} style={{marginBottom:10}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <div><div style={{color:C.white,fontSize:15,fontWeight:800}}>{toSlot(parseInt(st))}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{slotBookings.length}/{GYM_CAP} booked</div></div>
-                <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:20,padding:"5px 14px",color:C.white,fontSize:14,fontWeight:900}}>{slotBookings.length}</div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div><div style={{color:C.white,fontSize:15,fontWeight:800}}>{toSlot(parseInt(st))}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{slotSessions.length} session{slotSessions.length!==1?"s":""}</div></div>
+                <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:20,padding:"5px 14px",color:C.white,fontSize:14,fontWeight:900}}>{slotSessions.length}</div>
               </div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
-                {slotBookings.map((b,j)=>{
-                  const cp=b.profiles; const full=clients.find(c=>c.id===cp?.id);
-                  return(<button key={j} onClick={()=>full&&onViewClient(full)} style={{background:full?C.cyan+"22":C.surface2,border:`1px solid ${full?C.cyan+"55":C.border}`,borderRadius:20,padding:"5px 12px",color:full?C.cyan:C.muted,fontSize:12,fontWeight:600,cursor:full?"pointer":"default",fontFamily:"inherit"}}>{cp?.name||"Unknown"}</button>);
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {slotSessions.map((s,j)=>{
+                  const cp=s.profiles; const full=clients.find(c=>c.id===cp?.id);
+                  const statusColor=s.status==="completed"?C.green:C.cyan;
+                  return(<div key={j} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.surface2,borderRadius:8,padding:"8px 12px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <Avatar initials={cp?.initials} size={28} avatarUrl={cp?.avatar_url}/>
+                      <div style={{color:C.white,fontSize:13,fontWeight:600}}>{cp?.name||"Unknown"}</div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{color:statusColor,fontSize:11,fontWeight:700}}>{s.status}</span>
+                      {full&&<button onClick={()=>onViewClient(full)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 8px",color:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>View →</button>}
+                    </div>
+                  </div>);
                 })}
               </div>
-              <div style={{height:4,background:C.surface2,borderRadius:2}}><div style={{width:`${pct}%`,height:"100%",borderRadius:2,background:`linear-gradient(90deg,${C.cyan},${C.pink})`}}/></div>
             </Card>);
           })
+        }
+      </div>
+
+      {/* Announcements */}
+      <div style={{padding:"14px 20px 0"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <SL style={{marginBottom:0}}>Announcements</SL>
+          <button onClick={()=>setShowAnnForm(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showAnnForm?"▲ Cancel":"+ Post"}</button>
+        </div>
+        {showAnnForm&&(
+          <Card style={{marginBottom:10}}>
+            <input value={annTitle} onChange={e=>setAnnTitle(e.target.value)} placeholder="Title" style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>
+            <textarea value={annBody} onChange={e=>setAnnBody(e.target.value)} placeholder="Message..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,fontFamily:"inherit",resize:"none",height:80,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:10}}/>
+            <GBtn label={annPosting?"Posting...":"Post Announcement"} onClick={handlePostAnn} disabled={annPosting} style={{width:"100%"}}/>
+          </Card>
+        )}
+        {announcements.length===0?<Empty msg="No announcements yet"/>:
+          announcements.map((a,i)=>(
+            <Card key={i} style={{marginBottom:8}}>
+              <div style={{color:C.white,fontSize:14,fontWeight:700,marginBottom:4}}>{a.title}</div>
+              <div style={{color:C.muted,fontSize:13,lineHeight:1.5}}>{a.body}</div>
+              <div style={{color:C.muted,fontSize:11,marginTop:6}}>{fmtDate(a.created_at?.split("T")[0])}</div>
+            </Card>
+          ))
         }
       </div>
     </div>
@@ -356,12 +418,13 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   };
 
   const handleLog=async()=>{
+    if(!pkg){ alert("This client has no active package. Assign one first."); return; }
     setLogging(true);
     try{
       const h=Math.floor(logTime/60),m=logTime%60;
       const sessDateTime=new Date(`${logDate}T${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`);
       const status=sessDateTime>new Date()?"booked":"completed";
-      const dayNum=await calcDayNum(client.id,logDate,token,spw,pkg?.start_date);
+      const dayNum=await calcDayNum(client.id,logDate,token,spw);
       const res=await createSession({client_id:client.id,trainer_id:trainerId,session_date:logDate,start_time_min:logTime,day_num:dayNum,status},token);
       const created=Array.isArray(res)?res[0]:res;
       if(pkg){
@@ -502,7 +565,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 };
 
 // ── Schedule ──
-const ScheduleScreen=({trainerId,token})=>{
+const ScheduleScreen=({trainerId,token,onPendingChange})=>{
   const [dayIdx,setDay]=useState(todayDow());
   const [slots,setSlots]=useState([]);
   const [counts,setCounts]=useState({});
@@ -510,7 +573,13 @@ const ScheduleScreen=({trainerId,token})=>{
   const [confirm,setConf]=useState(null);
   const [pickH,setPickH]=useState(null);
   const [pickM,setPickM]=useState(0);
+  const [pendingReqs,setPendingReqs]=useState([]);
+  const [reqsLoaded,setReqsLoaded]=useState(false);
   const selDay=WDATES_BASE[dayIdx]; const isSun=dayIdx===6;
+
+  useEffect(()=>{
+    getPendingRequests(token).then(r=>{ const reqs=r||[]; setPendingReqs(reqs); setReqsLoaded(true); onPendingChange?.(reqs.length); }).catch(()=>setReqsLoaded(true));
+  },[]);
 
   useEffect(()=>{
     if(isSun) return; setLoad(true);
@@ -551,6 +620,27 @@ const ScheduleScreen=({trainerId,token})=>{
         <div><div style={{color:C.white,fontSize:22,fontWeight:800}}>Schedule</div><div style={{color:C.muted,fontSize:13,marginTop:2}}>Manage slots · Max {GYM_CAP} per slot</div></div>
         <Logo size={40}/>
       </div>
+
+      {/* Pending custom time requests */}
+      {reqsLoaded&&pendingReqs.length>0&&(
+        <div style={{padding:"0 20px 4px"}}>
+          <div style={{background:C.surface,border:`1px solid ${C.pink}44`,borderRadius:12,padding:"13px 16px"}}>
+            <div style={{color:C.pink,fontSize:12,fontWeight:700,marginBottom:8}}>📬 Custom Time Requests ({pendingReqs.length})</div>
+            {pendingReqs.map((r,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<pendingReqs.length-1?`1px solid ${C.border}`:"none"}}>
+                <div>
+                  <div style={{color:C.white,fontSize:13,fontWeight:600}}>{r.profiles?.name||"Unknown"}</div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{r.requested_date} · {toTime(r.requested_time_min)}</div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={async()=>{ await resolveRequest(r.id,"approved",token).catch(()=>{}); const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length); }} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 10px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓</button>
+                  <button onClick={async()=>{ await resolveRequest(r.id,"rejected",token).catch(()=>{}); const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length); }} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{padding:"0 20px 16px",display:"flex",gap:5}}>
         {WDATES_BASE.map((d,i)=>{const isToday=i===todayDow();return(
           <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:10,border:`1px solid ${isToday&&dayIdx!==i?C.pink+"55":"transparent"}`,cursor:"pointer",background:dayIdx===i?C.pink:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
@@ -602,6 +692,7 @@ export default function App(){
   const [clients,setClients]=useState([]);
   const [screen,setScreen]=useState("today");
   const [selClient,setSel]=useState(null);
+  const [scheduleBadge,setScheduleBadge]=useState(0);
 
   useEffect(()=>{
     const init=async()=>{
@@ -654,9 +745,9 @@ export default function App(){
   const renderScreen=()=>{
     if(selClient) return <ClientDetail client={selClient} trainerId={auth.userId} token={auth.token} onBack={()=>setSel(null)} onClientUpdated={handleClientUpdated}/>;
     switch(screen){
-      case "today":    return <TodayScreen trainerName={auth.profile?.name} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
+      case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
       case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel}/>;
-      case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token}/>;
+      case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge}/>;
       default: return null;
     }
   };
@@ -664,7 +755,7 @@ export default function App(){
   return(
     <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
       {renderScreen()}
-      <BottomNav active={screen} onNav={handleNav}/>
+      <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
     </div>
   );
 }
