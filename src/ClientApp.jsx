@@ -76,6 +76,7 @@ const joinWaitlist     = (d,tk) => dbPost("waitlist",d,tk);
 const leaveWaitlist    = (id,tk) => dbDelete("waitlist",`id=eq.${id}`,tk);
 const getSlotWaitlist  = (slotId,date,tk) => dbGet("waitlist",`slot_id=eq.${slotId}&book_date=eq.${date}&order=position.asc`,tk);
 const getMyUpcomingBooks = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${date}&status=eq.booked&select=*,schedule_slots(start_time_min)`,tk);
+const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,tk);
 
 // ── Time utils ──
 const toTime = (min) => {
@@ -265,21 +266,25 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   const [bookingSlot,setBookingSlot]=useState(null);
   const [homeMsg,setHomeMsg]=useState(null);
   const [myUpcomingBooks,setMyUpcomingBooks]=useState([]);
+  const [myWeekBooks,setMyWeekBooks]=useState([]);
 
   useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),60000); return()=>clearInterval(t); },[]);
 
   useEffect(()=>{
     const dow=todayDow(); const today=todayISO();
+    const ws=WDATES_BASE[0].iso; const we=WDATES_BASE[5].iso;
     Promise.all([
       getSlots(dow,token),
       getDayBooks(today,token),
       getMyBooks(userId,today,token),
       getMyUpcomingBooks(userId,today,token),
-    ]).then(([slots,books,myBooks,upBooks])=>{
+      getMyWeekBooks(userId,ws,we,token),
+    ]).then(([slots,books,myBooks,upBooks,wkBooks])=>{
       setTodaySlots(slots||[]);
       const c={}; (books||[]).forEach(b=>{c[b.slot_id]=(c[b.slot_id]||0)+1;}); setTodayCounts(c);
       setMyBook((myBooks||[]).find(b=>b.status==="booked")||null);
       setMyUpcomingBooks(upBooks||[]);
+      setMyWeekBooks(wkBooks||[]);
     }).catch(()=>{}).finally(()=>setSlotsLoaded(true));
   },[token,userId]);
 
@@ -319,7 +324,13 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
     (s.status==="booked"||s.status==="completed")&&
     s.session_date>=weekStart&&s.session_date<=weekEnd
   ).sort((a,b)=>a.session_date.localeCompare(b.session_date));
-  const weekFull=!!pkg&&thisWeekSessions.length>=spw;
+  const weekBookedDates=new Set([
+    ...thisWeekSessions.map(s=>s.session_date),
+    ...(myWeekBooks||[]).map(b=>b.book_date),
+  ]);
+  const weekCount=weekBookedDates.size;
+  const weekFull=!!pkg&&weekCount>=spw;
+  const nextDayToBook=weekCount+1;
 
   const myBookedSlot=myTodayBook?todaySlots.find(s=>s.id===myTodayBook.slot_id):null;
   const otherSlots=todaySlots.filter(s=>s.id!==myBookedSlot?.id);
@@ -412,20 +423,6 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         </div>
       )}
 
-      {/* Book Session CTA — only when can't book inline */}
-      {(myTodayBook||weekFull||todayDow()===6||!pkg)&&(
-        <div style={{padding:"14px 20px 0"}}>
-          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:16,padding:"20px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",fontFamily:"inherit"}}>
-            <div style={{textAlign:"left"}}>
-              <div style={{color:C.white,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.85}}>Personal Training · 90 min</div>
-              <div style={{color:C.white,fontSize:24,fontWeight:900,marginTop:2}}>Book Session</div>
-              <div style={{color:C.white,fontSize:13,opacity:0.8,marginTop:2}}>Max {GYM_CAP} per slot</div>
-            </div>
-            <div style={{fontSize:40}}>📅</div>
-          </button>
-        </div>
-      )}
-
       {/* Upcoming booked sessions */}
       {allUpcoming.length>0&&(
         <div style={{padding:"14px 20px 0"}}>
@@ -460,16 +457,35 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         </div>
       )}
 
+      {/* Smart CTA — Book Day N this week */}
+      {pkg&&!weekFull&&todayDow()!==6&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <div style={{background:C.surface,border:`1px solid ${C.cyan}33`,borderRadius:14,padding:"16px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",gap:5,marginBottom:8}}>
+                {Array.from({length:spw},(_,i)=>(
+                  <span key={i} style={{fontSize:18,color:i<weekCount?C.cyan:C.border,lineHeight:1}}>
+                    {i<weekCount?"●":"○"}
+                  </span>
+                ))}
+              </div>
+              <div style={{color:C.white,fontSize:15,fontWeight:700}}>Book Day {nextDayToBook} this week</div>
+              <div style={{color:C.muted,fontSize:12,marginTop:2}}>{weekCount} of {spw} sessions done</div>
+            </div>
+            <button onClick={()=>onNav("schedule")} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:10,padding:"10px 16px",color:C.white,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Book →</button>
+          </div>
+        </div>
+      )}
+
       {/* Week complete */}
       {weekFull&&(
         <div style={{padding:"14px 20px 0"}}>
           <div style={{background:C.green+"18",border:`1px solid ${C.green}44`,borderRadius:14,padding:"16px 18px"}}>
             <div style={{color:C.green,fontSize:15,fontWeight:800,marginBottom:8}}>Week Complete 💪</div>
             <div style={{color:C.white,fontSize:13,marginBottom:10,lineHeight:1.6}}>
-              {thisWeekSessions.map((s,i)=>{
-                const dn=computeDayNum(s,sessions,spw);
-                return <span key={i} style={{display:"block"}}>Day {dn} — {fmtDate(s.session_date)}</span>;
-              })}
+              {[...weekBookedDates].sort().map((date,i)=>(
+                <span key={i} style={{display:"block"}}>Day {i+1} — {fmtDate(date)}</span>
+              ))}
             </div>
             <div style={{height:1,background:C.border,marginBottom:10}}/>
             <div style={{color:C.muted,fontSize:13,lineHeight:1.5}}>Time to rest! For an extra session, message your trainer.</div>
@@ -523,6 +539,16 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
               <div style={{width:`${pct}%`,height:"100%",borderRadius:3,background:`linear-gradient(90deg,${C.cyan},${C.pink})`}}/>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* View Schedule link */}
+      {pkg&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",fontFamily:"inherit"}}>
+            <div style={{color:C.white,fontSize:14,fontWeight:700}}>📅 View Full Schedule</div>
+            <span style={{color:C.cyan,fontSize:14,fontWeight:700}}>›</span>
+          </button>
         </div>
       )}
 

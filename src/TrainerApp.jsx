@@ -58,6 +58,7 @@ const saveExercises = async (sessId,exs,tk) => {
 
 const getTodaySessions    = (trainerId,date,tk) => dbGet("sessions",`trainer_id=eq.${trainerId}&session_date=eq.${date}&select=*,profiles(id,name,initials,avatar_url)&order=start_time_min.asc`,tk);
 const getTodayBookings    = (date,tk)           => dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=*,schedule_slots(start_time_min),profiles(id,name,initials,avatar_url)`,tk);
+const getClientBooks      = (uid,tk)            => dbGet("bookings",`client_id=eq.${uid}&status=eq.booked&select=*,schedule_slots(start_time_min)&order=book_date.asc`,tk);
 const getAnnouncements    = (tk)                => dbGet("announcements","order=created_at.desc&limit=20",tk);
 const postAnnouncement    = (d,tk)              => dbPost("announcements",d,tk);
 const getPendingRequests  = (tk)                => dbGet("slot_requests","status=eq.pending&select=*,profiles(name,initials)&order=created_at.asc",tk);
@@ -382,12 +383,16 @@ const ClientsScreen=({clients,onViewClient})=>{
         {filtered.length===0?<Empty msg="No clients found"/>:filtered.map(c=>{
           const pkg=c._pkg; const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
           const pct=pkg?(pkg.sessions_used/pkg.sessions_total)*100:0; const isLow=left!=null&&left<=2;
+          const spw=pkg?.sessions_per_week||3; const currentDay=pkg?((pkg.sessions_used||0)%spw)+1:null;
           return(<button key={c.id} onClick={()=>onViewClient(c)} style={{background:C.surface,border:`1px solid ${isLow?C.pink+"44":C.border}`,borderRadius:14,padding:"16px",cursor:"pointer",textAlign:"left",width:"100%"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:pkg?12:0}}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <Avatar initials={c.initials} avatarUrl={c.avatar_url}/>
                 <div>
-                  <div style={{color:C.white,fontSize:15,fontWeight:700}}>{c.name}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{color:C.white,fontSize:15,fontWeight:700}}>{c.name}</div>
+                    {currentDay&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:20}}>Day {currentDay}</span>}
+                  </div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{pkg?`${pkg.sessions_total}-Session · ${pkg.sessions_per_week||3}x/week · ends ${fmtDate(pkg.end_date)}`:"No active package"}</div>
                   {pkg?.has_injury&&<div style={{color:C.amber,fontSize:11,marginTop:2}}>⚠️ {pkg.injury_notes}</div>}
                   {pkg?.package_notes&&<div style={{color:C.cyan,fontSize:11,marginTop:2}}>📋 {pkg.package_notes}</div>}
@@ -409,6 +414,7 @@ const ClientsScreen=({clients,onViewClient})=>{
 // ── Client Detail ──
 const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [sessions,setSessions]=useState([]);
+  const [clientBooks,setClientBooks]=useState([]);
   const [pkg,setPkg]=useState(client._pkg||null);
   const [loading,setLoad]=useState(true);
   const [activeSession,setAS]=useState(null);
@@ -427,7 +433,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const spw=pkg?.sessions_per_week||3;
   const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
 
-  useEffect(()=>{ getClientSess(client.id,token).then(s=>setSessions(s||[])).finally(()=>setLoad(false)); },[client.id]);
+  useEffect(()=>{
+    Promise.all([getClientSess(client.id,token), getClientBooks(client.id,token)])
+      .then(([s,b])=>{ setSessions(s||[]); setClientBooks(b||[]); })
+      .finally(()=>setLoad(false));
+  },[client.id]);
 
   useEffect(()=>{
     if(!showLog) return;
@@ -473,6 +483,16 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   };
 
   const completedSessions=sessions.filter(s=>s.status==="completed");
+  const today=todayISO();
+  const sessDateSet=new Set(sessions.map(s=>s.session_date));
+  const bookOnlyItems=(clientBooks||[])
+    .filter(b=>!sessDateSet.has(b.book_date))
+    .map(b=>({id:`bk_${b.id}`,_type:"booking",session_date:b.book_date,start_time_min:b.schedule_slots?.start_time_min||0}));
+  const timeline=[
+    ...sessions.map(s=>({...s,_type:s.status})),
+    ...bookOnlyItems,
+  ].sort((a,b)=>a.session_date.localeCompare(b.session_date)||(a.start_time_min-b.start_time_min));
+  timeline.forEach((item,i)=>{ item._sessionNum=i+1; item._dayNum=(i%spw)+1; });
 
   return(
     <div style={{paddingBottom:80}}>
@@ -491,7 +511,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           <div style={{color:C.muted,fontSize:13,marginTop:3}}>{client.email}</div>
         </div>
         <div style={{display:"flex",gap:10}}>
-          {[{v:completedSessions.length,l:"Sessions"},{v:`${spw}x`,l:"Per Week"},{v:left??"-",l:"Pkg Left",warn:left!=null&&left<=2}].map(s=>(
+          {[{v:timeline.length,l:"Sessions"},{v:`${spw}x`,l:"Per Week"},{v:left??"-",l:"Pkg Left",warn:left!=null&&left<=2}].map(s=>(
             <div key={s.l} style={{background:C.surface,border:`1px solid ${s.warn?C.pink+"44":C.border}`,borderRadius:10,padding:"10px 14px",textAlign:"center",minWidth:60}}>
               <div style={{color:s.warn?C.pink:C.cyan,fontSize:20,fontWeight:900}}>{s.v}</div>
               <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>{s.l}</div>
@@ -573,22 +593,28 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             <GBtn label={logging?"Logging...":"Log Session & Add Notes"} onClick={handleLog} disabled={logging} style={{width:"100%"}}/>
           </Card>
         )}
-        {loading?<Spinner/>:completedSessions.length===0?<Empty msg="No sessions logged yet"/>:
-          completedSessions.map((s,i)=>(
-            <button key={i} onClick={()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8}}>
+        {loading?<Spinner/>:timeline.length===0?<Empty msg="No sessions yet"/>:
+          [...timeline].reverse().map((s,i)=>{
+            const isBooking=s._type==="booking";
+            const isFuture=s.session_date>=today;
+            const icon=isBooking?"📅":s._type==="completed"?"💪":"⏳";
+            const iconBg=isBooking?C.amber+"22":s._type==="completed"?C.cyan+"22":C.pink+"22";
+            return(
+            <button key={s.id||i} onClick={isBooking?undefined:()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${isFuture?(isBooking?C.amber+"44":C.cyan+"33"):C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:isBooking?"default":"pointer",marginBottom:8,textAlign:"left"}}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💪</div>
-                <div style={{textAlign:"left"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
-                    {s.day_num&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {s.day_num}</span>}
+                <div style={{width:36,height:36,borderRadius:10,background:iconBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{icon}</div>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                    <span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {s._dayNum}</span>
+                    <span style={{color:C.muted,fontSize:10,fontWeight:700}}>{s._sessionNum}/{timeline.length}</span>
+                    {isFuture&&<span style={{background:isBooking?C.amber+"33":C.pink+"22",color:isBooking?C.amber:C.pink,fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:6}}>{isBooking?"Booked":"Upcoming"}</span>}
                   </div>
-                  <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)} · {(s.exercises||[]).length} exercises</div>
+                  <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}{!isBooking&&s.exercises?.length>0?` · ${s.exercises.length} exercises`:""}</div>
                 </div>
               </div>
-              <span style={{color:C.pink,fontSize:12,fontWeight:700}}>Edit →</span>
+              {!isBooking&&<span style={{color:s._type==="completed"?C.pink:C.cyan,fontSize:12,fontWeight:700,flexShrink:0}}>{s._type==="completed"?"Edit →":"View →"}</span>}
             </button>
-          ))
+          );})
         }
       </div>
     </div>
