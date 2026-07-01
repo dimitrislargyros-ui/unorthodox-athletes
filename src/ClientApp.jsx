@@ -100,6 +100,7 @@ const WDATES_BASE = (() => {
   const d=new Date(), dow=d.getDay()===0?6:d.getDay()-1;
   return Array.from({length:7},(_,i)=>{ const dd=new Date(d); dd.setDate(d.getDate()-dow+i); return {label:dd.getDate(),iso:dd.toISOString().split("T")[0],dow:i}; });
 })();
+const addDays = (isoDate, n) => { const d=new Date(isoDate); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().split("T")[0]; };
 const HOURS=[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21];
 
 // ── Shared components ──
@@ -399,19 +400,32 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
       {upcoming.length>0&&(
         <div style={{padding:"14px 20px 0"}}>
           <SL>Your Next Sessions</SL>
-          {upcoming.map((s,i)=>{
+          {/* Big card for the very next session */}
+          {(()=>{const s=upcoming[0];const dn=computeDayNum(s,sessions,spw);return(
+            <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:18,padding:"22px 20px",marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+                {dn?<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"5px 14px",color:C.white,fontSize:13,fontWeight:800}}>Day {dn}</span>:<span/>}
+                <button onClick={()=>onOpenSession(s)} style={{background:"rgba(0,0,0,0.2)",border:"none",borderRadius:8,padding:"8px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Notes →</button>
+              </div>
+              <div style={{color:C.bg,fontSize:38,fontWeight:900,lineHeight:1.1}}>{toTime(s.start_time_min)}</div>
+              <div style={{color:C.bg,fontSize:14,opacity:0.85,marginTop:5,fontWeight:600}}>{fmtDate(s.session_date)} · 90 min</div>
+              <div style={{height:1,background:"rgba(0,0,0,0.15)",margin:"12px 0"}}/>
+              <div style={{color:C.bg,fontSize:13,fontWeight:700}}>⏱ in {cdShort(s)}</div>
+            </div>
+          )})()}
+          {/* Compact list for subsequent sessions */}
+          {upcoming.slice(1).map((s,i)=>{
             const dn=computeDayNum(s,sessions,spw);
-            const isNext=i===0;
             return(
-              <button key={i} onClick={()=>onOpenSession(s)} style={{width:"100%",background:isNext?`linear-gradient(135deg,${C.cyan}22,${C.pink}22)`:C.surface,border:`1px solid ${isNext?C.cyan+"55":C.border}`,borderRadius:14,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8,textAlign:"left"}}>
+              <button key={i} onClick={()=>onOpenSession(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8,textAlign:"left"}}>
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                    {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 10px",borderRadius:20,flexShrink:0}}>Day {dn}</span>}
+                    {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,flexShrink:0}}>Day {dn}</span>}
                     <span style={{color:C.white,fontSize:14,fontWeight:700}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}</span>
                   </div>
                   <div style={{color:C.muted,fontSize:12}}>in {cdShort(s)}</div>
                 </div>
-                <span style={{color:C.cyan,fontSize:12,fontWeight:700,flexShrink:0,marginLeft:8}}>Notes →</span>
+                <span style={{color:C.cyan,fontSize:14,fontWeight:700,flexShrink:0,marginLeft:8}}>›</span>
               </button>
             );
           })}
@@ -536,26 +550,51 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
 
 // ── Schedule ──
 const ScheduleScreen=({userId,token,sessions,pkg})=>{
+  const [weekOffset,setWeekOffset]=useState(0);
   const [dayIdx,setDay]=useState(todayDow());
   const [slots,setSlots]=useState([]);
   const [counts,setCounts]=useState({});
   const [myBooks,setMyB]=useState([]);
   const [myWaitlist,setMyWaitlist]=useState([]);
+  const [myWeekBookCount,setMyWeekBookCount]=useState(0);
   const [loading,setLoad]=useState(false);
   const [toast,setToast]=useState(null);
-  const [dayToast,setDayToast]=useState(false);
+  const [weekMsgVisible,setWeekMsgVisible]=useState(false);
   const [activeSession,setAS]=useState(null);
   const [showCustom,setShowC]=useState(false);
   const [pickH,setPickH]=useState(null);
   const [pickM,setPickM]=useState(0);
   const [reqSent,setReqSent]=useState(false);
   const [reqSending,setReqSending]=useState(false);
-  const selDay=WDATES_BASE[dayIdx];
-  const isSun=dayIdx===6;
   const spw=pkg?.sessions_per_week||3;
 
+  const weekDates=Array.from({length:7},(_,i)=>{
+    const iso=addDays(WDATES_BASE[0].iso,weekOffset*7+i);
+    const d=new Date(iso+"T12:00:00");
+    return {label:d.getDate(),iso,dow:i};
+  });
+  const selDay=weekDates[dayIdx];
+  const todayStr=todayISO();
+  const isSun=dayIdx===6;
+  const isPastDay=selDay.iso<todayStr;
+  const isCurrentWeek=weekOffset===0;
+
+  const thisWeekSessionCount=sessions.filter(s=>
+    (s.status==="booked"||s.status==="completed")&&
+    s.session_date>=WDATES_BASE[0].iso&&s.session_date<=WDATES_BASE[5].iso
+  ).length;
+  const currentWeekFull=isCurrentWeek&&!!pkg&&(myWeekBookCount+thisWeekSessionCount)>=spw;
+
+  const sessionDaySet=new Set(sessions.filter(s=>s.status==="completed"||s.status==="booked").map(s=>s.session_date));
+
   useEffect(()=>{
-    if(isSun) return;
+    const ws=WDATES_BASE[0].iso,we=WDATES_BASE[5].iso;
+    dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=id`,token)
+      .then(r=>setMyWeekBookCount((r||[]).length)).catch(()=>{});
+  },[]);
+
+  useEffect(()=>{
+    if(isSun||isPastDay){ setSlots([]); setCounts({}); setMyB([]); setMyWaitlist([]); setLoad(false); return; }
     setLoad(true); setReqSent(false);
     Promise.all([
       getSlots(selDay.dow,token),
@@ -568,38 +607,44 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
       setMyB(mb||[]);
       setMyWaitlist(wl||[]);
     }).catch(()=>{}).finally(()=>setLoad(false));
-  },[dayIdx]);
+  },[dayIdx,weekOffset]);
 
   const handleBook=async(slot)=>{
     const already=myBooks.find(b=>b.slot_id===slot.id&&b.status==="booked");
     if(already){
       await cancelBook(already.id,token).catch(()=>{});
       setMyB(p=>p.filter(b=>b.id!==already.id));
-      const newCnt=Math.max((counts[slot.id]||1)-1,0);
-      setCounts(p=>({...p,[slot.id]:newCnt}));
-      // Auto-book first person on waitlist
+      setCounts(p=>({...p,[slot.id]:Math.max((p[slot.id]||1)-1,0)}));
+      if(isCurrentWeek) setMyWeekBookCount(p=>Math.max(p-1,0));
       const waitlist=await getSlotWaitlist(slot.id,selDay.iso,token).catch(()=>[]);
-      if(waitlist&&waitlist.length>0){
+      if(waitlist?.length>0){
         const first=waitlist[0];
-        try{
-          await bookSlot(slot.id,first.client_id,selDay.iso,token);
-          await leaveWaitlist(first.id,token);
-          setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));
-        }catch(e){}
+        try{ await bookSlot(slot.id,first.client_id,selDay.iso,token); await leaveWaitlist(first.id,token); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); }catch(e){}
       }
       return;
     }
-    // One booking per day
-    const alreadyBookedToday=myBooks.some(b=>b.status==="booked");
-    if(alreadyBookedToday){
-      setDayToast(true);
-      setTimeout(()=>setDayToast(false),3000);
+    // "Change" case: already have a booking on a different slot today
+    const existingDayBook=myBooks.find(b=>b.status==="booked");
+    if(existingDayBook){
+      const cnt=counts[slot.id]||0;
+      if(cnt>=GYM_CAP){ setToast({slot,next:null}); return; }
+      await cancelBook(existingDayBook.id,token).catch(()=>{});
+      setMyB(p=>p.filter(b=>b.id!==existingDayBook.id));
+      setCounts(p=>({...p,[existingDayBook.slot_id]:Math.max((p[existingDayBook.slot_id]||1)-1,0)}));
+      try{ const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk; if(created){setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));} }
+      catch(e){ alert("Error: "+e.message); }
       return;
+    }
+    // Week-full check (current week only)
+    if(isCurrentWeek&&currentWeekFull){
+      setWeekMsgVisible(true); setTimeout(()=>setWeekMsgVisible(false),3000); return;
     }
     const cnt=counts[slot.id]||0;
     if(cnt>=GYM_CAP){ const next=slots.find(s=>s.id!==slot.id&&(counts[s.id]||0)<GYM_CAP); setToast({slot,next}); return; }
-    try{ const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk; if(created){setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));} }
-    catch(e){ alert("Error: "+e.message); }
+    try{
+      const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk;
+      if(created){ setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); if(isCurrentWeek) setMyWeekBookCount(p=>p+1); }
+    }catch(e){ alert("Error: "+e.message); }
   };
 
   const handleWaitlist=async(slot)=>{
@@ -634,6 +679,8 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
 
   const SlotCard=({slot})=>{
     const booked=myBooks.find(b=>b.slot_id===slot.id&&b.status==="booked");
+    const myDayBook=myBooks.find(b=>b.status==="booked");
+    const hasOtherBook=myDayBook&&!booked;
     const onWaitlist=myWaitlist.find(w=>w.slot_id===slot.id);
     const cnt=(counts[slot.id]||0);
     const full=!booked&&cnt>=GYM_CAP;
@@ -650,7 +697,9 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
               ?<button onClick={()=>handleWaitlist(slot)} style={{background:onWaitlist?C.amber+"33":C.pink+"20",border:`1px solid ${onWaitlist?C.amber+"55":C.pink+"44"}`,borderRadius:8,padding:"8px 14px",color:onWaitlist?C.amber:C.pink,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
                 {onWaitlist?"On Waitlist ✓":"Join Waitlist"}
               </button>
-              :<GBtn label="Book" onClick={()=>handleBook(slot)} sm/>
+              :hasOtherBook
+                ?<GBtn label="Change →" onClick={()=>handleBook(slot)} sm/>
+                :<GBtn label="Book" onClick={()=>handleBook(slot)} sm/>
           }
         </div>
         <div style={{color:booked?C.cyan:full?C.pink:C.green,fontSize:12,fontWeight:700}}>
@@ -662,11 +711,14 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
 
   const pastSessions=sessions.filter(s=>s.status==="completed").slice(0,5);
 
+  const pastDaySessions=sessions.filter(s=>s.session_date===selDay.iso&&(s.status==="completed"||s.status==="booked"));
+  const weekLabel=weekOffset===0?"This week":`Week of ${fmtDate(weekDates[0].iso)}`;
+
   return(
     <div style={{paddingBottom:80}}>
-      {dayToast&&(
+      {weekMsgVisible&&(
         <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.amber}66`,borderRadius:14,padding:"14px 16px",zIndex:200,textAlign:"center"}}>
-          <div style={{color:C.amber,fontWeight:700,fontSize:14}}>You already have a session booked for today</div>
+          <div style={{color:C.amber,fontWeight:700,fontSize:14}}>Week quota reached — rest up! Contact trainer for extras.</div>
         </div>
       )}
       {toast&&(
@@ -683,23 +735,57 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
         <div style={{color:C.muted,fontSize:13,marginTop:2}}>Personal training · 90 min · Max {GYM_CAP} in gym</div>
       </div>
 
+      {/* Week navigation */}
+      <div style={{padding:"0 20px 8px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <button onClick={()=>setWeekOffset(p=>p-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",color:C.muted,cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>‹</button>
+        <span style={{color:weekOffset===0?C.cyan:C.muted,fontSize:13,fontWeight:700}}>{weekLabel}</span>
+        <button onClick={()=>setWeekOffset(p=>p+1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",color:C.muted,cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>›</button>
+      </div>
+
       <div style={{padding:"0 20px 16px",display:"flex",gap:5}}>
-        {WDATES_BASE.map((d,i)=>{const isToday=i===todayDow();return(
-          <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:11,border:`1px solid ${isToday&&dayIdx!==i?C.cyan+"55":"transparent"}`,cursor:"pointer",background:dayIdx===i?C.cyan:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-            <span style={{color:dayIdx===i?C.bg:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
-            <span style={{color:dayIdx===i?C.bg:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
-          </button>
-        );})}
+        {weekDates.map((d,i)=>{
+          const isToday=d.iso===todayStr;
+          const hasSess=sessionDaySet.has(d.iso);
+          return(
+            <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:11,border:`1px solid ${isToday&&dayIdx!==i?C.cyan+"55":"transparent"}`,cursor:"pointer",background:dayIdx===i?C.cyan:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{color:dayIdx===i?C.bg:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
+              <span style={{color:dayIdx===i?C.bg:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
+              {hasSess&&<span style={{width:4,height:4,borderRadius:"50%",background:dayIdx===i?C.bg:C.cyan,display:"block"}}/>}
+            </button>
+          );
+        })}
       </div>
 
       <div style={{padding:"0 20px"}}>
-        {isSun?<Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>😴</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Rest Day</div><div style={{color:C.muted,fontSize:14,marginTop:6}}>Gym closed Sundays. See you Monday!</div></Card>
-          :loading?<Spinner/>
-          :slots.length===0?<Empty msg="No slots available for this day. Contact your trainer."/>
-          :slots.map(s=><SlotCard key={s.id} slot={s}/>)
+        {isSun
+          ?<Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>😴</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Rest Day</div><div style={{color:C.muted,fontSize:14,marginTop:6}}>Gym closed Sundays. See you Monday!</div></Card>
+          :isPastDay
+            ?pastDaySessions.length===0
+              ?<Empty msg="No session on this day"/>
+              :pastDaySessions.map((s,i)=>{
+                const dn=computeDayNum(s,sessions,spw);
+                return(
+                  <button key={i} onClick={()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8,fontFamily:"inherit"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
+                      <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💪</div>
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
+                          {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                        </div>
+                        <div style={{color:C.muted,fontSize:12}}>{toTime(s.start_time_min)} · {s.status}</div>
+                      </div>
+                    </div>
+                    <span style={{color:C.cyan,fontSize:12,fontWeight:700}}>Notes →</span>
+                  </button>
+                );
+              })
+            :loading?<Spinner/>
+            :slots.length===0?<Empty msg="No slots available for this day. Contact your trainer."/>
+            :slots.map(s=><SlotCard key={s.id} slot={s}/>)
         }
 
-        {!isSun&&(
+        {!isSun&&!isPastDay&&(
           <>
             <button onClick={()=>setShowC(p=>!p)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:12,padding:"12px",color:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:10,fontFamily:"inherit"}}>
               {showCustom?"▲ Hide":"+ Request custom time"}
