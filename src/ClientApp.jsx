@@ -75,6 +75,7 @@ const getMyWaitlistDay = (uid,date,tk) => dbGet("waitlist",`client_id=eq.${uid}&
 const joinWaitlist     = (d,tk) => dbPost("waitlist",d,tk);
 const leaveWaitlist    = (id,tk) => dbDelete("waitlist",`id=eq.${id}`,tk);
 const getSlotWaitlist  = (slotId,date,tk) => dbGet("waitlist",`slot_id=eq.${slotId}&book_date=eq.${date}&order=position.asc`,tk);
+const getMyUpcomingBooks = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${date}&status=eq.booked&select=*,schedule_slots(start_time_min)`,tk);
 
 // ── Time utils ──
 const toTime = (min) => {
@@ -263,6 +264,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   const [slotsLoaded,setSlotsLoaded]=useState(false);
   const [bookingSlot,setBookingSlot]=useState(null);
   const [homeMsg,setHomeMsg]=useState(null);
+  const [myUpcomingBooks,setMyUpcomingBooks]=useState([]);
 
   useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),60000); return()=>clearInterval(t); },[]);
 
@@ -272,10 +274,12 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
       getSlots(dow,token),
       getDayBooks(today,token),
       getMyBooks(userId,today,token),
-    ]).then(([slots,books,myBooks])=>{
+      getMyUpcomingBooks(userId,today,token),
+    ]).then(([slots,books,myBooks,upBooks])=>{
       setTodaySlots(slots||[]);
       const c={}; (books||[]).forEach(b=>{c[b.slot_id]=(c[b.slot_id]||0)+1;}); setTodayCounts(c);
       setMyBook((myBooks||[]).find(b=>b.status==="booked")||null);
+      setMyUpcomingBooks(upBooks||[]);
     }).catch(()=>{}).finally(()=>setSlotsLoaded(true));
   },[token,userId]);
 
@@ -296,8 +300,17 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
       const tb=new Date(b.session_date+"T00:00:00").getTime()+b.start_time_min*60000;
       return ta-tb;
     });
-  const next=upcoming[0];
-  const nextIsFuture=next&&next.session_date>today;
+
+  const bookingItems=myUpcomingBooks
+    .filter(b=>b.schedule_slots)
+    .map(b=>({id:`bk_${b.id}`,session_date:b.book_date,start_time_min:b.schedule_slots.start_time_min,status:"booked",_fromBooking:true}))
+    .filter(b=>{const [yr,mo,dy]=b.session_date.split('-').map(Number);return new Date(yr,mo-1,dy,Math.floor(b.start_time_min/60),b.start_time_min%60,0)>now;});
+  const usedDates=new Set(upcoming.map(s=>s.session_date));
+  const allUpcoming=[...upcoming,...bookingItems.filter(b=>!usedDates.has(b.session_date))].sort((a,b)=>{
+    const ta=new Date(a.session_date+"T00:00:00").getTime()+a.start_time_min*60000;
+    const tb=new Date(b.session_date+"T00:00:00").getTime()+b.start_time_min*60000;
+    return ta-tb;
+  });
   const recent=sessions.filter(s=>s.status==="completed").slice(0,3);
 
   const weekStart=WDATES_BASE[0].iso;
@@ -384,28 +397,44 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         </div>
       )}
 
-      {/* Large Book Session CTA */}
-      <div style={{padding:"14px 20px 0"}}>
-        <button onClick={()=>onNav("schedule")} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:16,padding:"20px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",fontFamily:"inherit"}}>
-          <div style={{textAlign:"left"}}>
-            <div style={{color:C.white,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.85}}>Personal Training · 90 min</div>
-            <div style={{color:C.white,fontSize:24,fontWeight:900,marginTop:2}}>Book Session</div>
-            <div style={{color:C.white,fontSize:13,opacity:0.8,marginTop:2}}>Max {GYM_CAP} per slot</div>
+      {/* Today's booked session countdown (when already booked) */}
+      {myTodayBook&&myBookedSlot&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:16,padding:"20px"}}>
+            <div style={{color:C.bg,fontSize:13,fontWeight:700,opacity:0.9,marginBottom:8,lineHeight:1.5}}>
+              ⏱ {cdFull(bookedSynth)==="Starting now!"
+                ?<span style={{fontWeight:900}}>Starting now!</span>
+                :<><span style={{fontWeight:900}}>{cdFull(bookedSynth)}</span> until your session</>}
+            </div>
+            <div style={{color:C.bg,fontSize:30,fontWeight:900,lineHeight:1.1}}>{toTime(myBookedSlot.start_time_min)}</div>
+            <div style={{color:C.bg,fontSize:13,opacity:0.8,marginTop:6,fontWeight:600}}>Your session today · 90 min · Booked ✓</div>
           </div>
-          <div style={{fontSize:40}}>📅</div>
-        </button>
-      </div>
+        </div>
+      )}
+
+      {/* Book Session CTA — only when can't book inline */}
+      {(myTodayBook||weekFull||todayDow()===6||!pkg)&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:16,padding:"20px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",fontFamily:"inherit"}}>
+            <div style={{textAlign:"left"}}>
+              <div style={{color:C.white,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.85}}>Personal Training · 90 min</div>
+              <div style={{color:C.white,fontSize:24,fontWeight:900,marginTop:2}}>Book Session</div>
+              <div style={{color:C.white,fontSize:13,opacity:0.8,marginTop:2}}>Max {GYM_CAP} per slot</div>
+            </div>
+            <div style={{fontSize:40}}>📅</div>
+          </button>
+        </div>
+      )}
 
       {/* Upcoming booked sessions */}
-      {upcoming.length>0&&(
+      {allUpcoming.length>0&&(
         <div style={{padding:"14px 20px 0"}}>
           <SL>Your Next Sessions</SL>
-          {/* Big card for the very next session */}
-          {(()=>{const s=upcoming[0];const dn=computeDayNum(s,sessions,spw);return(
+          {(()=>{const s=allUpcoming[0];const dn=s._fromBooking?null:computeDayNum(s,sessions,spw);return(
             <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:18,padding:"22px 20px",marginBottom:10}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
                 {dn?<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"5px 14px",color:C.white,fontSize:13,fontWeight:800}}>Day {dn}</span>:<span/>}
-                <button onClick={()=>onOpenSession(s)} style={{background:"rgba(0,0,0,0.2)",border:"none",borderRadius:8,padding:"8px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Notes →</button>
+                {!s._fromBooking&&<button onClick={()=>onOpenSession(s)} style={{background:"rgba(0,0,0,0.2)",border:"none",borderRadius:8,padding:"8px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Notes →</button>}
               </div>
               <div style={{color:C.bg,fontSize:38,fontWeight:900,lineHeight:1.1}}>{toTime(s.start_time_min)}</div>
               <div style={{color:C.bg,fontSize:14,opacity:0.85,marginTop:5,fontWeight:600}}>{fmtDate(s.session_date)} · 90 min</div>
@@ -413,11 +442,10 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
               <div style={{color:C.bg,fontSize:13,fontWeight:700}}>⏱ in {cdShort(s)}</div>
             </div>
           )})()}
-          {/* Compact list for subsequent sessions */}
-          {upcoming.slice(1).map((s,i)=>{
-            const dn=computeDayNum(s,sessions,spw);
+          {allUpcoming.slice(1).map((s,i)=>{
+            const dn=s._fromBooking?null:computeDayNum(s,sessions,spw);
             return(
-              <button key={i} onClick={()=>onOpenSession(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8,textAlign:"left"}}>
+              <button key={i} onClick={s._fromBooking?undefined:()=>onOpenSession(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:s._fromBooking?"default":"pointer",marginBottom:8,textAlign:"left"}}>
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                     {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,flexShrink:0}}>Day {dn}</span>}
@@ -425,7 +453,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
                   </div>
                   <div style={{color:C.muted,fontSize:12}}>in {cdShort(s)}</div>
                 </div>
-                <span style={{color:C.cyan,fontSize:14,fontWeight:700,flexShrink:0,marginLeft:8}}>›</span>
+                {!s._fromBooking&&<span style={{color:C.cyan,fontSize:14,fontWeight:700,flexShrink:0,marginLeft:8}}>›</span>}
               </button>
             );
           })}
@@ -449,31 +477,11 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         </div>
       )}
 
-      {/* Today's schedule */}
+      {/* Today's schedule — only when not booked and week not full */}
       {todayDow()!==6&&!myTodayBook&&!weekFull&&(
         <div style={{padding:"14px 20px 0"}}>
-          <SL>Today's Schedule</SL>
-
-          {myBookedSlot&&bookedSynth&&(
-            <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:16,padding:"20px",marginBottom:10}}>
-              <div style={{color:C.bg,fontSize:13,fontWeight:700,opacity:0.9,marginBottom:8,lineHeight:1.5}}>
-                ⏱ {cdFull(bookedSynth)==="Starting now!"
-                  ? <span style={{fontWeight:900}}>Starting now!</span>
-                  : <><span style={{fontWeight:900}}>{cdFull(bookedSynth)}</span> until your session</>}
-              </div>
-              <div style={{color:C.bg,fontSize:30,fontWeight:900,lineHeight:1.1}}>{toTime(myBookedSlot.start_time_min)}</div>
-              <div style={{color:C.bg,fontSize:13,opacity:0.8,marginTop:6,fontWeight:600}}>Your session today · 90 min</div>
-              {todaySession&&(<>
-                <div style={{height:1,background:"rgba(0,0,0,0.15)",margin:"12px 0"}}/>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{background:"rgba(0,0,0,0.2)",borderRadius:20,padding:"4px 12px",color:C.bg,fontSize:12,fontWeight:700}}>Booked ✓</span>
-                  <button onClick={()=>onOpenSession(todaySession)} style={{background:"rgba(0,0,0,0.25)",border:"none",borderRadius:8,padding:"8px 16px",color:C.bg,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Notes →</button>
-                </div>
-              </>)}
-            </div>
-          )}
-
-          {!slotsLoaded&&!myBookedSlot&&<Spinner/>}
+          <SL>Book Today</SL>
+          {!slotsLoaded&&<Spinner/>}
           {slotsLoaded&&todaySlots.length===0&&<Empty msg="No sessions scheduled today"/>}
           {otherSlots.map(slot=>{
             const cnt=todayCounts[slot.id]||0;
