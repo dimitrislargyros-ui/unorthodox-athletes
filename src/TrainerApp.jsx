@@ -57,6 +57,7 @@ const saveExercises = async (sessId,exs,tk) => {
 };
 
 const getTodaySessions    = (trainerId,date,tk) => dbGet("sessions",`trainer_id=eq.${trainerId}&session_date=eq.${date}&select=*,profiles(id,name,initials,avatar_url)&order=start_time_min.asc`,tk);
+const getTodayBookings    = (date,tk)           => dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=*,schedule_slots(start_time_min),profiles(id,name,initials,avatar_url)`,tk);
 const getAnnouncements    = (tk)                => dbGet("announcements","order=created_at.desc&limit=20",tk);
 const postAnnouncement    = (d,tk)              => dbPost("announcements",d,tk);
 const getPendingRequests  = (tk)                => dbGet("slot_requests","status=eq.pending&select=*,profiles(name,initials)&order=created_at.asc",tk);
@@ -219,14 +220,29 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
   const [annPosting,setAnnPosting]=useState(false);
 
   useEffect(()=>{
+    const today=todayISO();
     Promise.all([
-      getTodaySessions(trainerId,todayISO(),token),
+      getTodaySessions(trainerId,today,token),
       getAnnouncements(token),
-    ]).then(([sess,anns])=>{
-      setSessions(sess||[]);
+      getTodayBookings(today,token),
+    ]).then(([sess,anns,bks])=>{
+      const sessArr=sess||[];
+      const bkItems=(bks||[])
+        .filter(b=>b.schedule_slots)
+        .map(b=>({id:`bk_${b.id}`,_type:"booking",start_time_min:b.schedule_slots.start_time_min,client_id:b.client_id,status:"booked",profiles:b.profiles}))
+        .filter(b=>!sessArr.some(s=>s.client_id===b.client_id));
+      setSessions([...sessArr,...bkItems]);
       setAnn(anns||[]);
     }).finally(()=>setLoad(false));
   },[]);
+
+  const getDayNumForItem=(item,clients)=>{
+    if(item.day_num) return item.day_num;
+    const cl=clients.find(c=>c.id===item.client_id||c.id===item.profiles?.id);
+    if(!cl?._pkg) return null;
+    const spw=cl._pkg.sessions_per_week||3;
+    return ((cl._pkg.sessions_used||0)%spw)+1;
+  };
 
   const bySlot={};
   (sessions||[]).forEach(s=>{ const st=s.start_time_min; if(st!=null){if(!bySlot[st])bySlot[st]=[];bySlot[st].push(s);} });
@@ -302,10 +318,14 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
                 {slotSessions.map((s,j)=>{
                   const cp=s.profiles; const full=clients.find(c=>c.id===cp?.id);
                   const statusColor=s.status==="completed"?C.green:C.cyan;
+                  const dn=getDayNumForItem(s,clients);
                   return(<div key={j} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.surface2,borderRadius:8,padding:"8px 12px"}}>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <Avatar initials={cp?.initials} size={28} avatarUrl={cp?.avatar_url}/>
-                      <div style={{color:C.white,fontSize:13,fontWeight:600}}>{cp?.name||"Unknown"}</div>
+                      <div>
+                        <div style={{color:C.white,fontSize:13,fontWeight:600}}>{cp?.name||"Unknown"}</div>
+                        {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>Day {dn}</span>}
+                      </div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <span style={{color:statusColor,fontSize:11,fontWeight:700}}>{s.status}</span>
@@ -402,10 +422,19 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [logDate,setLogDate]=useState(todayISO());
   const [logTime,setLogTime]=useState(300);
   const [logging,setLogging]=useState(false);
+  const [logSlots,setLogSlots]=useState([]);
+  const [logDayNum,setLogDayNum]=useState(null);
   const spw=pkg?.sessions_per_week||3;
   const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
 
   useEffect(()=>{ getClientSess(client.id,token).then(s=>setSessions(s||[])).finally(()=>setLoad(false)); },[client.id]);
+
+  useEffect(()=>{
+    if(!showLog) return;
+    const d=new Date(logDate+"T12:00:00"); const dow=d.getDay()===0?6:d.getDay()-1;
+    getSlots(dow,token).then(r=>{ const sl=r||[]; setLogSlots(sl); if(sl.length>0) setLogTime(sl[0].start_time_min); }).catch(()=>setLogSlots([]));
+    if(pkg) calcDayNum(client.id,logDate,token,spw).then(dn=>setLogDayNum(dn)).catch(()=>{});
+  },[logDate,showLog]);
 
   const handleRenew=async()=>{
     try{
@@ -537,9 +566,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             <div style={{marginBottom:14}}>
               <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Start Time</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {SLOT_TIMES.map(t=><button key={t} onClick={()=>setLogTime(t)} style={{background:logTime===t?C.cyan+"33":C.surface2,border:`1px solid ${logTime===t?C.cyan:C.border}`,borderRadius:7,padding:"7px 10px",color:logTime===t?C.cyan:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{toTime(t)}</button>)}
+                {(logSlots.length>0?logSlots.map(s=>s.start_time_min):SLOT_TIMES).map(t=><button key={t} onClick={()=>setLogTime(t)} style={{background:logTime===t?C.cyan+"33":C.surface2,border:`1px solid ${logTime===t?C.cyan:C.border}`,borderRadius:7,padding:"7px 10px",color:logTime===t?C.cyan:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{toTime(t)}</button>)}
               </div>
             </div>
+            {logDayNum&&<div style={{color:C.muted,fontSize:12,marginBottom:10}}>Will be logged as <span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"2px 8px",borderRadius:20}}>Day {logDayNum}</span></div>}
             <GBtn label={logging?"Logging...":"Log Session & Add Notes"} onClick={handleLog} disabled={logging} style={{width:"100%"}}/>
           </Card>
         )}
