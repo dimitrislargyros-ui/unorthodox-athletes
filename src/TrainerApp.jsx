@@ -38,6 +38,7 @@ const getTodayBooks  = (date,tk) => dbGet("bookings",`book_date=eq.${date}&statu
 const getClientSess  = (uid,tk)  => dbGet("sessions",`client_id=eq.${uid}&order=session_date.desc&select=*,session_notes(*),exercises(*)`,tk);
 const getSlots       = (dow,tk)  => dbGet("schedule_slots",`day_of_week=eq.${dow}&is_active=eq.true&order=start_time_min.asc`,tk);
 const getDayBookCnt  = (date,tk) => dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=slot_id`,tk);
+const getDayBookings = (date,tk) => dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=*,profiles(id,name,initials,avatar_url)`,tk);
 const createSession  = (d,tk)    => dbPost("sessions",d,tk);
 const createPkg      = (d,tk)    => dbPost("packages",d,tk);
 const deactivatePkgs = (uid,tk)  => dbPatch("packages",`client_id=eq.${uid}&is_active=eq.true`,{is_active:false},tk);
@@ -565,10 +566,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 };
 
 // ── Schedule ──
-const ScheduleScreen=({trainerId,token,onPendingChange})=>{
+const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})=>{
   const [dayIdx,setDay]=useState(todayDow());
   const [slots,setSlots]=useState([]);
-  const [counts,setCounts]=useState({});
+  const [bookingsMap,setBookingsMap]=useState({});
   const [loading,setLoad]=useState(false);
   const [confirm,setConf]=useState(null);
   const [pickH,setPickH]=useState(null);
@@ -583,8 +584,13 @@ const ScheduleScreen=({trainerId,token,onPendingChange})=>{
 
   useEffect(()=>{
     if(isSun) return; setLoad(true);
-    Promise.all([getSlots(selDay.dow,token),getDayBookCnt(selDay.iso,token)])
-      .then(([sl,bks])=>{ setSlots(sl||[]); const c={}; (bks||[]).forEach(b=>{c[b.slot_id]=(c[b.slot_id]||0)+1;}); setCounts(c); })
+    Promise.all([getSlots(selDay.dow,token),getDayBookings(selDay.iso,token)])
+      .then(([sl,bks])=>{
+        setSlots(sl||[]);
+        const m={};
+        (bks||[]).forEach(b=>{ if(!m[b.slot_id]) m[b.slot_id]=[]; m[b.slot_id].push(b); });
+        setBookingsMap(m);
+      })
       .finally(()=>setLoad(false));
   },[dayIdx]);
 
@@ -653,13 +659,26 @@ const ScheduleScreen=({trainerId,token,onPendingChange})=>{
         <div style={{padding:"0 20px"}}>
           {loading?<Spinner/>:slots.length===0?<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"24px",textAlign:"center",marginBottom:10,color:C.muted,fontSize:14}}>No slots for this day</div>:
             slots.map((slot,i)=>{
-              const cnt=counts[slot.id]||0; const pct=Math.min((cnt/GYM_CAP)*100,100);
+              const slotBks=bookingsMap[slot.id]||[];
+              const cnt=slotBks.length; const pct=Math.min((cnt/GYM_CAP)*100,100);
               const barCol=pct>=100?C.pink:pct>=75?C.amber:C.cyan;
               return(<Card key={i} style={{marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                   <div><div style={{color:C.white,fontSize:15,fontWeight:800}}>{toSlot(slot.start_time_min)}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{cnt}/{GYM_CAP} booked</div></div>
                   <button onClick={()=>setConf(slot)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.pink,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Remove</button>
                 </div>
+                {slotBks.length>0&&(
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                    {slotBks.map((b,j)=>{
+                      const cp=b.profiles;
+                      const full=clients.find(c=>c.id===cp?.id);
+                      return(<button key={j} onClick={()=>full&&onViewClient?.(full)} style={{background:full?C.pink+"22":C.surface2,border:`1px solid ${full?C.pink+"55":C.border}`,borderRadius:20,padding:"5px 12px",display:"flex",alignItems:"center",gap:6,cursor:full?"pointer":"default",fontFamily:"inherit"}}>
+                        <Avatar initials={cp?.initials} size={20} avatarUrl={cp?.avatar_url}/>
+                        <span style={{color:full?C.white:C.muted,fontSize:12,fontWeight:600}}>{cp?.name||"Unknown"}</span>
+                      </button>);
+                    })}
+                  </div>
+                )}
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <div style={{flex:1,height:6,background:C.surface2,borderRadius:3}}><div style={{width:`${pct}%`,height:"100%",borderRadius:3,background:barCol}}/></div>
                   <span style={{color:C.muted,fontSize:11,fontWeight:700,minWidth:50,textAlign:"right"}}>{GYM_CAP-cnt} free</span>
@@ -747,7 +766,7 @@ export default function App(){
     switch(screen){
       case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
       case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel}/>;
-      case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge}/>;
+      case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
       default: return null;
     }
   };
