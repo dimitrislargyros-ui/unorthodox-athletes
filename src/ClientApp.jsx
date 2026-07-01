@@ -388,6 +388,29 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         </button>
       </div>
 
+      {/* Upcoming booked sessions */}
+      {upcoming.length>0&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <SL>Your Next Sessions</SL>
+          {upcoming.map((s,i)=>{
+            const dn=computeDayNum(s,sessions,spw);
+            const isNext=i===0;
+            return(
+              <button key={i} onClick={()=>onOpenSession(s)} style={{width:"100%",background:isNext?`linear-gradient(135deg,${C.cyan}22,${C.pink}22)`:C.surface,border:`1px solid ${isNext?C.cyan+"55":C.border}`,borderRadius:14,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8,textAlign:"left"}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                    {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 10px",borderRadius:20,flexShrink:0}}>Day {dn}</span>}
+                    <span style={{color:C.white,fontSize:14,fontWeight:700}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}</span>
+                  </div>
+                  <div style={{color:C.muted,fontSize:12}}>in {cdShort(s)}</div>
+                </div>
+                <span style={{color:C.cyan,fontSize:12,fontWeight:700,flexShrink:0,marginLeft:8}}>Notes →</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Today's schedule */}
       {todayDow()!==6&&(
         <div style={{padding:"14px 20px 0"}}>
@@ -454,47 +477,6 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
               <div style={{width:`${pct}%`,height:"100%",borderRadius:3,background:`linear-gradient(90deg,${C.cyan},${C.pink})`}}/>
             </div>
           </Card>
-        </div>
-      )}
-
-      {/* Next upcoming session — only when NOT today */}
-      {next&&nextIsFuture&&(
-        <div style={{padding:"14px 20px 0"}}>
-          <SL>Next Session</SL>
-          <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:16,padding:"20px"}}>
-            <div style={{color:C.bg,fontSize:13,fontWeight:700,opacity:0.9,marginBottom:10,lineHeight:1.5}}>
-              ⏱ <span style={{fontWeight:900}}>{cdFull(next)}</span> until your next session{next.day_num?` · Day ${next.day_num}`:""}
-            </div>
-            <div style={{color:C.bg,fontSize:32,fontWeight:900,lineHeight:1.1}}>{toTime(next.start_time_min)}</div>
-            <div style={{color:C.bg,fontSize:13,opacity:0.8,marginTop:6,fontWeight:600}}>{fmtDate(next.session_date)} · 90 min</div>
-            <div style={{height:1,background:"rgba(0,0,0,0.15)",margin:"14px 0"}}/>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{background:"rgba(0,0,0,0.2)",borderRadius:20,padding:"4px 12px",color:C.bg,fontSize:12,fontWeight:700}}>Booked ✓</span>
-              <button onClick={()=>onOpenSession(next)} style={{background:"rgba(0,0,0,0.25)",border:"none",borderRadius:8,padding:"8px 16px",color:C.bg,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Notes →</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* All upcoming sessions list */}
-      {upcoming.length>1&&(
-        <div style={{padding:"14px 20px 0"}}>
-          <SL>All Upcoming Sessions</SL>
-          {upcoming.slice(1).map((s,i)=>{
-            const dn=s.day_num;
-            return(
-              <button key={i} onClick={()=>onOpenSession(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8}}>
-                <div style={{textAlign:"left"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
-                    {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
-                  </div>
-                  <div style={{color:C.muted,fontSize:12,marginTop:3}}>in {cdShort(s)}</div>
-                </div>
-                <span style={{color:C.cyan,fontSize:12,fontWeight:700}}>Notes →</span>
-              </button>
-            );
-          })}
         </div>
       )}
 
