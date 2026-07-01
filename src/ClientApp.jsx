@@ -88,12 +88,11 @@ const todayDow = () => { const d=new Date().getDay(); return d===0?6:d-1; };
 const calcDayNum = (sessionsUsedBefore, sessionsPerWeek=3) => (sessionsUsedBefore % sessionsPerWeek) + 1;
 
 const computeDayNum = (session, allSessions, spw=3) => {
-  if(session.day_num) return session.day_num;
   const sorted=[...allSessions]
     .filter(s=>s.status==="completed"||s.status==="booked")
     .sort((a,b)=>a.session_date.localeCompare(b.session_date)||(a.start_time_min-b.start_time_min));
   const idx=sorted.findIndex(x=>x.id===session.id);
-  return idx>=0?(idx%spw)+1:null;
+  return idx>=0?(idx%spw)+1:(session.day_num||null);
 };
 
 const WDAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
@@ -300,6 +299,14 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   const nextIsFuture=next&&next.session_date>today;
   const recent=sessions.filter(s=>s.status==="completed").slice(0,3);
 
+  const weekStart=WDATES_BASE[0].iso;
+  const weekEnd=WDATES_BASE[5].iso;
+  const thisWeekSessions=sessions.filter(s=>
+    (s.status==="booked"||s.status==="completed")&&
+    s.session_date>=weekStart&&s.session_date<=weekEnd
+  ).sort((a,b)=>a.session_date.localeCompare(b.session_date));
+  const weekFull=!!pkg&&thisWeekSessions.length>=spw;
+
   const myBookedSlot=myTodayBook?todaySlots.find(s=>s.id===myTodayBook.slot_id):null;
   const otherSlots=todaySlots.filter(s=>s.id!==myBookedSlot?.id);
   const todaySession=sessions.find(s=>s.session_date===today&&s.status==="booked");
@@ -411,8 +418,25 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         </div>
       )}
 
+      {/* Week complete */}
+      {weekFull&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <div style={{background:C.green+"18",border:`1px solid ${C.green}44`,borderRadius:14,padding:"16px 18px"}}>
+            <div style={{color:C.green,fontSize:15,fontWeight:800,marginBottom:8}}>Week Complete 💪</div>
+            <div style={{color:C.white,fontSize:13,marginBottom:10,lineHeight:1.6}}>
+              {thisWeekSessions.map((s,i)=>{
+                const dn=computeDayNum(s,sessions,spw);
+                return <span key={i} style={{display:"block"}}>Day {dn} — {fmtDate(s.session_date)}</span>;
+              })}
+            </div>
+            <div style={{height:1,background:C.border,marginBottom:10}}/>
+            <div style={{color:C.muted,fontSize:13,lineHeight:1.5}}>Time to rest! For an extra session, message your trainer.</div>
+          </div>
+        </div>
+      )}
+
       {/* Today's schedule */}
-      {todayDow()!==6&&(
+      {todayDow()!==6&&!myTodayBook&&!weekFull&&(
         <div style={{padding:"14px 20px 0"}}>
           <SL>Today's Schedule</SL>
 
