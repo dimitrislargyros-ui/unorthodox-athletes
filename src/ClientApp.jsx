@@ -87,6 +87,15 @@ const todayISO = () => new Date().toISOString().split("T")[0];
 const todayDow = () => { const d=new Date().getDay(); return d===0?6:d-1; };
 const calcDayNum = (sessionsUsedBefore, sessionsPerWeek=3) => (sessionsUsedBefore % sessionsPerWeek) + 1;
 
+const computeDayNum = (session, allSessions, spw=3) => {
+  if(session.day_num) return session.day_num;
+  const sorted=[...allSessions]
+    .filter(s=>s.status==="completed"||s.status==="booked")
+    .sort((a,b)=>a.session_date.localeCompare(b.session_date)||(a.start_time_min-b.start_time_min));
+  const idx=sorted.findIndex(x=>x.id===session.id);
+  return idx>=0?(idx%spw)+1:null;
+};
+
 const WDAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const WDATES_BASE = (() => {
   const d=new Date(), dow=d.getDay()===0?6:d.getDay()-1;
@@ -252,6 +261,8 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   const [todayCounts,setTodayCounts]=useState({});
   const [myTodayBook,setMyBook]=useState(null);
   const [slotsLoaded,setSlotsLoaded]=useState(false);
+  const [bookingSlot,setBookingSlot]=useState(null);
+  const [homeMsg,setHomeMsg]=useState(null);
 
   useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),60000); return()=>clearInterval(t); },[]);
 
@@ -317,12 +328,31 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
     return `${mn}m`;
   };
 
+  const handleHomeBook=async(slot)=>{
+    if(myTodayBook){ setHomeMsg("You already have a session booked for today"); setTimeout(()=>setHomeMsg(null),3000); return; }
+    if(bookingSlot) return;
+    const cnt=todayCounts[slot.id]||0;
+    if(cnt>=GYM_CAP) return;
+    setBookingSlot(slot.id);
+    try{
+      const bk=await bookSlot(slot.id,userId,todayISO(),token);
+      const created=Array.isArray(bk)?bk[0]:bk;
+      if(created){ setMyBook(created); setTodayCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); }
+    }catch(e){ alert("Error: "+e.message); }
+    setBookingSlot(null);
+  };
+
   const hour=now.getHours();
   const greeting=hour<12?"morning":hour<17?"afternoon":"evening";
   const dateStr=now.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
 
   return(
     <div style={{paddingBottom:80}}>
+      {homeMsg&&(
+        <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.amber}66`,borderRadius:14,padding:"14px 16px",zIndex:200,textAlign:"center"}}>
+          <div style={{color:C.amber,fontWeight:700,fontSize:14}}>{homeMsg}</div>
+        </div>
+      )}
       {/* Date + greeting header */}
       <div style={{padding:"22px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
@@ -387,6 +417,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
           {otherSlots.map(slot=>{
             const cnt=todayCounts[slot.id]||0;
             const full=cnt>=GYM_CAP;
+            const isBooking=bookingSlot===slot.id;
             return(
               <div key={slot.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px 16px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
@@ -395,7 +426,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
                 </div>
                 {full
                   ? <span style={{color:C.pink,fontSize:12,fontWeight:700}}>Full</span>
-                  : <button onClick={()=>onNav("schedule")} style={{background:C.cyan+"20",border:`1px solid ${C.cyan}44`,borderRadius:8,padding:"6px 12px",color:C.cyan,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Book →</button>
+                  : <button onClick={()=>handleHomeBook(slot)} disabled={isBooking} style={{background:C.cyan+"20",border:`1px solid ${C.cyan}44`,borderRadius:8,padding:"6px 12px",color:C.cyan,fontSize:12,fontWeight:700,cursor:isBooking?"wait":"pointer",fontFamily:"inherit",opacity:isBooking?.6:1}}>{isBooking?"...":" Book →"}</button>
                 }
               </div>
             );
@@ -472,7 +503,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         <SL>Recent Sessions</SL>
         {recent.length===0?<Empty msg="No completed sessions yet"/>:
           recent.map((s,i)=>{
-            const dn=s.day_num||(s.sessions_used_before!=null?calcDayNum(s.sessions_used_before,spw):null);
+            const dn=computeDayNum(s,sessions,spw);
             return(
               <Card key={i} style={{marginBottom:8}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -694,7 +725,7 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
         <SL style={{marginTop:8}}>Past Sessions — tap for notes</SL>
         {pastSessions.length===0?<Empty msg="No past sessions yet"/>:
           pastSessions.map((s,i)=>{
-            const dn=s.day_num||(s.sessions_used_before!=null?calcDayNum(s.sessions_used_before,spw):null);
+            const dn=computeDayNum(s,sessions,spw);
             return(
               <button key={i} onClick={()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8}}>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -898,7 +929,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
         <SL>Session History</SL>
         {sessions.filter(s=>s.status==="completed").length===0?<Empty msg="No completed sessions yet"/>:
           sessions.filter(s=>s.status==="completed").map((s,i)=>{
-            const dn=s.day_num||(s.sessions_used_before!=null?calcDayNum(s.sessions_used_before,spw):null);
+            const dn=computeDayNum(s,sessions,spw);
             return(
               <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
