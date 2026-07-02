@@ -61,6 +61,7 @@ const getTodayBookings    = (date,tk)           => dbGet("bookings",`book_date=e
 const getClientBooks      = (uid,tk)            => dbGet("bookings",`client_id=eq.${uid}&status=eq.booked&select=*,schedule_slots(start_time_min)&order=book_date.asc`,tk);
 const getAnnouncements    = (tk)                => dbGet("announcements","order=created_at.desc&limit=20",tk);
 const postAnnouncement    = (d,tk)              => dbPost("announcements",d,tk);
+const deleteAnnouncement  = (id,tk)             => dbDelete("announcements",`id=eq.${id}`,tk);
 const getPendingRequests  = (tk)                => dbGet("slot_requests","status=eq.pending&select=*,profiles(name,initials)&order=created_at.asc",tk);
 const resolveRequest      = (id,status,tk)      => dbPatch("slot_requests",`id=eq.${id}`,{status},tk);
 const cancelBookingRow    = (id,tk)              => dbPatch("bookings",`id=eq.${id}`,{status:"cancelled"},tk);
@@ -358,6 +359,12 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
     setAnnPosting(false);
   };
 
+  const handleDeleteAnn=async(a)=>{
+    if(!window.confirm("Delete this announcement?")) return;
+    try{ await deleteAnnouncement(a.id,token); setAnn(p=>p.filter(x=>x.id!==a.id)); }
+    catch(e){ alert("Error: "+e.message); }
+  };
+
   return(
     <div style={{paddingBottom:80}}>
       <div style={{padding:"22px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -458,6 +465,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
                     <span style={{color:C.cyan,fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}>{fmtDate(a.created_at?.split("T")[0])}</span>
                   </div>
                   <div style={{color:C.muted,fontSize:13,lineHeight:1.5,marginTop:4}}>{a.body}</div>
+                  <button onClick={()=>handleDeleteAnn(a)} style={{background:"none",border:"none",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0,marginTop:8}}>Delete</button>
                 </div>
               </div>
             </Card>

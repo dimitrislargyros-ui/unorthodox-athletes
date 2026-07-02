@@ -168,7 +168,7 @@ const computeStatusMap=(items,now)=>{
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
 };
-const BottomNav=({active,onNav,avatarUrl,initials})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"home",l:"Home",i:"⊞"},{id:"schedule",l:"Schedule",i:"◫"},{id:"announcements",l:"Announcements",i:"◎"},{id:"profile",l:"Profile",i:"◯"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.cyan:C.muted,padding:"0 8px"}}>{t.id==="profile"?(avatarUrl?<img src={avatarUrl} style={{width:22,height:22,borderRadius:"50%",objectFit:"cover",border:`2px solid ${active==="profile"?C.cyan:"transparent"}`}} alt="av"/>:<div style={{width:22,height:22,borderRadius:"50%",background:active==="profile"?C.cyan+"33":C.surface2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:active==="profile"?C.cyan:C.muted}}>{initials||"◯"}</div>):<span style={{fontSize:18}}>{t.i}</span>}<span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
+const BottomNav=({active,onNav,avatarUrl,initials,annBadge})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"home",l:"Home",i:"⊞"},{id:"schedule",l:"Schedule",i:"◫"},{id:"announcements",l:"Announcements",i:"◎"},{id:"profile",l:"Profile",i:"◯"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.cyan:C.muted,padding:"0 8px"}}>{t.id==="profile"?(avatarUrl?<img src={avatarUrl} style={{width:22,height:22,borderRadius:"50%",objectFit:"cover",border:`2px solid ${active==="profile"?C.cyan:"transparent"}`}} alt="av"/>:<div style={{width:22,height:22,borderRadius:"50%",background:active==="profile"?C.cyan+"33":C.surface2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:active==="profile"?C.cyan:C.muted}}>{initials||"◯"}</div>):<div style={{position:"relative",display:"inline-flex"}}><span style={{fontSize:18}}>{t.i}</span>{t.id==="announcements"&&annBadge&&<span style={{position:"absolute",top:-2,right:-4,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div>}<span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
 
 // ── Session Sheet ──
 const SessionSheet=({session,token,onClose})=>{
@@ -473,8 +473,11 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   },[heroIsToday,heroItem?.start_time_min]);
 
   const heroCd=heroItem&&!inTraining?countdownHMS(heroItem.start_time_min,heroItem.session_date):null;
-  const heroDayNum=pkg&&heroItem?((pkg.sessions_used||0)%spw)+1:null;
-  const nextBookDayNum=pkg?((pkg.sessions_used||0)%spw)+1:null;
+  // sessions_used already counts every item in allUpcoming (booking increments it immediately),
+  // so the cycle position of each upcoming item has to back out how many are already counted.
+  const dayNumForIndex=(i)=>{ if(!pkg) return null; const base=(pkg.sessions_used||0)-allUpcoming.length; return (((base+i)%spw)+spw)%spw+1; };
+  const heroDayNum=heroItem?dayNumForIndex(0):null;
+  const nextBookDayNum=dayNumForIndex(allUpcoming.length);
 
   const statusPool=[
     ...sessions.filter(s=>s.status==="booked"||s.status==="completed"),
@@ -572,7 +575,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         <div style={{padding:"14px 20px 0"}}>
           <SL>Your Next Sessions</SL>
           {middleUpcoming.map((s,i)=>{
-            const dn=pkg?(((pkg.sessions_used||0)+i+1)%spw)+1:null;
+            const dn=dayNumForIndex(i+1);
             return(
               <button key={s.id||i} onClick={s._fromBooking?undefined:()=>onOpenSession(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:s._fromBooking?"default":"pointer",marginBottom:8,textAlign:"left"}}>
                 <div>
@@ -1034,6 +1037,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
   const [phone,setPhone]=useState(profile?.phone||"");
   const [avatarUrl,setAvatarUrl]=useState(profile?.avatar_url||null);
   const [uploading,setUploading]=useState(false);
+  const [historyLimit,setHistoryLimit]=useState(10);
   const handleAvatarChange=async(e)=>{
     const file=e.target.files?.[0]; if(!file) return;
     setUploading(true);
@@ -1175,20 +1179,28 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
       {/* History */}
       <div style={{padding:"0 20px 16px"}}>
         <SL>Session History</SL>
-        {sessions.filter(s=>s.status==="completed").length===0?<Empty msg="No completed sessions yet"/>:
-          sessions.filter(s=>s.status==="completed").map((s,i)=>{
-            const dn=computeDayNum(s,sessions,spw);
-            return(
-              <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
-                  {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+        {(()=>{
+          const completed=sessions.filter(s=>s.status==="completed");
+          if(completed.length===0) return <Empty msg="No completed sessions yet"/>;
+          const visible=completed.slice(0,historyLimit);
+          return(<>
+            {visible.map((s,i)=>{
+              const dn=computeDayNum(s,sessions,spw);
+              return(
+                <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
+                    {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                  </div>
+                  <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
                 </div>
-                <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
-              </div>
-            );
-          })
-        }
+              );
+            })}
+            {historyLimit<completed.length&&
+              <button onClick={()=>setHistoryLimit(p=>p+10)} style={{width:"100%",background:"none",border:"none",color:C.cyan,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"12px 0",textAlign:"center"}}>‹ Show older sessions ({completed.length-historyLimit} more)</button>
+            }
+          </>);
+        })()}
       </div>
 
       <div style={{padding:"0 20px 8px"}}>
@@ -1205,6 +1217,8 @@ export default function App(){
   const [openSess,setOpenSess]=useState(null);
   const [showSignUp,setShowSignUp]=useState(false);
   const [notifications,setNotifications]=useState([]);
+  const [hasNewAnn,setHasNewAnn]=useState(false);
+  const [latestAnnAt,setLatestAnnAt]=useState(null);
 
   useEffect(()=>{
     const init=async()=>{
@@ -1227,11 +1241,24 @@ export default function App(){
       const sessions=await getSessions(userId,token).catch(()=>[]);
       const prs=await getPRs(userId,token).catch(()=>[]);
       const notifs=await getMyNotifications(userId,token).catch(()=>[]);
+      const anns=await getAnnouncements(token).catch(()=>[]);
       setAuth({loading:false,token,userId,profile,pkg:pkg||null,sessions:sessions||[],prs:prs||[]});
       setNotifications(notifs||[]);
+      const latest=(anns||[])[0]?.created_at||null;
+      setLatestAnnAt(latest);
+      const seenKey=`ua_ann_seen_${userId}`;
+      const seen=localStorage.getItem(seenKey);
+      if(!seen){ if(latest) localStorage.setItem(seenKey,latest); setHasNewAnn(false); }
+      else setHasNewAnn(!!latest&&latest>seen);
     }catch(e){
       setAuth(prev=>({...prev,loading:false}));
     }
+  };
+
+  const markAnnouncementsSeen=()=>{
+    if(!auth.userId) return;
+    if(latestAnnAt) localStorage.setItem(`ua_ann_seen_${auth.userId}`,latestAnnAt);
+    setHasNewAnn(false);
   };
 
   const dismissNotification=async(id)=>{
@@ -1279,9 +1306,11 @@ export default function App(){
     </div>
   );
 
+  const handleNav=(s)=>{ if(s==="announcements") markAnnouncementsSeen(); setScreen(s); };
+
   const renderScreen=()=>{
     switch(screen){
-      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={setScreen} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId}/>;
+      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId}/>;
       case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
@@ -1294,7 +1323,7 @@ export default function App(){
       {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
       {!openSess&&notifications.length>0&&<NotificationModal notification={notifications[0]} onDismiss={dismissNotification}/>}
       {renderScreen()}
-      <BottomNav active={screen} onNav={setScreen} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials}/>
+      <BottomNav active={screen} onNav={handleNav} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials} annBadge={hasNewAnn}/>
     </div>
   );
 }
