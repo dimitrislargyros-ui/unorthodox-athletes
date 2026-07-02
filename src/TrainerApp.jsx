@@ -449,10 +449,17 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
         )}
         {announcements.length===0?<Empty msg="No announcements yet"/>:
           announcements.map((a,i)=>(
-            <Card key={i} style={{marginBottom:8}}>
-              <div style={{color:C.white,fontSize:14,fontWeight:700,marginBottom:4}}>{a.title}</div>
-              <div style={{color:C.muted,fontSize:13,lineHeight:1.5}}>{a.body}</div>
-              <div style={{color:C.muted,fontSize:11,marginTop:6}}>{fmtDate(a.created_at?.split("T")[0])}</div>
+            <Card key={i} glow={C.cyan} style={{marginBottom:8}}>
+              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                <div style={{width:32,height:32,borderRadius:9,background:`linear-gradient(135deg,${C.cyan}33,${C.pink}33)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>📣</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                    <div style={{color:C.white,fontSize:14,fontWeight:700}}>{a.title}</div>
+                    <span style={{color:C.cyan,fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}>{fmtDate(a.created_at?.split("T")[0])}</span>
+                  </div>
+                  <div style={{color:C.muted,fontSize:13,lineHeight:1.5,marginTop:4}}>{a.body}</div>
+                </div>
+              </div>
             </Card>
           ))
         }
