@@ -438,8 +438,6 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   const weekFull=!!pkg&&weekCount>=spw;
 
   const myBookedSlot=myTodayBook?todaySlots.find(s=>s.id===myTodayBook.slot_id):null;
-  const todaySession=sessions.find(s=>s.session_date===today&&s.status==="booked");
-  const todayDayNum=todaySession?computeDayNum(todaySession,sessions,spw):null;
 
   const cdShort=(s)=>{
     const [yr,mo,dy]=s.session_date.split('-').map(Number);
@@ -457,26 +455,33 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
     return {h:Math.floor(totalSec/3600),m:Math.floor((totalSec%3600)/60),s:totalSec%60};
   };
 
+  const heroItem=allUpcoming[0]||null;
+  const heroIsToday=heroItem?.session_date===today;
+  const heroDT=heroItem?sessionDT({session_date:heroItem.session_date,start_time_min:heroItem.start_time_min}):null;
+  const inTraining=heroDT!=null&&now.getTime()>=heroDT&&now.getTime()<heroDT+SESS_MIN*60000;
+
   // Self-adjusting ticker: 1s resolution whenever today's session countdown is on screen, 60s otherwise
   useEffect(()=>{
     let timer;
     const tick=()=>{
       setNow(new Date());
-      const interval=(myTodayBook&&myBookedSlot)?1000:60000;
+      const interval=heroIsToday?1000:60000;
       timer=setTimeout(tick,interval);
     };
     tick();
     return ()=>clearTimeout(timer);
-  },[myTodayBook,myBookedSlot?.start_time_min]);
+  },[heroIsToday,heroItem?.start_time_min]);
 
-  const heroCd=myTodayBook&&myBookedSlot?countdownHMS(myBookedSlot.start_time_min,today):null;
+  const heroCd=heroItem&&!inTraining?countdownHMS(heroItem.start_time_min,heroItem.session_date):null;
+  const heroDayNum=pkg&&heroItem?((pkg.sessions_used||0)%spw)+1:null;
+  const nextBookDayNum=pkg?((pkg.sessions_used||0)%spw)+1:null;
 
   const statusPool=[
     ...sessions.filter(s=>s.status==="booked"||s.status==="completed"),
     ...allUpcoming.filter(s=>s._fromBooking),
   ].map(s=>({...s,_key:s.id}));
   const statusMap=computeStatusMap(statusPool,now);
-  const middleUpcoming=allUpcoming.filter(s=>!(myTodayBook&&s.session_date===today)).slice(0,3);
+  const middleUpcoming=allUpcoming.slice(1,4);
 
   const hour=now.getHours();
   const greeting=hour<12?"morning":hour<17?"afternoon":"evening";
@@ -507,37 +512,39 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         </div>
       )}
 
-      {/* TOP: today's session countdown, or Book Session CTA */}
-      {myTodayBook&&myBookedSlot?(
+      {/* TOP: next upcoming session, or Book CTA */}
+      {heroItem?(
         <div style={{padding:"14px 20px 0"}}>
-          <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:24,padding:"24px 22px",aspectRatio:"1/0.92",display:"flex",flexDirection:"column",justifyContent:"space-between",boxSizing:"border-box"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"5px 12px",color:C.white,fontSize:12,fontWeight:800}}>{now.toLocaleDateString("en-GB",{weekday:"long"})}</span>
-              {todayDayNum&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"5px 12px",color:C.white,fontSize:12,fontWeight:800}}>Day {todayDayNum}</span>}
+          <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:20,padding:"18px 20px",boxSizing:"border-box"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>{heroIsToday?"Today":new Date(heroItem.session_date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"})}</span>
+              {heroDayNum&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Day {heroDayNum}</span>}
             </div>
 
-            <div style={{textAlign:"center"}}>
-              <div style={{color:C.bg,fontSize:12,fontWeight:800,letterSpacing:1.5,opacity:0.75,marginBottom:8}}>{heroCd?"STARTS IN":"STARTING NOW"}</div>
-              {heroCd?(
-                <div style={{display:"flex",justifyContent:"center",alignItems:"baseline",gap:2}}>
-                  {heroCd.h>0&&<>
-                    <span style={{color:C.bg,fontSize:46,fontWeight:900,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{String(heroCd.h).padStart(2,"0")}</span>
-                    <span style={{color:C.bg,fontSize:20,fontWeight:800,opacity:0.7,marginRight:6}}>h</span>
-                  </>}
-                  <span style={{color:C.bg,fontSize:46,fontWeight:900,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{String(heroCd.m).padStart(2,"0")}</span>
-                  <span style={{color:C.bg,fontSize:20,fontWeight:800,opacity:0.7,marginRight:6}}>m</span>
-                  <span style={{color:C.bg,fontSize:46,fontWeight:900,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{String(heroCd.s).padStart(2,"0")}</span>
-                  <span style={{color:C.bg,fontSize:20,fontWeight:800,opacity:0.7}}>s</span>
+            {inTraining?(
+              <div style={{textAlign:"center",padding:"6px 0"}}>
+                <div style={{color:C.bg,fontSize:22,fontWeight:900}}>🏋️ Training in progress</div>
+                <div style={{color:C.bg,fontSize:13,fontWeight:700,marginTop:4,opacity:0.85}}>{toTime(heroItem.start_time_min)} – {toTime(heroItem.start_time_min+SESS_MIN)}</div>
+              </div>
+            ):(
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+                <div>
+                  <div style={{color:C.bg,fontSize:32,fontWeight:900,lineHeight:1}}>{toTime(heroItem.start_time_min)}</div>
+                  <div style={{color:C.bg,fontSize:12,fontWeight:700,marginTop:6,opacity:0.85}}>⏱ 90 min{heroIsToday&&todaySlotCount!=null?` · 👥 ${todaySlotCount}/${GYM_CAP} spots`:""}</div>
                 </div>
-              ):<div style={{color:C.bg,fontSize:30,fontWeight:900}}>🔥 Let's go!</div>}
-              <div style={{color:C.bg,fontSize:19,fontWeight:800,marginTop:10,opacity:0.9}}>{toTime(myBookedSlot.start_time_min)}</div>
-            </div>
-
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(0,0,0,0.18)",borderRadius:14,padding:"11px 16px"}}>
-              <span style={{color:C.bg,fontSize:12,fontWeight:700}}>⏱ 90 min</span>
-              {todaySlotCount!=null&&<span style={{color:C.bg,fontSize:12,fontWeight:700}}>👥 {todaySlotCount}/{GYM_CAP} spots</span>}
-              <span style={{color:C.bg,fontSize:12,fontWeight:700}}>✓ Booked</span>
-            </div>
+                {heroCd?(
+                  <div style={{textAlign:"right"}}>
+                    <div style={{color:C.bg,fontSize:10,fontWeight:800,letterSpacing:1,opacity:0.75,marginBottom:2}}>{heroIsToday?"STARTS IN":`in ${cdShort(heroItem)}`}</div>
+                    {heroIsToday&&(
+                      <div style={{display:"flex",alignItems:"baseline",gap:1}}>
+                        {heroCd.h>0&&<span style={{color:C.bg,fontSize:24,fontWeight:900,fontVariantNumeric:"tabular-nums"}}>{String(heroCd.h).padStart(2,"0")}:</span>}
+                        <span style={{color:C.bg,fontSize:24,fontWeight:900,fontVariantNumeric:"tabular-nums"}}>{String(heroCd.m).padStart(2,"0")}:{String(heroCd.s).padStart(2,"0")}</span>
+                      </div>
+                    )}
+                  </div>
+                ):<div style={{color:C.bg,fontSize:16,fontWeight:900}}>🔥 Now</div>}
+              </div>
+            )}
           </div>
         </div>
       ):pkg&&weekFull?(
@@ -547,9 +554,16 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
             <div style={{color:C.muted,fontSize:13,lineHeight:1.5}}>{weekCount} of {spw} sessions done this week. Time to rest — for an extra session, message your trainer.</div>
           </div>
         </div>
-      ):pkg&&todayDow()!==6?(
+      ):pkg&&left>0?(
         <div style={{padding:"14px 20px 0"}}>
-          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:18,padding:"26px 20px",color:C.white,fontSize:19,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>Book Session →</button>
+          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:18,padding:"22px 20px",color:C.white,fontSize:18,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>Book Day {nextBookDayNum} →</button>
+        </div>
+      ):pkg&&left<=0?(
+        <div style={{padding:"14px 20px 0"}}>
+          <div style={{background:C.pink+"18",border:`1px solid ${C.pink}44`,borderRadius:14,padding:"16px 18px"}}>
+            <div style={{color:C.pink,fontSize:15,fontWeight:800,marginBottom:6}}>Package Complete</div>
+            <div style={{color:C.muted,fontSize:13,lineHeight:1.5}}>You've used all {pkg.sessions_total} sessions. Contact your trainer to renew.</div>
+          </div>
         </div>
       ):null}
 
@@ -558,7 +572,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         <div style={{padding:"14px 20px 0"}}>
           <SL>Your Next Sessions</SL>
           {middleUpcoming.map((s,i)=>{
-            const dn=s._fromBooking?null:computeDayNum(s,sessions,spw);
+            const dn=pkg?(((pkg.sessions_used||0)+i+1)%spw)+1:null;
             return(
               <button key={s.id||i} onClick={s._fromBooking?undefined:()=>onOpenSession(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:s._fromBooking?"default":"pointer",marginBottom:8,textAlign:"left"}}>
                 <div>
@@ -762,6 +776,10 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
       setCounts(p=>({...p,[existingDayBook.slot_id]:Math.max((p[existingDayBook.slot_id]||1)-1,0)}));
       try{ const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk; if(created){setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));setWeekBookDates(p=>new Set(p).add(selDay.iso));} }
       catch(e){ alert("Error: "+e.message); }
+      return;
+    }
+    if(pkg&&(pkg.sessions_total-pkg.sessions_used)<=0){
+      alert("You've used all sessions in your package. Contact your trainer to renew.");
       return;
     }
     // Week-full check (current week only)

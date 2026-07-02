@@ -690,6 +690,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           onClientUpdated({...client,_pkg:updPkg});
         }
       }
+      await postNotification({client_id:client.id,type:"session_cancelled",message:`Your session on ${fmtDate(item.session_date)} at ${toTime(item.start_time_min)} was cancelled by your trainer.`},token).catch(()=>{});
       await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
     }catch(e){ alert("Error: "+e.message); }
   };
@@ -903,6 +904,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
     try{
       await cancelBookingRow(b.id,token);
       setBookingsMap(p=>({...p,[slot.id]:(p[slot.id]||[]).filter(x=>x.id!==b.id)}));
+      await postNotification({client_id:b.client_id,type:"session_cancelled",message:`Your session on ${fmtDate(b.book_date)} at ${toTime(slot.start_time_min)} was cancelled by your trainer.`},token).catch(()=>{});
       await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
     }catch(e){ alert("Error: "+e.message); }
   };
