@@ -131,7 +131,7 @@ const Avatar=({initials,size=44,avatarUrl})=>(avatarUrl?<img src={avatarUrl} sty
 const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.pink,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
 const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
-const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"}};
+const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"},missed:{c:C.muted,l:"Not logged"}};
 const StatusBadge=({status})=>{
   const cfg=STATUS_CFG[status];
   if(!cfg) return null;
@@ -145,6 +145,7 @@ const computeStatusMap=(items,now)=>{
   const map={};
   withDt.forEach(it=>{
     if(it.status==="cancelled") map[it._key]="cancelled";
+    else if(it._type==="booking"&&it._dt<=nowMs) map[it._key]="missed";
     else if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed";
   });
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
@@ -712,7 +713,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           {client.created_at&&<div style={{color:C.muted,fontSize:12,marginTop:3}}>Member since {fmtMemberSince(client.created_at)}</div>}
         </div>
         <div style={{display:"flex",gap:10}}>
-          {[{v:timeline.length,l:"Sessions"},{v:`${spw}x`,l:"Per Week"},{v:left??"-",l:"Pkg Left",warn:left!=null&&left<=2},{v:avgRating?`★${avgRating.toFixed(1)}`:"-",l:"Avg Rating"}].map(s=>(
+          {[{v:timeline.length,l:"Sessions"},{v:pkg?`${spw}x`:"-",l:"Per Week"},{v:left??"-",l:"Pkg Left",warn:left!=null&&left<=2},{v:avgRating?`★${avgRating.toFixed(1)}`:"-",l:"Avg Rating"}].map(s=>(
             <div key={s.l} style={{background:C.surface,border:`1px solid ${s.warn?C.pink+"44":C.border}`,borderRadius:10,padding:"10px 14px",textAlign:"center",minWidth:60}}>
               <div style={{color:s.warn?C.pink:C.cyan,fontSize:20,fontWeight:900}}>{s.v}</div>
               <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>{s.l}</div>

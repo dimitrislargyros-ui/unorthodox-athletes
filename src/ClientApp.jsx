@@ -148,7 +148,7 @@ const GBtn=({label,onClick,style={},sm,ghost,color,disabled})=>{
 const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.cyan,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
 const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
-const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"}};
+const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"},missed:{c:C.muted,l:"Not logged"}};
 const StatusBadge=({status})=>{
   const cfg=STATUS_CFG[status];
   if(!cfg) return null;
@@ -162,6 +162,7 @@ const computeStatusMap=(items,now)=>{
   const map={};
   withDt.forEach(it=>{
     if(it.status==="cancelled") map[it._key]="cancelled";
+    else if(it._fromBooking&&it._dt<=nowMs) map[it._key]="missed";
     else if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed";
   });
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
@@ -848,7 +849,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
   const pastDaySessions=sessions.filter(s=>s.session_date===selDay.iso&&(s.status==="completed"||s.status==="booked"));
   const weekLabel=weekOffset===0?"This week":`Week of ${fmtDate(weekDates[0].iso)}`;
   const nowMin=(()=>{const d=new Date();return d.getHours()*60+d.getMinutes();})();
-  const visibleSlots=selDay.iso===todayStr?slots.filter(s=>s.start_time_min>=nowMin):slots;
+  const visibleSlots=selDay.iso===todayStr?slots.filter(s=>s.start_time_min>=nowMin||myBooks.some(b=>b.slot_id===s.id&&b.status==="booked")):slots;
 
   return(
     <div style={{paddingBottom:80}}>
