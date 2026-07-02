@@ -250,6 +250,35 @@ const SessionSheet=({session,token,onClose})=>{
 };
 
 // ── Notification Modal ──
+const HistorySheet=({sessions,spw,onClose})=>{
+  const completed=sessions.filter(s=>s.status==="completed");
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}}>
+        <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{color:C.white,fontSize:17,fontWeight:800}}>Session History</div>
+          <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+        </div>
+        {completed.length===0?<Empty msg="No completed sessions yet"/>:
+          completed.map((s,i)=>{
+            const dn=computeDayNum(s,sessions,spw);
+            return(
+              <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
+                  {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                </div>
+                <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
+              </div>
+            );
+          })
+        }
+      </div>
+    </div>
+  );
+};
+
 const NotificationModal=({notification,onDismiss})=>{
   if(!notification) return null;
   return(
@@ -738,6 +767,10 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
     try{
       await updatePkgUsed(pkg.id,newUsed,token);
       onPkgUpdate?.({...pkg,sessions_used:newUsed});
+      const newLeft=pkg.sessions_total-newUsed;
+      if(delta>0&&(newLeft===2||newLeft===1)){
+        await postNotification({client_id:userId,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+      }
     }catch(e){}
   };
 
@@ -992,12 +1025,14 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
 };
 
 // ── Announcements ──
-const AnnouncementsScreen=({token})=>{
+const AnnouncementsScreen=({token,priorSeenAt})=>{
   const [announcements,setAnn]=useState([]);
   const [loading,setLoad]=useState(true);
+  const [readIds,setReadIds]=useState(new Set());
   useEffect(()=>{
     getAnnouncements(token).then(a=>setAnn(a||[])).finally(()=>setLoad(false));
   },[]);
+  const isNew=(a)=>!!priorSeenAt&&a.created_at>priorSeenAt&&!readIds.has(a.id);
   return(
     <div style={{paddingBottom:80}}>
       <div style={{padding:"22px 20px 12px"}}>
@@ -1006,20 +1041,28 @@ const AnnouncementsScreen=({token})=>{
       </div>
       <div style={{padding:"0 20px"}}>
         {loading?<Spinner/>:announcements.length===0?<Empty msg="No announcements yet"/>:
-          announcements.map((a,i)=>(
-            <Card key={i} glow={C.cyan} style={{marginBottom:10}}>
-              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-                <div style={{width:34,height:34,borderRadius:10,background:`linear-gradient(135deg,${C.cyan}33,${C.pink}33)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>📣</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                    <div style={{color:C.white,fontSize:15,fontWeight:700}}>{a.title}</div>
-                    <span style={{color:C.cyan,fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}>{fmtDate(a.created_at?.split("T")[0])}</span>
+          announcements.map((a,i)=>{
+            const unread=isNew(a);
+            return(
+              <button key={i} onClick={()=>unread&&setReadIds(p=>new Set(p).add(a.id))} style={{display:"block",width:"100%",textAlign:"left",padding:0,border:"none",background:"none",fontFamily:"inherit",cursor:unread?"pointer":"default"}}>
+                <Card glow={unread?C.pink:C.cyan} style={{marginBottom:10,border:unread?`2px solid ${C.pink}`:undefined,boxShadow:unread?`0 0 0 1px ${C.pink}33`:undefined}}>
+                  <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                    <div style={{width:34,height:34,borderRadius:10,background:`linear-gradient(135deg,${C.cyan}33,${C.pink}33)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>📣</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{color:C.white,fontSize:15,fontWeight:700}}>{a.title}</div>
+                          {unread&&<span style={{background:C.pink,color:C.white,fontSize:9,fontWeight:800,padding:"2px 7px",borderRadius:20}}>NEW</span>}
+                        </div>
+                        <span style={{color:C.cyan,fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}>{fmtDate(a.created_at?.split("T")[0])}</span>
+                      </div>
+                      <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginTop:4,whiteSpace:"pre-wrap"}}>{a.body}</div>
+                    </div>
                   </div>
-                  <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginTop:4,whiteSpace:"pre-wrap"}}>{a.body}</div>
-                </div>
-              </div>
-            </Card>
-          ))
+                </Card>
+              </button>
+            );
+          })
         }
       </div>
     </div>
@@ -1037,7 +1080,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
   const [phone,setPhone]=useState(profile?.phone||"");
   const [avatarUrl,setAvatarUrl]=useState(profile?.avatar_url||null);
   const [uploading,setUploading]=useState(false);
-  const [historyLimit,setHistoryLimit]=useState(10);
+  const [showHistorySheet,setShowHistorySheet]=useState(false);
   const handleAvatarChange=async(e)=>{
     const file=e.target.files?.[0]; if(!file) return;
     setUploading(true);
@@ -1182,7 +1225,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
         {(()=>{
           const completed=sessions.filter(s=>s.status==="completed");
           if(completed.length===0) return <Empty msg="No completed sessions yet"/>;
-          const visible=completed.slice(0,historyLimit);
+          const visible=completed.slice(0,3);
           return(<>
             {visible.map((s,i)=>{
               const dn=computeDayNum(s,sessions,spw);
@@ -1196,12 +1239,13 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
                 </div>
               );
             })}
-            {historyLimit<completed.length&&
-              <button onClick={()=>setHistoryLimit(p=>p+10)} style={{width:"100%",background:"none",border:"none",color:C.cyan,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"12px 0",textAlign:"center"}}>‹ Show older sessions ({completed.length-historyLimit} more)</button>
+            {completed.length>3&&
+              <button onClick={()=>setShowHistorySheet(true)} style={{width:"100%",background:"none",border:"none",color:C.cyan,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"12px 0",textAlign:"center"}}>Δες παλαιότερες ({completed.length-3} more) ›</button>
             }
           </>);
         })()}
       </div>
+      {showHistorySheet&&<HistorySheet sessions={sessions} spw={spw} onClose={()=>setShowHistorySheet(false)}/>}
 
       <div style={{padding:"0 20px 8px"}}>
         <button onClick={onLogout} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.pink,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Log Out</button>
@@ -1219,6 +1263,7 @@ export default function App(){
   const [notifications,setNotifications]=useState([]);
   const [hasNewAnn,setHasNewAnn]=useState(false);
   const [latestAnnAt,setLatestAnnAt]=useState(null);
+  const [priorAnnSeenAt,setPriorAnnSeenAt]=useState(null);
 
   useEffect(()=>{
     const init=async()=>{
@@ -1257,7 +1302,9 @@ export default function App(){
 
   const markAnnouncementsSeen=()=>{
     if(!auth.userId) return;
-    if(latestAnnAt) localStorage.setItem(`ua_ann_seen_${auth.userId}`,latestAnnAt);
+    const seenKey=`ua_ann_seen_${auth.userId}`;
+    setPriorAnnSeenAt(localStorage.getItem(seenKey));
+    if(latestAnnAt) localStorage.setItem(seenKey,latestAnnAt);
     setHasNewAnn(false);
   };
 
@@ -1312,7 +1359,7 @@ export default function App(){
     switch(screen){
       case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId}/>;
       case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))}/>;
-      case "announcements": return <AnnouncementsScreen token={auth.token}/>;
+      case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;
     }

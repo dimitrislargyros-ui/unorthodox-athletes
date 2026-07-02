@@ -116,7 +116,8 @@ const WDATES_BASE = (() => {
   const d=new Date(),dow=d.getDay()===0?6:d.getDay()-1;
   return Array.from({length:7},(_,i)=>{ const dd=new Date(d); dd.setDate(d.getDate()-dow+i); return {label:dd.getDate(),iso:dd.toISOString().split("T")[0],dow:i}; });
 })();
-const HOURS=[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21];
+const addDays=(isoDate,n)=>{ const d=new Date(isoDate); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().split("T")[0]; };
+const HOURS=[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23];
 const SLOT_TIMES=[300,390,480,840,900,1020];
 
 // ── Shared Components ──
@@ -598,6 +599,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [hasInjury,setHasInj]=useState(false);
   const [injuryNotes,setInjNotes]=useState("");
   const [pkgNotes,setPkgNotes]=useState("");
+  const [showEditNotes,setShowEditNotes]=useState(false);
+  const [editHasInjury,setEditHasInj]=useState(false);
+  const [editInjuryNotes,setEditInjNotes]=useState("");
+  const [editPkgNotes,setEditPkgNotes]=useState("");
+  const [savingNotes,setSavingNotes]=useState(false);
   const [logDate,setLogDate]=useState(todayISO());
   const [logTime,setLogTime]=useState(300);
   const [logging,setLogging]=useState(false);
@@ -629,6 +635,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const created=Array.isArray(res)?res[0]:res;
       setPkg(created); setShowPkg(false);
       onClientUpdated({...client,_pkg:created});
+      await postNotification({client_id:client.id,type:"package_renewed",message:`Your package was renewed: ${newPkgTotal} sessions · ${newSpw}x/week.`},token).catch(()=>{});
     }catch(e){ alert("Error: "+e.message); }
   };
 
@@ -648,6 +655,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         const updPkg={...pkg,sessions_used:newUsed};
         setPkg(updPkg);
         onClientUpdated({...client,_pkg:updPkg});
+        const newLeft=pkg.sessions_total-newUsed;
+        if(newLeft===2||newLeft===1){
+          await postNotification({client_id:client.id,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+        }
       }
       const full={...created,session_notes:[],exercises:[]};
       setSessions(p=>[full,...p]);
@@ -670,10 +681,28 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const updPkg={...pkg,paid:newPaid};
       setPkg(updPkg);
       onClientUpdated({...client,_pkg:updPkg});
-      if(!newPaid&&window.confirm("Send payment reminder to client?")){
-        await postNotification({client_id:client.id,type:"payment_reminder",message:"Your payment for the current package is pending. Please contact your trainer."},token).catch(()=>{});
-      }
     }catch(e){ alert("Error: "+e.message); }
+  };
+
+  const handleOpenEditNotes=()=>{
+    setEditHasInj(pkg?.has_injury||false);
+    setEditInjNotes(pkg?.injury_notes||"");
+    setEditPkgNotes(pkg?.package_notes||"");
+    setShowEditNotes(true);
+  };
+
+  const handleSaveNotes=async()=>{
+    if(!pkg||savingNotes) return;
+    setSavingNotes(true);
+    try{
+      const body={has_injury:editHasInjury,injury_notes:editHasInjury?editInjuryNotes:"",package_notes:editPkgNotes};
+      await dbPatch("packages",`id=eq.${pkg.id}`,body,token);
+      const updPkg={...pkg,...body};
+      setPkg(updPkg);
+      onClientUpdated({...client,_pkg:updPkg});
+      setShowEditNotes(false);
+    }catch(e){ alert("Error: "+e.message); }
+    setSavingNotes(false);
   };
 
   const sessDateSet=new Set(sessions.map(s=>s.session_date));
@@ -743,8 +772,24 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       <div style={{padding:"14px 20px 0"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <SL style={{marginBottom:0}}>Package</SL>
-          <button onClick={()=>setShowPkg(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showPkg?"▲ Cancel":"↻ Renew"}</button>
+          <div style={{display:"flex",gap:8}}>
+            {pkg&&<button onClick={()=>showEditNotes?setShowEditNotes(false):handleOpenEditNotes()} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",color:C.cyan,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showEditNotes?"▲ Cancel":"✎ Notes"}</button>}
+            <button onClick={()=>setShowPkg(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showPkg?"▲ Cancel":"↻ Renew"}</button>
+          </div>
         </div>
+        {showEditNotes&&(
+          <Card style={{marginBottom:12}}>
+            <SL>Edit Injury / Notes</SL>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderTop:`1px solid ${C.border}`,marginBottom:8}}>
+              <span style={{color:C.white,fontSize:14,fontWeight:600}}>⚠️ Injury / Limitation</span>
+              <button onClick={()=>setEditHasInj(p=>!p)} style={{background:editHasInjury?C.amber+"33":C.surface2,border:`1px solid ${editHasInjury?C.amber:C.border}`,borderRadius:20,padding:"6px 16px",color:editHasInjury?C.amber:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{editHasInjury?"Yes ✓":"No"}</button>
+            </div>
+            {editHasInjury&&<input value={editInjuryNotes} onChange={e=>setEditInjNotes(e.target.value)} placeholder="Describe the injury..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.amber}55`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>}
+            <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Training Notes</div>
+            <textarea value={editPkgNotes} onChange={e=>setEditPkgNotes(e.target.value)} placeholder="Focus areas, goals..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,fontFamily:"inherit",resize:"none",height:70,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:12}}/>
+            <GBtn label={savingNotes?"Saving...":"Save"} onClick={handleSaveNotes} disabled={savingNotes} style={{width:"100%"}}/>
+          </Card>
+        )}
         {showPkg&&(
           <Card style={{marginBottom:12}}>
             <SL>Assign New Package</SL>
@@ -848,6 +893,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 // ── Schedule ──
 const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})=>{
   const [dayIdx,setDay]=useState(todayDow());
+  const [weekOffset,setWeekOffset]=useState(0);
   const [slots,setSlots]=useState([]);
   const [bookingsMap,setBookingsMap]=useState({});
   const [loading,setLoad]=useState(false);
@@ -856,7 +902,14 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const [pickM,setPickM]=useState(0);
   const [pendingReqs,setPendingReqs]=useState([]);
   const [reqsLoaded,setReqsLoaded]=useState(false);
-  const selDay=WDATES_BASE[dayIdx]; const isSun=dayIdx===6;
+  const weekDates=Array.from({length:7},(_,i)=>{
+    const iso=addDays(WDATES_BASE[0].iso,weekOffset*7+i);
+    const d=new Date(iso+"T12:00:00");
+    return {label:d.getDate(),iso,dow:i};
+  });
+  const selDay=weekDates[dayIdx]; const isSun=dayIdx===6;
+  const isCurrentWeek=weekOffset===0;
+  const weekLabel=weekOffset===0?"This week":`Week of ${fmtDate(weekDates[0].iso)}`;
 
   const [periods,setPeriods]=useState([]);
   const [periodsLoaded,setPeriodsLoaded]=useState(false);
@@ -868,6 +921,8 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const [periodSlotsMap,setPeriodSlotsMap]=useState({});
   const [periodDayIdx,setPeriodDayIdx]=useState(todayDow());
   const [periodDaySlots,setPeriodDaySlots]=useState([]);
+  const [periodPickH,setPeriodPickH]=useState(null);
+  const [periodPickM,setPeriodPickM]=useState(0);
   const todayStr=todayISO();
 
   useEffect(()=>{
@@ -890,7 +945,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         setBookingsMap(m);
       })
       .finally(()=>setLoad(false));
-  },[dayIdx]);
+  },[dayIdx,weekOffset]);
 
   const selectedStart=pickH!=null?pickH*60+pickM:null;
   const conflict=selectedStart!=null&&slots.find(s=>s.start_time_min===selectedStart);
@@ -936,8 +991,10 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const handleDeletePeriod=async(id)=>{
     if(!window.confirm("Delete this schedule period? Existing bookings are not affected.")) return;
     try{
+      await dbDelete("period_slots",`period_id=eq.${id}`,token);
       await deletePeriodRow(id,token);
       setPeriods(p=>p.filter(x=>x.id!==id));
+      setPeriodSlotsMap(p=>{ const n={...p}; delete n[id]; return n; });
       if(expandedPeriod===id) setExpandedPeriod(null);
     }catch(e){ alert("Error: "+e.message); }
   };
@@ -962,6 +1019,19 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         if(created) setPeriodSlotsMap(p=>({...p,[period.id]:[...(p[period.id]||[]),created]}));
       }catch(e){ alert("Error: "+e.message); }
     }
+  };
+
+  const periodPickStart=periodPickH!=null?periodPickH*60+periodPickM:null;
+  const handleAddCustomPeriodTime=async(period)=>{
+    if(periodPickStart==null) return;
+    const existing=(periodSlotsMap[period.id]||[]).some(ps=>ps.day_of_week===periodDayIdx&&ps.start_time_min===periodPickStart);
+    if(existing){ setPeriodPickH(null); setPeriodPickM(0); return; }
+    try{
+      const res=await addPeriodSlot({period_id:period.id,day_of_week:periodDayIdx,start_time_min:periodPickStart},token);
+      const created=Array.isArray(res)?res[0]:res;
+      if(created) setPeriodSlotsMap(p=>({...p,[period.id]:[...(p[period.id]||[]),created]}));
+      setPeriodPickH(null); setPeriodPickM(0);
+    }catch(e){ alert("Error: "+e.message); }
   };
 
   return(
@@ -1003,8 +1073,13 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
           </div>
         </div>
       )}
+      <div style={{padding:"0 20px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <button onClick={()=>setWeekOffset(p=>p-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>‹</button>
+        <span style={{color:C.cyan,fontSize:13,fontWeight:700}}>{weekLabel}</span>
+        <button onClick={()=>setWeekOffset(p=>p+1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>›</button>
+      </div>
       <div style={{padding:"0 20px 16px",display:"flex",gap:5}}>
-        {WDATES_BASE.map((d,i)=>{const isToday=i===todayDow();return(
+        {weekDates.map((d,i)=>{const isToday=isCurrentWeek&&i===todayDow();return(
           <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:10,border:`1px solid ${isToday&&dayIdx!==i?C.pink+"55":"transparent"}`,cursor:"pointer",background:dayIdx===i?C.pink:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <span style={{color:dayIdx===i?C.white:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
             <span style={{color:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
@@ -1095,26 +1170,39 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
                   <button onClick={()=>handleDeletePeriod(period.id)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
                 </div>
               </div>
-              {isExpanded&&(
+              {isExpanded&&(()=>{
+                const baseTimes=periodDaySlots.map(s=>s.start_time_min);
+                const customTimes=(periodSlotsMap[period.id]||[]).filter(ps=>ps.day_of_week===periodDayIdx).map(ps=>ps.start_time_min);
+                const allTimes=[...new Set([...baseTimes,...customTimes])].sort((a,b)=>a-b);
+                return(
                 <div style={{marginTop:14}}>
                   <div style={{display:"flex",gap:4,marginBottom:10}}>
                     {WDAYS.map((d,i)=>(
                       <button key={i} onClick={()=>setPeriodDayIdx(i)} style={{flex:1,padding:"7px 2px",borderRadius:8,border:"none",cursor:"pointer",background:periodDayIdx===i?C.cyan:C.surface2,color:periodDayIdx===i?C.bg:C.muted,fontSize:11,fontWeight:800}}>{d}</button>
                     ))}
                   </div>
-                  {periodDaySlots.length===0
-                    ? <Empty msg="No default slots defined for this day — add one above first"/>
-                    : <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                        {periodDaySlots.map(slot=>{
-                          const checked=daySlotIds.has(slot.start_time_min);
+                  {allTimes.length===0
+                    ? <Empty msg="No times added for this day yet"/>
+                    : <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+                        {allTimes.map(t=>{
+                          const checked=daySlotIds.has(t);
                           return(
-                            <button key={slot.id} onClick={()=>togglePeriodSlot(period,slot)} style={{background:checked?C.cyan+"33":C.surface2,border:`1px solid ${checked?C.cyan:C.border}`,borderRadius:7,padding:"7px 11px",color:checked?C.cyan:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{checked?"✓ ":""}{toTime(slot.start_time_min)}</button>
+                            <button key={t} onClick={()=>togglePeriodSlot(period,{start_time_min:t})} style={{background:checked?C.cyan+"33":C.surface2,border:`1px solid ${checked?C.cyan:C.border}`,borderRadius:7,padding:"7px 11px",color:checked?C.cyan:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{checked?"✓ ":""}{toTime(t)}</button>
                           );
                         })}
                       </div>
                   }
+                  <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:8}}>Add a time for this day</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+                    {HOURS.map(h=><button key={h} onClick={()=>setPeriodPickH(periodPickH===h?null:h)} style={{background:periodPickH===h?C.pink+"33":C.surface2,border:`1px solid ${periodPickH===h?C.pink:C.border}`,borderRadius:7,padding:"6px 9px",color:periodPickH===h?C.pink:C.muted,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",minWidth:38,textAlign:"center"}}>{h<12?`${h}am`:h===12?"12pm":`${h-12}pm`}</button>)}
+                  </div>
+                  <div style={{display:"flex",gap:8,marginBottom:10}}>
+                    {[0,30].map(m=><button key={m} onClick={()=>setPeriodPickM(m)} style={{flex:1,background:periodPickM===m?C.cyan+"33":C.surface2,border:`1px solid ${periodPickM===m?C.cyan:C.border}`,borderRadius:7,padding:"7px",color:periodPickM===m?C.cyan:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>:{m===0?"00":"30"}</button>)}
+                  </div>
+                  <GBtn sm label={periodPickStart!=null?`+ Add ${toTime(periodPickStart)}`:"Pick a time above"} onClick={()=>handleAddCustomPeriodTime(period)} disabled={periodPickStart==null} style={{width:"100%"}}/>
                 </div>
-              )}
+                );
+              })()}
             </Card>
           );
         })}
