@@ -56,18 +56,42 @@ const saveExercises = async (sessId,exs,tk) => {
   if(exs.length>0) await dbPost("exercises",exs.map((e,i)=>({...e,session_id:sessId,order_index:i})),tk);
 };
 
-const getTodaySessions    = (trainerId,date,tk) => dbGet("sessions",`trainer_id=eq.${trainerId}&session_date=eq.${date}&select=*,profiles(id,name,initials,avatar_url)&order=start_time_min.asc`,tk);
+const getTodaySessions    = (trainerId,date,tk) => dbGet("sessions",`trainer_id=eq.${trainerId}&session_date=eq.${date}&select=*,profiles!sessions_client_id_fkey(id,name,initials,avatar_url)&order=start_time_min.asc`,tk);
 const getTodayBookings    = (date,tk)           => dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=*,schedule_slots(start_time_min),profiles(id,name,initials,avatar_url)`,tk);
 const getClientBooks      = (uid,tk)            => dbGet("bookings",`client_id=eq.${uid}&status=eq.booked&select=*,schedule_slots(start_time_min)&order=book_date.asc`,tk);
 const getAnnouncements    = (tk)                => dbGet("announcements","order=created_at.desc&limit=20",tk);
 const postAnnouncement    = (d,tk)              => dbPost("announcements",d,tk);
 const getPendingRequests  = (tk)                => dbGet("slot_requests","status=eq.pending&select=*,profiles(name,initials)&order=created_at.asc",tk);
 const resolveRequest      = (id,status,tk)      => dbPatch("slot_requests",`id=eq.${id}`,{status},tk);
+const cancelBookingRow    = (id,tk)              => dbPatch("bookings",`id=eq.${id}`,{status:"cancelled"},tk);
+const cancelSessionRow    = (id,tk)              => dbPatch("sessions",`id=eq.${id}`,{status:"cancelled"},tk);
+const decrementPkgUsed    = (pkgId,currentUsed,tk)=> dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max((currentUsed||0)-1,0)},tk);
+const postNotification    = (d,tk)              => dbPost("notifications",d,tk);
+
+// ── Schedule periods ──
+const getAllPeriods      = (tk)             => dbGet("schedule_periods","order=start_date.desc",tk);
+const createPeriod       = (d,tk)           => dbPost("schedule_periods",d,tk);
+const deletePeriodRow    = (id,tk)          => dbDelete("schedule_periods",`id=eq.${id}`,tk);
+const getPeriodSlots     = (periodId,tk)    => dbGet("period_slots",`period_id=eq.${periodId}`,tk);
+const getAllSlotsForDay  = (dow,tk)         => dbGet("schedule_slots",`day_of_week=eq.${dow}&order=start_time_min.asc`,tk);
+const addPeriodSlot      = (d,tk)           => dbPost("period_slots",d,tk);
+const removePeriodSlotRow= (id,tk)          => dbDelete("period_slots",`id=eq.${id}`,tk);
 
 // ── Time utils ──
 const toTime  = (min) => { const h=Math.floor(min/60),m=min%60; return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`; };
 const toSlot  = (s)   => `${toTime(s)} — ${toTime(s+SESS_MIN)}`;
 const fmtDate = (iso) => { if(!iso) return ""; return new Date(iso+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"2-digit"}); };
+const fmtMemberSince=(iso)=>{ if(!iso) return ""; return new Date(iso).toLocaleDateString("en-US",{month:"long",year:"numeric"}); };
+const friendlyAuthError=(raw)=>{
+  let parsed=null;
+  try{ parsed=JSON.parse(raw); }catch{ return "Something went wrong. Please try again."; }
+  const code=(parsed.error_code||parsed.code||parsed.error||"").toString().toLowerCase();
+  const msg=(parsed.msg||parsed.error_description||parsed.message||"").toLowerCase();
+  if(code.includes("invalid_credentials")||msg.includes("invalid login credentials")) return "Incorrect email or password.";
+  if(msg.includes("email not confirmed")) return "Please confirm your email before logging in — check your inbox.";
+  if(msg.includes("rate limit")||msg.includes("too many")) return "Too many attempts. Please wait a moment and try again.";
+  return parsed.msg||parsed.error_description||parsed.error||"Something went wrong. Please try again.";
+};
 const todayISO= ()    => new Date().toISOString().split("T")[0];
 const todayDow= ()    => { const d=new Date().getDay(); return d===0?6:d-1; };
 
@@ -97,6 +121,23 @@ const GBtn=({label,onClick,style={},sm,ghost,color,disabled})=>{
 const Avatar=({initials,size=44,avatarUrl})=>(avatarUrl?<img src={avatarUrl} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",flexShrink:0}} alt="av"/>:<div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.cyan}55,${C.pink}55)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.white,fontWeight:800,fontSize:size*0.3,flexShrink:0}}>{initials||"?"}</div>);
 const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.pink,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
+const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
+const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"}};
+const StatusBadge=({status})=>{
+  const cfg=STATUS_CFG[status];
+  if(!cfg) return null;
+  return <span style={{background:cfg.c+"22",color:cfg.c,fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:20,border:`1px solid ${cfg.c}44`}}>{cfg.l}</span>;
+};
+// items: [{_key,session_date,start_time_min,status}] — the single soonest future item = upcoming, rest future = booked, everything else = completed
+const computeStatusMap=(items,now)=>{
+  const nowMs=now.getTime();
+  const withDt=items.map(it=>({...it,_dt:sessionDT(it)}));
+  const future=withDt.filter(it=>it.status!=="completed"&&it.status!=="cancelled"&&it._dt>nowMs).sort((a,b)=>a._dt-b._dt);
+  const map={};
+  withDt.forEach(it=>{ if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed"; });
+  future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
+  return map;
+};
 const BottomNav=({active,onNav,scheduleBadge=0})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><div style={{position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:20}}>{t.i}</span>{t.id==="schedule"&&scheduleBadge>0&&<span style={{position:"absolute",top:-4,right:-6,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
 
 // ── Session Editor ──
@@ -185,7 +226,7 @@ const LoginScreen=({onLogin})=>{
   const handle=async()=>{
     if(!email||!pw) return; setL(true); setErr("");
     try{ await onLogin(email,pw); }
-    catch(e){ setErr(e.message==="NOT_TRAINER"?"Access denied. Trainer accounts only.":e.message||"Wrong email or password."); }
+    catch(e){ setErr(e.message==="NOT_TRAINER"?"Access denied. Trainer accounts only.":friendlyAuthError(e.message)); }
     setL(false);
   };
   const inp={background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",color:C.white,fontSize:15,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
@@ -230,7 +271,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
       const sessArr=sess||[];
       const bkItems=(bks||[])
         .filter(b=>b.schedule_slots)
-        .map(b=>({id:`bk_${b.id}`,_type:"booking",start_time_min:b.schedule_slots.start_time_min,client_id:b.client_id,status:"booked",profiles:b.profiles}))
+        .map(b=>({id:`bk_${b.id}`,_type:"booking",session_date:today,start_time_min:b.schedule_slots.start_time_min,client_id:b.client_id,status:"booked",profiles:b.profiles}))
         .filter(b=>!sessArr.some(s=>s.client_id===b.client_id));
       setSessions([...sessArr,...bkItems]);
       setAnn(anns||[]);
@@ -248,6 +289,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
   const bySlot={};
   (sessions||[]).forEach(s=>{ const st=s.start_time_min; if(st!=null){if(!bySlot[st])bySlot[st]=[];bySlot[st].push(s);} });
   const slots=Object.keys(bySlot).sort((a,b)=>Number(a)-Number(b));
+  const statusMap=computeStatusMap(sessions.filter(s=>s.session_date).map(s=>({...s,_key:s.id})),new Date());
   const alerts=clients.filter(c=>{const pkg=c._pkg;return pkg&&(pkg.sessions_total-pkg.sessions_used)<=2;});
   const todayStr=new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
 
@@ -307,7 +349,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
       {/* Today's Sessions (all logged) */}
       <div style={{padding:"14px 20px 0"}}>
         <SL>Today's Sessions</SL>
-        {loading?<Spinner/>:slots.length===0?<Card style={{textAlign:"center",padding:"28px"}}><Empty msg="No sessions logged for today"/></Card>:
+        {loading?<Spinner/>:slots.length===0?<Card style={{textAlign:"center",padding:"28px"}}><Empty msg="No sessions today"/></Card>:
           slots.map(st=>{
             const slotSessions=bySlot[st];
             return(<Card key={st} style={{marginBottom:10}}>
@@ -318,7 +360,6 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {slotSessions.map((s,j)=>{
                   const cp=s.profiles; const full=clients.find(c=>c.id===cp?.id);
-                  const statusColor=s.status==="completed"?C.green:C.cyan;
                   const dn=getDayNumForItem(s,clients);
                   return(<div key={j} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.surface2,borderRadius:8,padding:"8px 12px"}}>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -329,7 +370,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
                       </div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{color:statusColor,fontSize:11,fontWeight:700}}>{s.status}</span>
+                      <StatusBadge status={statusMap[s.id]}/>
                       {full&&<button onClick={()=>onViewClient(full)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 8px",color:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>View →</button>}
                     </div>
                   </div>);
@@ -482,17 +523,38 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     setLogging(false);
   };
 
-  const completedSessions=sessions.filter(s=>s.status==="completed");
-  const today=todayISO();
   const sessDateSet=new Set(sessions.map(s=>s.session_date));
   const bookOnlyItems=(clientBooks||[])
     .filter(b=>!sessDateSet.has(b.book_date))
-    .map(b=>({id:`bk_${b.id}`,_type:"booking",session_date:b.book_date,start_time_min:b.schedule_slots?.start_time_min||0}));
+    .map(b=>({id:`bk_${b.id}`,_bookingId:b.id,_type:"booking",session_date:b.book_date,start_time_min:b.schedule_slots?.start_time_min||0,status:"booked"}));
   const timeline=[
     ...sessions.map(s=>({...s,_type:s.status})),
     ...bookOnlyItems,
   ].sort((a,b)=>a.session_date.localeCompare(b.session_date)||(a.start_time_min-b.start_time_min));
   timeline.forEach((item,i)=>{ item._sessionNum=i+1; item._dayNum=(i%spw)+1; });
+  const statusMap=computeStatusMap(timeline.filter(s=>s.session_date).map(s=>({...s,_key:s.id})),new Date());
+
+  const handleCancelSession=async(item)=>{
+    if(!window.confirm("Cancel this session?")) return;
+    if(!window.confirm("Are you sure? This cannot be undone.")) return;
+    try{
+      if(item._type==="booking"){
+        await cancelBookingRow(item._bookingId,token);
+        setClientBooks(p=>p.filter(b=>b.id!==item._bookingId));
+      }else{
+        await cancelSessionRow(item.id,token);
+        setSessions(p=>p.map(s=>s.id===item.id?{...s,status:"cancelled"}:s));
+        if(pkg){
+          const newUsed=Math.max((pkg.sessions_used||0)-1,0);
+          await decrementPkgUsed(pkg.id,pkg.sessions_used,token);
+          const updPkg={...pkg,sessions_used:newUsed};
+          setPkg(updPkg);
+          onClientUpdated({...client,_pkg:updPkg});
+        }
+      }
+      await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
+    }catch(e){ alert("Error: "+e.message); }
+  };
 
   return(
     <div style={{paddingBottom:80}}>
@@ -509,6 +571,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         <div style={{textAlign:"center"}}>
           <div style={{color:C.white,fontSize:20,fontWeight:800}}>{client.name}</div>
           <div style={{color:C.muted,fontSize:13,marginTop:3}}>{client.email}</div>
+          {client.created_at&&<div style={{color:C.muted,fontSize:12,marginTop:3}}>Member since {fmtMemberSince(client.created_at)}</div>}
         </div>
         <div style={{display:"flex",gap:10}}>
           {[{v:timeline.length,l:"Sessions"},{v:`${spw}x`,l:"Per Week"},{v:left??"-",l:"Pkg Left",warn:left!=null&&left<=2}].map(s=>(
@@ -596,24 +659,28 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         {loading?<Spinner/>:timeline.length===0?<Empty msg="No sessions yet"/>:
           [...timeline].reverse().map((s,i)=>{
             const isBooking=s._type==="booking";
-            const isFuture=s.session_date>=today;
+            const badgeStatus=statusMap[s.id];
+            const isCancellable=badgeStatus==="upcoming"||badgeStatus==="booked";
             const icon=isBooking?"📅":s._type==="completed"?"💪":"⏳";
             const iconBg=isBooking?C.amber+"22":s._type==="completed"?C.cyan+"22":C.pink+"22";
             return(
-            <button key={s.id||i} onClick={isBooking?undefined:()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${isFuture?(isBooking?C.amber+"44":C.cyan+"33"):C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:isBooking?"default":"pointer",marginBottom:8,textAlign:"left"}}>
+            <div key={s.id||i} onClick={isBooking?undefined:()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${badgeStatus!=="completed"?(isBooking?C.amber+"44":C.cyan+"33"):C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:isBooking?"default":"pointer",marginBottom:8,textAlign:"left",boxSizing:"border-box"}}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <div style={{width:36,height:36,borderRadius:10,background:iconBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{icon}</div>
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
                     <span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {s._dayNum}</span>
                     <span style={{color:C.muted,fontSize:10,fontWeight:700}}>{s._sessionNum}/{timeline.length}</span>
-                    {isFuture&&<span style={{background:isBooking?C.amber+"33":C.pink+"22",color:isBooking?C.amber:C.pink,fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:6}}>{isBooking?"Booked":"Upcoming"}</span>}
+                    <StatusBadge status={badgeStatus}/>
                   </div>
                   <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}{!isBooking&&s.exercises?.length>0?` · ${s.exercises.length} exercises`:""}</div>
                 </div>
               </div>
-              {!isBooking&&<span style={{color:s._type==="completed"?C.pink:C.cyan,fontSize:12,fontWeight:700,flexShrink:0}}>Edit →</span>}
-            </button>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}>
+                {!isBooking&&<span style={{color:s._type==="completed"?C.pink:C.cyan,fontSize:12,fontWeight:700}}>Edit →</span>}
+                {isCancellable&&<button onClick={e=>{e.stopPropagation();handleCancelSession(s);}} style={{background:"none",border:"none",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0}}>Cancel</button>}
+              </div>
+            </div>
           );})
         }
       </div>
@@ -634,9 +701,27 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const [reqsLoaded,setReqsLoaded]=useState(false);
   const selDay=WDATES_BASE[dayIdx]; const isSun=dayIdx===6;
 
+  const [periods,setPeriods]=useState([]);
+  const [periodsLoaded,setPeriodsLoaded]=useState(false);
+  const [showNewPeriod,setShowNewPeriod]=useState(false);
+  const [periodName,setPeriodName]=useState("");
+  const [periodStart,setPeriodStart]=useState(todayISO());
+  const [periodEnd,setPeriodEnd]=useState(todayISO());
+  const [expandedPeriod,setExpandedPeriod]=useState(null);
+  const [periodSlotsMap,setPeriodSlotsMap]=useState({});
+  const [periodDayIdx,setPeriodDayIdx]=useState(todayDow());
+  const [periodDaySlots,setPeriodDaySlots]=useState([]);
+  const todayStr=todayISO();
+
   useEffect(()=>{
     getPendingRequests(token).then(r=>{ const reqs=r||[]; setPendingReqs(reqs); setReqsLoaded(true); onPendingChange?.(reqs.length); }).catch(()=>setReqsLoaded(true));
+    getAllPeriods(token).then(r=>setPeriods(r||[])).catch(()=>{}).finally(()=>setPeriodsLoaded(true));
   },[]);
+
+  useEffect(()=>{
+    if(!expandedPeriod) return;
+    getAllSlotsForDay(periodDayIdx,token).then(r=>setPeriodDaySlots(r||[])).catch(()=>setPeriodDaySlots([]));
+  },[expandedPeriod,periodDayIdx]);
 
   useEffect(()=>{
     if(isSun) return; setLoad(true);
@@ -662,6 +747,56 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const handleRemove=async(slot)=>{
     try{ await removeSlot(slot.id,token); setSlots(p=>p.filter(s=>s.id!==slot.id)); setConf(null); }
     catch(e){ alert("Error: "+e.message); }
+  };
+
+  const handleCancelBooking=async(b,slot)=>{
+    if(!window.confirm(`Cancel ${b.profiles?.name||"this client"}'s booking?`)) return;
+    if(!window.confirm("Are you sure? This cannot be undone.")) return;
+    try{
+      await cancelBookingRow(b.id,token);
+      setBookingsMap(p=>({...p,[slot.id]:(p[slot.id]||[]).filter(x=>x.id!==b.id)}));
+      await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
+    }catch(e){ alert("Error: "+e.message); }
+  };
+
+  const handleCreatePeriod=async()=>{
+    if(!periodName.trim()||!periodStart||!periodEnd) return;
+    try{
+      const res=await createPeriod({trainer_id:trainerId,name:periodName.trim(),start_date:periodStart,end_date:periodEnd},token);
+      const created=Array.isArray(res)?res[0]:res;
+      if(created){ setPeriods(p=>[created,...p]); setPeriodName(""); setShowNewPeriod(false); }
+    }catch(e){ alert("Error: "+e.message); }
+  };
+
+  const handleDeletePeriod=async(id)=>{
+    if(!window.confirm("Delete this schedule period? Existing bookings are not affected.")) return;
+    try{
+      await deletePeriodRow(id,token);
+      setPeriods(p=>p.filter(x=>x.id!==id));
+      if(expandedPeriod===id) setExpandedPeriod(null);
+    }catch(e){ alert("Error: "+e.message); }
+  };
+
+  const toggleExpandPeriod=(period)=>{
+    if(expandedPeriod===period.id){ setExpandedPeriod(null); return; }
+    setExpandedPeriod(period.id);
+    if(!periodSlotsMap[period.id]){
+      getPeriodSlots(period.id,token).then(r=>setPeriodSlotsMap(p=>({...p,[period.id]:r||[]}))).catch(()=>{});
+    }
+  };
+
+  const togglePeriodSlot=async(period,slot)=>{
+    const existing=(periodSlotsMap[period.id]||[]).find(ps=>ps.day_of_week===periodDayIdx&&ps.start_time_min===slot.start_time_min);
+    if(existing){
+      try{ await removePeriodSlotRow(existing.id,token); setPeriodSlotsMap(p=>({...p,[period.id]:p[period.id].filter(x=>x.id!==existing.id)})); }
+      catch(e){ alert("Error: "+e.message); }
+    }else{
+      try{
+        const res=await addPeriodSlot({period_id:period.id,day_of_week:periodDayIdx,start_time_min:slot.start_time_min},token);
+        const created=Array.isArray(res)?res[0]:res;
+        if(created) setPeriodSlotsMap(p=>({...p,[period.id]:[...(p[period.id]||[]),created]}));
+      }catch(e){ alert("Error: "+e.message); }
+    }
   };
 
   return(
@@ -728,10 +863,13 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
                     {slotBks.map((b,j)=>{
                       const cp=b.profiles;
                       const full=clients.find(c=>c.id===cp?.id);
-                      return(<button key={j} onClick={()=>full&&onViewClient?.(full)} style={{background:full?C.pink+"22":C.surface2,border:`1px solid ${full?C.pink+"55":C.border}`,borderRadius:20,padding:"5px 12px",display:"flex",alignItems:"center",gap:6,cursor:full?"pointer":"default",fontFamily:"inherit"}}>
-                        <Avatar initials={cp?.initials} size={20} avatarUrl={cp?.avatar_url}/>
-                        <span style={{color:full?C.white:C.muted,fontSize:12,fontWeight:600}}>{cp?.name||"Unknown"}</span>
-                      </button>);
+                      return(<div key={j} style={{background:full?C.pink+"22":C.surface2,border:`1px solid ${full?C.pink+"55":C.border}`,borderRadius:20,padding:"5px 6px 5px 12px",display:"flex",alignItems:"center",gap:6}}>
+                        <div onClick={()=>full&&onViewClient?.(full)} style={{display:"flex",alignItems:"center",gap:6,cursor:full?"pointer":"default"}}>
+                          <Avatar initials={cp?.initials} size={20} avatarUrl={cp?.avatar_url}/>
+                          <span style={{color:full?C.white:C.muted,fontSize:12,fontWeight:600}}>{cp?.name||"Unknown"}</span>
+                        </div>
+                        <button onClick={()=>handleCancelBooking(b,slot)} style={{background:"none",border:"none",color:C.pink,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"0 2px",lineHeight:1}}>✕</button>
+                      </div>);
                     })}
                   </div>
                 )}
@@ -757,6 +895,65 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
           </div>
         </div>
       )}
+
+      {/* Schedule Periods */}
+      <div style={{padding:"20px 20px 0"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <SL style={{marginBottom:0}}>Schedule Periods</SL>
+          <button onClick={()=>setShowNewPeriod(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showNewPeriod?"▲ Cancel":"+ New Period"}</button>
+        </div>
+        <div style={{color:C.muted,fontSize:12,marginBottom:10,lineHeight:1.5}}>Define which slots are active during a specific date range (e.g. summer hours). When no period covers today, the default slots above apply.</div>
+        {showNewPeriod&&(
+          <Card style={{marginBottom:10}}>
+            <input value={periodName} onChange={e=>setPeriodName(e.target.value)} placeholder="Period name (e.g. Summer 2026)" style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <input type="date" value={periodStart} onChange={e=>setPeriodStart(e.target.value)} style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit"}}/>
+              <input type="date" value={periodEnd} onChange={e=>setPeriodEnd(e.target.value)} style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit"}}/>
+            </div>
+            <GBtn label="Create Period" onClick={handleCreatePeriod} style={{width:"100%"}}/>
+          </Card>
+        )}
+        {periodsLoaded&&periods.length===0&&<Empty msg="No schedule periods — default slots apply"/>}
+        {periods.map(period=>{
+          const isExpanded=expandedPeriod===period.id;
+          const isActiveNow=todayStr>=period.start_date&&todayStr<=period.end_date;
+          const daySlotIds=new Set((periodSlotsMap[period.id]||[]).filter(ps=>ps.day_of_week===periodDayIdx).map(ps=>ps.start_time_min));
+          return(
+            <Card key={period.id} glow={isActiveNow?C.cyan:null} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{color:C.white,fontSize:14,fontWeight:700}}>{period.name} {isActiveNow&&<span style={{color:C.cyan,fontSize:11,fontWeight:800}}>· Active</span>}</div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{fmtDate(period.start_date)} → {fmtDate(period.end_date)}</div>
+                </div>
+                <div style={{display:"flex",gap:6,flexShrink:0}}>
+                  <button onClick={()=>toggleExpandPeriod(period)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{isExpanded?"▲ Hide":"Manage slots"}</button>
+                  <button onClick={()=>handleDeletePeriod(period.id)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+                </div>
+              </div>
+              {isExpanded&&(
+                <div style={{marginTop:14}}>
+                  <div style={{display:"flex",gap:4,marginBottom:10}}>
+                    {WDAYS.map((d,i)=>(
+                      <button key={i} onClick={()=>setPeriodDayIdx(i)} style={{flex:1,padding:"7px 2px",borderRadius:8,border:"none",cursor:"pointer",background:periodDayIdx===i?C.cyan:C.surface2,color:periodDayIdx===i?C.bg:C.muted,fontSize:11,fontWeight:800}}>{d}</button>
+                    ))}
+                  </div>
+                  {periodDaySlots.length===0
+                    ? <Empty msg="No default slots defined for this day — add one above first"/>
+                    : <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {periodDaySlots.map(slot=>{
+                          const checked=daySlotIds.has(slot.start_time_min);
+                          return(
+                            <button key={slot.id} onClick={()=>togglePeriodSlot(period,slot)} style={{background:checked?C.cyan+"33":C.surface2,border:`1px solid ${checked?C.cyan:C.border}`,borderRadius:7,padding:"7px 11px",color:checked?C.cyan:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{checked?"✓ ":""}{toTime(slot.start_time_min)}</button>
+                          );
+                        })}
+                      </div>
+                  }
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 };

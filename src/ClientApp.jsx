@@ -48,6 +48,19 @@ const getPackage  = (uid,tk) => dbGet("packages",`client_id=eq.${uid}&is_active=
 const getSessions = (uid,tk) => dbGet("sessions",`client_id=eq.${uid}&order=session_date.desc&select=*,session_notes(*),exercises(*)`,tk);
 const getPRs      = (uid,tk) => dbGet("personal_records",`client_id=eq.${uid}&order=record_date.desc`,tk);
 const getSlots    = (dow,tk) => dbGet("schedule_slots",`day_of_week=eq.${dow}&is_active=eq.true&order=start_time_min.asc`,tk);
+const getActivePeriodForToday = (tk) => { const t=new Date().toISOString().split("T")[0]; return dbGet("schedule_periods",`start_date=lte.${t}&end_date=gte.${t}&order=start_date.desc&limit=1`,tk).then(r=>r?.[0]); };
+const getAllSlotsForDay = (dow,tk) => dbGet("schedule_slots",`day_of_week=eq.${dow}&order=start_time_min.asc`,tk);
+// Uses the active Schedule Period's slots for today's date if one exists, else falls back to the default is_active slots
+const getActiveSlots = async (dow,tk) => {
+  const period = await getActivePeriodForToday(tk).catch(()=>null);
+  if(!period) return getSlots(dow,tk);
+  const [pslots,allSlots] = await Promise.all([
+    dbGet("period_slots",`period_id=eq.${period.id}&day_of_week=eq.${dow}`,tk),
+    getAllSlotsForDay(dow,tk),
+  ]);
+  const times = new Set((pslots||[]).map(p=>p.start_time_min));
+  return (allSlots||[]).filter(s=>times.has(s.start_time_min));
+};
 const getDayBooks = (date,tk)=> dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=slot_id`,tk);
 const getMyBooks  = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=eq.${date}&select=*`,tk);
 const bookSlot    = (slotId,uid,date,tk) => dbPost("bookings",{slot_id:slotId,client_id:uid,book_date:date},tk);
@@ -86,6 +99,18 @@ const toTime = (min) => {
 const toSlot = (s) => `${toTime(s)} — ${toTime(s+SESS_MIN)}`;
 const fmtDate= (iso) => { if(!iso) return ""; return new Date(iso+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"}); };
 const fmtMemberSince=(iso)=>{ if(!iso) return ""; return new Date(iso).toLocaleDateString("en-US",{month:"long",year:"numeric"}); };
+const friendlyAuthError=(raw)=>{
+  let parsed=null;
+  try{ parsed=JSON.parse(raw); }catch{ return "Something went wrong. Please try again."; }
+  const code=(parsed.error_code||parsed.code||parsed.error||"").toString().toLowerCase();
+  const msg=(parsed.msg||parsed.error_description||parsed.message||"").toLowerCase();
+  if(code.includes("invalid_credentials")||msg.includes("invalid login credentials")) return "Incorrect email or password.";
+  if(msg.includes("email not confirmed")) return "Please confirm your email before logging in — check your inbox.";
+  if(code.includes("user_already_exists")||msg.includes("already registered")) return "An account with this email already exists. Try logging in instead.";
+  if(msg.includes("rate limit")||msg.includes("too many")) return "Too many attempts. Please wait a moment and try again.";
+  if(msg.includes("password")&&msg.includes("short")) return "Password is too short.";
+  return parsed.msg||parsed.error_description||parsed.error||"Something went wrong. Please try again.";
+};
 const todayISO = () => new Date().toISOString().split("T")[0];
 const todayDow = () => { const d=new Date().getDay(); return d===0?6:d-1; };
 const calcDayNum = (sessionsUsedBefore, sessionsPerWeek=3) => (sessionsUsedBefore % sessionsPerWeek) + 1;
@@ -208,7 +233,7 @@ const LoginScreen=({onLogin,onSignUp})=>{
   const handle=async()=>{
     if(!email||!pw) return; setL(true); setErr("");
     try{ await onLogin(email,pw); }
-    catch(e){ setErr(e.message||"Wrong email or password."); }
+    catch(e){ setErr(friendlyAuthError(e.message)); }
     setL(false);
   };
   const inp={background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",color:C.white,fontSize:15,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
@@ -240,7 +265,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
   const handle=async()=>{
     if(!name||!email||!pw) return; setL(true); setErr("");
     try{ const ok=await onSignUp(name.trim(),email,pw,phone.trim()||null); if(!ok) setDone(true); }
-    catch(e){ setErr(e.message||"Sign up failed."); }
+    catch(e){ setErr(friendlyAuthError(e.message)); }
     setL(false);
   };
   const inp={background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",color:C.white,fontSize:15,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
@@ -286,7 +311,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
     const dow=todayDow(); const today=todayISO();
     const ws=WDATES_BASE[0].iso; const we=WDATES_BASE[5].iso;
     Promise.all([
-      getSlots(dow,token),
+      getActiveSlots(dow,token),
       getMyBooks(userId,today,token),
       getMyUpcomingBooks(userId,today,token),
       getMyWeekBooks(userId,ws,we,token),
@@ -583,7 +608,7 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
     if(isSun||isPastDay){ setSlots([]); setCounts({}); setMyB([]); setMyWaitlist([]); setLoad(false); return; }
     setLoad(true); setReqSent(false);
     Promise.all([
-      getSlots(selDay.dow,token),
+      getActiveSlots(selDay.dow,token),
       getDayBooks(selDay.iso,token),
       getMyBooks(userId,selDay.iso,token),
       getMyWaitlistDay(userId,selDay.iso,token),
