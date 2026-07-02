@@ -131,7 +131,7 @@ const Avatar=({initials,size=44,avatarUrl})=>(avatarUrl?<img src={avatarUrl} sty
 const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.pink,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
 const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
-const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"}};
+const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"}};
 const StatusBadge=({status})=>{
   const cfg=STATUS_CFG[status];
   if(!cfg) return null;
@@ -143,7 +143,10 @@ const computeStatusMap=(items,now)=>{
   const withDt=items.map(it=>({...it,_dt:sessionDT(it)}));
   const future=withDt.filter(it=>it.status!=="completed"&&it.status!=="cancelled"&&it._dt>nowMs).sort((a,b)=>a._dt-b._dt);
   const map={};
-  withDt.forEach(it=>{ if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed"; });
+  withDt.forEach(it=>{
+    if(it.status==="cancelled") map[it._key]="cancelled";
+    else if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed";
+  });
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
 };
@@ -798,8 +801,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             const isBooking=s._type==="booking";
             const badgeStatus=statusMap[s.id];
             const isCancellable=badgeStatus==="upcoming"||badgeStatus==="booked";
-            const icon=isBooking?"📅":s._type==="completed"?"💪":"⏳";
-            const iconBg=isBooking?C.amber+"22":s._type==="completed"?C.cyan+"22":C.pink+"22";
+            const icon=isBooking?"📅":s._type==="cancelled"?"🚫":s._type==="completed"?"💪":"⏳";
+            const iconBg=isBooking?C.amber+"22":s._type==="cancelled"?C.muted+"22":s._type==="completed"?C.cyan+"22":C.pink+"22";
             return(
             <div key={s.id||i} onClick={isBooking?undefined:()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${badgeStatus!=="completed"?(isBooking?C.amber+"44":C.cyan+"33"):C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:isBooking?"default":"pointer",marginBottom:8,textAlign:"left",boxSizing:"border-box"}}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>

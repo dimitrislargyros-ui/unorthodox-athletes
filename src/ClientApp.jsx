@@ -148,7 +148,7 @@ const GBtn=({label,onClick,style={},sm,ghost,color,disabled})=>{
 const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.cyan,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
 const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
-const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"}};
+const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"}};
 const StatusBadge=({status})=>{
   const cfg=STATUS_CFG[status];
   if(!cfg) return null;
@@ -160,7 +160,10 @@ const computeStatusMap=(items,now)=>{
   const withDt=items.map(it=>({...it,_dt:sessionDT(it)}));
   const future=withDt.filter(it=>it.status!=="completed"&&it.status!=="cancelled"&&it._dt>nowMs).sort((a,b)=>a._dt-b._dt);
   const map={};
-  withDt.forEach(it=>{ if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed"; });
+  withDt.forEach(it=>{
+    if(it.status==="cancelled") map[it._key]="cancelled";
+    else if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed";
+  });
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
 };
@@ -369,6 +372,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   const [myTodayBook,setMyBook]=useState(null);
   const [myUpcomingBooks,setMyUpcomingBooks]=useState([]);
   const [myWeekBooks,setMyWeekBooks]=useState([]);
+  const [todaySlotCount,setTodaySlotCount]=useState(null);
 
   useEffect(()=>{
     const dow=todayDow(); const today=todayISO();
@@ -378,11 +382,14 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
       getMyBooks(userId,today,token),
       getMyUpcomingBooks(userId,today,token),
       getMyWeekBooks(userId,ws,we,token),
-    ]).then(([slots,myBooks,upBooks,wkBooks])=>{
+      getDayBooks(today,token),
+    ]).then(([slots,myBooks,upBooks,wkBooks,dayBooks])=>{
       setTodaySlots(slots||[]);
-      setMyBook((myBooks||[]).find(b=>b.status==="booked")||null);
+      const booked=(myBooks||[]).find(b=>b.status==="booked")||null;
+      setMyBook(booked);
       setMyUpcomingBooks(upBooks||[]);
       setMyWeekBooks(wkBooks||[]);
+      if(booked) setTodaySlotCount((dayBooks||[]).filter(b=>b.slot_id===booked.slot_id).length);
     }).catch(()=>{});
   },[token,userId]);
 
@@ -443,26 +450,25 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
     if(h>0) return `${h}h ${mn}m`;
     return `${mn}m`;
   };
-  const fmtCountdown=(startMin,dateStr)=>{
-    const mins=Math.round((sessionDT({session_date:dateStr,start_time_min:startMin})-now.getTime())/60000);
-    if(mins<=0) return "Starting now!";
-    const h=Math.floor(mins/60),m=mins%60;
-    return h>0?`in ${h}h ${m}min`:`in ${m}min`;
+  const countdownHMS=(startMin,dateStr)=>{
+    const totalSec=Math.floor((sessionDT({session_date:dateStr,start_time_min:startMin})-now.getTime())/1000);
+    if(totalSec<=0) return null;
+    return {h:Math.floor(totalSec/3600),m:Math.floor((totalSec%3600)/60),s:totalSec%60};
   };
 
-  // Self-adjusting ticker: 1s resolution inside the final hour before today's session, 60s otherwise
+  // Self-adjusting ticker: 1s resolution whenever today's session countdown is on screen, 60s otherwise
   useEffect(()=>{
     let timer;
     const tick=()=>{
       setNow(new Date());
-      let msToNext=null;
-      if(myTodayBook&&myBookedSlot) msToNext=sessionDT({session_date:today,start_time_min:myBookedSlot.start_time_min})-Date.now();
-      const interval=(msToNext!=null&&Math.abs(msToNext)<60*60000)?1000:60000;
+      const interval=(myTodayBook&&myBookedSlot)?1000:60000;
       timer=setTimeout(tick,interval);
     };
     tick();
     return ()=>clearTimeout(timer);
   },[myTodayBook,myBookedSlot?.start_time_min]);
+
+  const heroCd=myTodayBook&&myBookedSlot?countdownHMS(myBookedSlot.start_time_min,today):null;
 
   const statusPool=[
     ...sessions.filter(s=>s.status==="booked"||s.status==="completed"),
@@ -503,13 +509,34 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
       {/* TOP: today's session countdown, or Book Session CTA */}
       {myTodayBook&&myBookedSlot?(
         <div style={{padding:"14px 20px 0"}}>
-          <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:18,padding:"22px 20px"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              <div style={{color:C.bg,fontSize:13,fontWeight:800,opacity:0.9}}>⏱ {fmtCountdown(myBookedSlot.start_time_min,today)}</div>
-              {todayDayNum&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 12px",color:C.white,fontSize:12,fontWeight:800}}>Day {todayDayNum}</span>}
+          <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:24,padding:"24px 22px",aspectRatio:"1/0.92",display:"flex",flexDirection:"column",justifyContent:"space-between",boxSizing:"border-box"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"5px 12px",color:C.white,fontSize:12,fontWeight:800}}>{now.toLocaleDateString("en-GB",{weekday:"long"})}</span>
+              {todayDayNum&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"5px 12px",color:C.white,fontSize:12,fontWeight:800}}>Day {todayDayNum}</span>}
             </div>
-            <div style={{color:C.bg,fontSize:38,fontWeight:900,lineHeight:1.1}}>{toTime(myBookedSlot.start_time_min)}</div>
-            <div style={{color:C.bg,fontSize:13,opacity:0.85,marginTop:6,fontWeight:600}}>Your session today · 90 min · Booked ✓</div>
+
+            <div style={{textAlign:"center"}}>
+              <div style={{color:C.bg,fontSize:12,fontWeight:800,letterSpacing:1.5,opacity:0.75,marginBottom:8}}>{heroCd?"STARTS IN":"STARTING NOW"}</div>
+              {heroCd?(
+                <div style={{display:"flex",justifyContent:"center",alignItems:"baseline",gap:2}}>
+                  {heroCd.h>0&&<>
+                    <span style={{color:C.bg,fontSize:46,fontWeight:900,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{String(heroCd.h).padStart(2,"0")}</span>
+                    <span style={{color:C.bg,fontSize:20,fontWeight:800,opacity:0.7,marginRight:6}}>h</span>
+                  </>}
+                  <span style={{color:C.bg,fontSize:46,fontWeight:900,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{String(heroCd.m).padStart(2,"0")}</span>
+                  <span style={{color:C.bg,fontSize:20,fontWeight:800,opacity:0.7,marginRight:6}}>m</span>
+                  <span style={{color:C.bg,fontSize:46,fontWeight:900,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{String(heroCd.s).padStart(2,"0")}</span>
+                  <span style={{color:C.bg,fontSize:20,fontWeight:800,opacity:0.7}}>s</span>
+                </div>
+              ):<div style={{color:C.bg,fontSize:30,fontWeight:900}}>🔥 Let's go!</div>}
+              <div style={{color:C.bg,fontSize:19,fontWeight:800,marginTop:10,opacity:0.9}}>{toTime(myBookedSlot.start_time_min)}</div>
+            </div>
+
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(0,0,0,0.18)",borderRadius:14,padding:"11px 16px"}}>
+              <span style={{color:C.bg,fontSize:12,fontWeight:700}}>⏱ 90 min</span>
+              {todaySlotCount!=null&&<span style={{color:C.bg,fontSize:12,fontWeight:700}}>👥 {todaySlotCount}/{GYM_CAP} spots</span>}
+              <span style={{color:C.bg,fontSize:12,fontWeight:700}}>✓ Booked</span>
+            </div>
           </div>
         </div>
       ):pkg&&weekFull?(
@@ -621,7 +648,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
   const [counts,setCounts]=useState({});
   const [myBooks,setMyB]=useState([]);
   const [myWaitlist,setMyWaitlist]=useState([]);
-  const [myWeekBookCount,setMyWeekBookCount]=useState(0);
+  const [myWeekBookDates,setMyWeekBookDates]=useState(new Set());
   const [loading,setLoad]=useState(false);
   const [toast,setToast]=useState(null);
   const [weekMsgVisible,setWeekMsgVisible]=useState(false);
@@ -645,11 +672,12 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
   const isPastDay=selDay.iso<todayStr;
   const isCurrentWeek=weekOffset===0;
 
-  const thisWeekSessionCount=sessions.filter(s=>
+  const thisWeekSessionDates=new Set(sessions.filter(s=>
     (s.status==="booked"||s.status==="completed")&&
     s.session_date>=WDATES_BASE[0].iso&&s.session_date<=WDATES_BASE[5].iso
-  ).length;
-  const currentWeekFull=isCurrentWeek&&!!pkg&&(myWeekBookCount+thisWeekSessionCount)>=spw;
+  ).map(s=>s.session_date));
+  const combinedWeekDates=new Set([...thisWeekSessionDates,...myWeekBookDates]);
+  const currentWeekFull=isCurrentWeek&&!!pkg&&combinedWeekDates.size>=spw;
 
   const [weekBookDates,setWeekBookDates]=useState(new Set());
   const sessionDaySet=new Set([
@@ -659,8 +687,8 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
 
   useEffect(()=>{
     const ws=WDATES_BASE[0].iso,we=WDATES_BASE[5].iso;
-    dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=id`,token)
-      .then(r=>setMyWeekBookCount((r||[]).length)).catch(()=>{});
+    dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,token)
+      .then(r=>setMyWeekBookDates(new Set((r||[]).map(b=>b.book_date)))).catch(()=>{});
   },[]);
 
   useEffect(()=>{
@@ -706,7 +734,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
       await cancelBook(already.id,token).catch(()=>{});
       setMyB(p=>p.filter(b=>b.id!==already.id));
       setCounts(p=>({...p,[slot.id]:Math.max((p[slot.id]||1)-1,0)}));
-      if(isCurrentWeek) setMyWeekBookCount(p=>Math.max(p-1,0));
+      if(isCurrentWeek) setMyWeekBookDates(p=>{ const n=new Set(p); n.delete(selDay.iso); return n; });
       setWeekBookDates(p=>{ const n=new Set(p); n.delete(selDay.iso); return n; });
       adjustPkgUsed(-1);
       const waitlist=await getSlotWaitlist(slot.id,selDay.iso,token).catch(()=>[]);
@@ -743,7 +771,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
     if(cnt>=GYM_CAP){ const next=slots.find(s=>s.id!==slot.id&&(counts[s.id]||0)<GYM_CAP); setToast({slot,next}); return; }
     try{
       const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk;
-      if(created){ setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); if(isCurrentWeek) setMyWeekBookCount(p=>p+1); setWeekBookDates(p=>new Set(p).add(selDay.iso)); adjustPkgUsed(1); }
+      if(created){ setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); if(isCurrentWeek) setMyWeekBookDates(p=>new Set(p).add(selDay.iso)); setWeekBookDates(p=>new Set(p).add(selDay.iso)); adjustPkgUsed(1); }
     }catch(e){ alert("Error: "+e.message); }
   };
 
