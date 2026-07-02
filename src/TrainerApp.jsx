@@ -77,11 +77,20 @@ const getAllSlotsForDay  = (dow,tk)         => dbGet("schedule_slots",`day_of_we
 const addPeriodSlot      = (d,tk)           => dbPost("period_slots",d,tk);
 const removePeriodSlotRow= (id,tk)          => dbDelete("period_slots",`id=eq.${id}`,tk);
 
+// ── Workout templates ──
+const getTemplates  = (trainerId,tk) => dbGet("workout_templates",`trainer_id=eq.${trainerId}&order=name.asc`,tk);
+const createTemplate= (d,tk)         => dbPost("workout_templates",d,tk);
+
+// ── Personal records (for monthly report) ──
+const getClientPRs  = (uid,tk) => dbGet("personal_records",`client_id=eq.${uid}&order=record_date.desc`,tk);
+
 // ── Time utils ──
 const toTime  = (min) => { const h=Math.floor(min/60),m=min%60; return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`; };
 const toSlot  = (s)   => `${toTime(s)} — ${toTime(s+SESS_MIN)}`;
 const fmtDate = (iso) => { if(!iso) return ""; return new Date(iso+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"2-digit"}); };
 const fmtMemberSince=(iso)=>{ if(!iso) return ""; return new Date(iso).toLocaleDateString("en-US",{month:"long",year:"numeric"}); };
+// PostgREST returns embedded session_notes as an object (unique FK) or an array depending on schema-cache detection — normalize both
+const firstNote=(sn)=>Array.isArray(sn)?(sn[0]||null):(sn||null);
 const friendlyAuthError=(raw)=>{
   let parsed=null;
   try{ parsed=JSON.parse(raw); }catch{ return "Something went wrong. Please try again."; }
@@ -141,17 +150,41 @@ const computeStatusMap=(items,now)=>{
 const BottomNav=({active,onNav,scheduleBadge=0})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><div style={{position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:20}}>{t.i}</span>{t.id==="schedule"&&scheduleBadge>0&&<span style={{position:"absolute",top:-4,right:-6,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
 
 // ── Session Editor ──
-const SessionEditor=({session,spw,token,onClose,onSaved})=>{
-  const note=session.session_notes?.[0]||null;
+const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
+  const note=firstNote(session.session_notes);
   const [tNote,setTNote]=useState(note?.trainer_note||"");
   const [exs,setExs]=useState(session.exercises||[]);
   const [newEx,setNewEx]=useState({name:"",sets:"",reps:"",weight:""});
   const [showAdd,setShowAdd]=useState(false);
   const [saving,setSaving]=useState(false);
   const [saved,setSaved]=useState(false);
+  const [templates,setTemplates]=useState([]);
+  const [showTemplates,setShowTemplates]=useState(false);
+  const [savingTemplate,setSavingTemplate]=useState(false);
   const dn=session.day_num;
 
+  useEffect(()=>{ getTemplates(trainerId,token).then(r=>setTemplates(r||[])).catch(()=>{}); },[]);
+
   const addEx=()=>{ if(!newEx.name) return; setExs(p=>[...p,{...newEx}]); setNewEx({name:"",sets:"",reps:"",weight:""}); setShowAdd(false); };
+
+  const handleSaveTemplate=async()=>{
+    if(exs.length===0) return;
+    const name=window.prompt("Template name:");
+    if(!name||!name.trim()) return;
+    setSavingTemplate(true);
+    try{
+      const res=await createTemplate({trainer_id:trainerId,name:name.trim(),exercises:exs},token);
+      const created=Array.isArray(res)?res[0]:res;
+      if(created) setTemplates(p=>[...p,created].sort((a,b)=>a.name.localeCompare(b.name)));
+    }catch(e){ alert("Error: "+e.message); }
+    setSavingTemplate(false);
+  };
+
+  const handleLoadTemplate=(tpl)=>{
+    if(exs.length>0&&!window.confirm(`Replace current exercise list with "${tpl.name}"?`)) return;
+    setExs(tpl.exercises||[]);
+    setShowTemplates(false);
+  };
   const save=async()=>{
     if(saving||saved) return;
     setSaving(true);
@@ -183,8 +216,24 @@ const SessionEditor=({session,spw,token,onClose,onSaved})=>{
 
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <SL style={{marginBottom:0}}>Exercises</SL>
-          <button onClick={()=>setShowAdd(p=>!p)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showAdd?"▲ Cancel":"+ Add"}</button>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setShowTemplates(p=>!p)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.cyan,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showTemplates?"▲ Hide":"Templates"}</button>
+            <button onClick={()=>setShowAdd(p=>!p)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showAdd?"▲ Cancel":"+ Add"}</button>
+          </div>
         </div>
+        {showTemplates&&(
+          <div style={{background:C.surface2,borderRadius:10,padding:"12px",marginBottom:10}}>
+            {templates.length===0
+              ? <div style={{color:C.muted,fontSize:12,marginBottom:8}}>No saved templates yet.</div>
+              : <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                  {templates.map(tpl=>(
+                    <button key={tpl.id} onClick={()=>handleLoadTemplate(tpl)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.white,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>{tpl.name} <span style={{color:C.muted,fontSize:11}}>({(tpl.exercises||[]).length} exercises)</span></button>
+                  ))}
+                </div>
+            }
+            <GBtn label={savingTemplate?"Saving...":"Save current list as template"} onClick={handleSaveTemplate} disabled={savingTemplate||exs.length===0} sm ghost style={{width:"100%"}}/>
+          </div>
+        )}
         {showAdd&&(
           <div style={{background:C.surface2,borderRadius:10,padding:"12px",marginBottom:10}}>
             <div style={{display:"flex",gap:6,marginBottom:8}}>{inp(newEx.name,v=>setNewEx(p=>({...p,name:v})),"Exercise name")}</div>
@@ -452,6 +501,68 @@ const ClientsScreen=({clients,onViewClient})=>{
   );
 };
 
+// ── Monthly Report ──
+const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
+  const now=new Date();
+  const monthStr=now.toISOString().slice(0,7);
+  const monthLabel=now.toLocaleDateString("en-US",{month:"long",year:"numeric"});
+  const monthItems=timeline.filter(t=>t._type!=="booking"&&statusMap[t.id]==="completed"&&t.session_date?.slice(0,7)===monthStr);
+  const weeksElapsed=Math.max(1,Math.ceil(now.getDate()/7));
+  const perWeekAvg=(monthItems.length/weeksElapsed).toFixed(1);
+  const dayBreakdown={};
+  monthItems.forEach(t=>{ dayBreakdown[t._dayNum]=(dayBreakdown[t._dayNum]||0)+1; });
+  const monthPRs=(prs||[]).filter(p=>p.record_date?.slice(0,7)===monthStr);
+  const ratings=monthItems.map(t=>firstNote(t.session_notes)?.rating).filter(r=>r!=null);
+  const avgRating=ratings.length?(ratings.reduce((a,b)=>a+b,0)/ratings.length):null;
+
+  const Row=({label,value})=>(
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+      <span style={{color:C.muted,fontSize:13}}>{label}</span>
+      <span style={{color:C.white,fontSize:14,fontWeight:700}}>{value}</span>
+    </div>
+  );
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px"}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+          <div>
+            <div style={{color:C.white,fontSize:18,fontWeight:800}}>Monthly Report</div>
+            <div style={{color:C.muted,fontSize:13,marginTop:2}}>{client.name} · {monthLabel}</div>
+          </div>
+          <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+        </div>
+        <Row label="Sessions completed this month" value={monthItems.length}/>
+        <Row label="Sessions per week (avg)" value={perWeekAvg}/>
+        <Row label="Package usage" value={pkg?`${pkg.sessions_used} of ${pkg.sessions_total}`:"No active package"}/>
+        <Row label="PRs set this month" value={monthPRs.length}/>
+        <Row label="Average session rating" value={avgRating?`★ ${avgRating.toFixed(1)}`:"No ratings yet"}/>
+        <div style={{marginTop:16}}>
+          <SL>Day Breakdown</SL>
+          {Array.from({length:spw},(_,i)=>i+1).map(d=>(
+            <div key={d} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0"}}>
+              <span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"2px 8px",borderRadius:20}}>Day {d}</span>
+              <span style={{color:C.white,fontSize:13,fontWeight:700}}>{dayBreakdown[d]||0} session{(dayBreakdown[d]||0)!==1?"s":""}</span>
+            </div>
+          ))}
+        </div>
+        {monthPRs.length>0&&(
+          <div style={{marginTop:16}}>
+            <SL>PRs This Month</SL>
+            {monthPRs.map((p,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0"}}>
+                <span style={{color:C.white,fontSize:13}}>{p.exercise}</span>
+                <span style={{color:C.pink,fontSize:13,fontWeight:700}}>{p.weight}{p.unit}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── Client Detail ──
 const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [sessions,setSessions]=useState([]);
@@ -459,6 +570,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [pkg,setPkg]=useState(client._pkg||null);
   const [loading,setLoad]=useState(true);
   const [activeSession,setAS]=useState(null);
+  const [showReport,setShowReport]=useState(false);
+  const [prs,setPrs]=useState(null);
   const [showPkg,setShowPkg]=useState(false);
   const [showLog,setShowLog]=useState(false);
   const [newPkgTotal,setNPT]=useState("10");
@@ -473,6 +586,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [logDayNum,setLogDayNum]=useState(null);
   const spw=pkg?.sessions_per_week||3;
   const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
+  const ratings=sessions.map(s=>firstNote(s.session_notes)?.rating).filter(r=>r!=null);
+  const avgRating=ratings.length?(ratings.reduce((a,b)=>a+b,0)/ratings.length):null;
 
   useEffect(()=>{
     Promise.all([getClientSess(client.id,token), getClientBooks(client.id,token)])
@@ -523,6 +638,25 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     setLogging(false);
   };
 
+  const handleOpenReport=async()=>{
+    if(prs===null){ const r=await getClientPRs(client.id,token).catch(()=>[]); setPrs(r||[]); }
+    setShowReport(true);
+  };
+
+  const handleTogglePaid=async()=>{
+    if(!pkg) return;
+    const newPaid=!pkg.paid;
+    try{
+      await dbPatch("packages",`id=eq.${pkg.id}`,{paid:newPaid},token);
+      const updPkg={...pkg,paid:newPaid};
+      setPkg(updPkg);
+      onClientUpdated({...client,_pkg:updPkg});
+      if(!newPaid&&window.confirm("Send payment reminder to client?")){
+        await postNotification({client_id:client.id,type:"payment_reminder",message:"Your payment for the current package is pending. Please contact your trainer."},token).catch(()=>{});
+      }
+    }catch(e){ alert("Error: "+e.message); }
+  };
+
   const sessDateSet=new Set(sessions.map(s=>s.session_date));
   const bookOnlyItems=(clientBooks||[])
     .filter(b=>!sessDateSet.has(b.book_date))
@@ -558,7 +692,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 
   return(
     <div style={{paddingBottom:80}}>
-      {activeSession&&<SessionEditor session={activeSession} spw={spw} token={token} onClose={()=>setAS(null)} onSaved={updated=>setSessions(p=>p.map(s=>s.id===updated.id?updated:s))}/>}
+      {activeSession&&<SessionEditor session={activeSession} spw={spw} token={token} trainerId={trainerId} onClose={()=>setAS(null)} onSaved={updated=>setSessions(p=>p.map(s=>s.id===updated.id?updated:s))}/>}
+      {showReport&&<MonthlyReportModal client={client} timeline={timeline} statusMap={statusMap} pkg={pkg} prs={prs} spw={spw} onClose={()=>setShowReport(false)}/>}
 
       <div style={{padding:"22px 20px 0",display:"flex",alignItems:"center",gap:12}}>
         <button onClick={onBack} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 12px",color:C.muted,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>← Back</button>
@@ -574,13 +709,14 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           {client.created_at&&<div style={{color:C.muted,fontSize:12,marginTop:3}}>Member since {fmtMemberSince(client.created_at)}</div>}
         </div>
         <div style={{display:"flex",gap:10}}>
-          {[{v:timeline.length,l:"Sessions"},{v:`${spw}x`,l:"Per Week"},{v:left??"-",l:"Pkg Left",warn:left!=null&&left<=2}].map(s=>(
+          {[{v:timeline.length,l:"Sessions"},{v:`${spw}x`,l:"Per Week"},{v:left??"-",l:"Pkg Left",warn:left!=null&&left<=2},{v:avgRating?`★${avgRating.toFixed(1)}`:"-",l:"Avg Rating"}].map(s=>(
             <div key={s.l} style={{background:C.surface,border:`1px solid ${s.warn?C.pink+"44":C.border}`,borderRadius:10,padding:"10px 14px",textAlign:"center",minWidth:60}}>
               <div style={{color:s.warn?C.pink:C.cyan,fontSize:20,fontWeight:900}}>{s.v}</div>
               <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>{s.l}</div>
             </div>
           ))}
         </div>
+        <button onClick={handleOpenReport} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 16px",color:C.cyan,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📊 Monthly Report</button>
       </div>
 
       {/* Package */}
@@ -629,6 +765,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             <div style={{height:5,background:"rgba(0,0,0,0.25)",borderRadius:3,marginTop:12}}>
               <div style={{width:`${(pkg.sessions_used/pkg.sessions_total)*100}%`,height:"100%",borderRadius:3,background:"white"}}/>
             </div>
+            <button onClick={handleTogglePaid} style={{marginTop:12,background:pkg.paid?"rgba(0,0,0,0.25)":"rgba(0,0,0,0.4)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>{pkg.paid?"✓ Paid":"⚠ Unpaid — tap to mark paid"}</button>
           </div>
         ):<Card><Empty msg="No active package"/></Card>}
       </div>
@@ -740,8 +877,15 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
 
   const handleAdd=async()=>{
     if(!selectedStart||conflict) return;
-    try{ const res=await addSlot({trainer_id:trainerId,day_of_week:selDay.dow,start_time_min:selectedStart},token); const c=Array.isArray(res)?res[0]:res; if(c)setSlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min)); setPickH(null); setPickM(0); }
-    catch(e){ alert("Error: "+e.message); }
+    try{
+      const res=await addSlot({trainer_id:trainerId,day_of_week:selDay.dow,start_time_min:selectedStart},token);
+      const c=Array.isArray(res)?res[0]:res;
+      if(c){
+        setSlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min));
+        await postAnnouncement({title:"New Slot Added",body:`New time slot: ${WDAYS[selDay.dow]} ${toTime(selectedStart)}`},token).catch(()=>{});
+      }
+      setPickH(null); setPickM(0);
+    }catch(e){ alert("Error: "+e.message); }
   };
 
   const handleRemove=async(slot)=>{

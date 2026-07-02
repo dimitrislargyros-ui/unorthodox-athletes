@@ -76,10 +76,11 @@ const uploadAvatar=async(uid,file,tk)=>{
   return `${SB_URL}/storage/v1/object/public/avatars/${path}?t=${Date.now()}`;
 };
 
-const saveClientNote = async (sessId, note, tk) => {
+const saveClientNote = async (sessId, note, tk, rating=null) => {
   const ex = await dbGet("session_notes",`session_id=eq.${sessId}`,tk).catch(()=>[]);
-  if(ex?.length>0) return dbPatch("session_notes",`session_id=eq.${sessId}`,{client_note:note,updated_at:new Date().toISOString()},tk);
-  return dbPost("session_notes",{session_id:sessId,client_note:note,updated_at:new Date().toISOString()},tk);
+  const body = {client_note:note,updated_at:new Date().toISOString(),...(rating!=null&&{rating})};
+  if(ex?.length>0) return dbPatch("session_notes",`session_id=eq.${sessId}`,body,tk);
+  return dbPost("session_notes",{session_id:sessId,...body},tk);
 };
 
 const getAnnouncements = (tk) => dbGet("announcements","order=created_at.desc&limit=20",tk);
@@ -90,6 +91,10 @@ const leaveWaitlist    = (id,tk) => dbDelete("waitlist",`id=eq.${id}`,tk);
 const getSlotWaitlist  = (slotId,date,tk) => dbGet("waitlist",`slot_id=eq.${slotId}&book_date=eq.${date}&order=position.asc`,tk);
 const getMyUpcomingBooks = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${date}&status=eq.booked&select=*,schedule_slots(start_time_min)`,tk);
 const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,tk);
+const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max(newUsed,0)},tk);
+const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
+const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
+const postNotification   = (d,tk)   => dbPost("notifications",d,tk);
 
 // ── Time utils ──
 const toTime = (min) => {
@@ -159,7 +164,7 @@ const computeStatusMap=(items,now)=>{
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
 };
-const BottomNav=({active,onNav,avatarUrl,initials})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"home",l:"Home",i:"⊞"},{id:"schedule",l:"Schedule",i:"◫"},{id:"announcements",l:"Gym",i:"◎"},{id:"profile",l:"Profile",i:"◯"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.cyan:C.muted,padding:"0 8px"}}>{t.id==="profile"?(avatarUrl?<img src={avatarUrl} style={{width:22,height:22,borderRadius:"50%",objectFit:"cover",border:`2px solid ${active==="profile"?C.cyan:"transparent"}`}} alt="av"/>:<div style={{width:22,height:22,borderRadius:"50%",background:active==="profile"?C.cyan+"33":C.surface2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:active==="profile"?C.cyan:C.muted}}>{initials||"◯"}</div>):<span style={{fontSize:18}}>{t.i}</span>}<span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
+const BottomNav=({active,onNav,avatarUrl,initials})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"home",l:"Home",i:"⊞"},{id:"schedule",l:"Schedule",i:"◫"},{id:"announcements",l:"Announcements",i:"◎"},{id:"profile",l:"Profile",i:"◯"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.cyan:C.muted,padding:"0 8px"}}>{t.id==="profile"?(avatarUrl?<img src={avatarUrl} style={{width:22,height:22,borderRadius:"50%",objectFit:"cover",border:`2px solid ${active==="profile"?C.cyan:"transparent"}`}} alt="av"/>:<div style={{width:22,height:22,borderRadius:"50%",background:active==="profile"?C.cyan+"33":C.surface2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:active==="profile"?C.cyan:C.muted}}>{initials||"◯"}</div>):<span style={{fontSize:18}}>{t.i}</span>}<span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
 
 // ── Session Sheet ──
 const SessionSheet=({session,token,onClose})=>{
@@ -169,14 +174,16 @@ const SessionSheet=({session,token,onClose})=>{
   const spw = session._pkg_spw || 3;
   const dayNum = session.sessions_used_before!=null ? calcDayNum(session.sessions_used_before, spw) : session.day_num;
   const [clientNote, setClientNote] = useState(noteObj?.client_note||"");
+  const [rating, setRating] = useState(noteObj?.rating||0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const isCompleted = session.status==="completed";
 
   const save = async () => {
     if(saving||saved) return;
     setSaving(true);
     try {
-      await saveClientNote(session.id, clientNote, token);
+      await saveClientNote(session.id, clientNote, token, isCompleted?(rating||null):null);
       setSaved(true);
       setTimeout(()=>{ setSaved(false); onClose(); }, 1200);
     } catch(e) { alert("Error saving: "+e.message); }
@@ -220,7 +227,34 @@ const SessionSheet=({session,token,onClose})=>{
         <textarea value={clientNote} onChange={e=>setClientNote(e.target.value)}
           placeholder="How did it go? Anything to remember..."
           style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.white,fontSize:14,fontFamily:"inherit",resize:"none",height:90,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:12}}/>
+
+        {isCompleted&&(
+          <>
+            <SL>Rate This Session</SL>
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              {[1,2,3,4,5].map(n=>(
+                <button key={n} onClick={()=>setRating(n)} style={{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:30,lineHeight:1,color:n<=rating?C.amber:C.border,fontFamily:"inherit"}}>★</button>
+              ))}
+            </div>
+          </>
+        )}
+
         <GBtn label={saving?"Saving...":saved?"✓ Saved!":"Save Notes"} onClick={save} disabled={saving} style={{width:"100%"}}/>
+      </div>
+    </div>
+  );
+};
+
+// ── Notification Modal ──
+const NotificationModal=({notification,onDismiss})=>{
+  if(!notification) return null;
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+      <div style={{background:C.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${C.cyan}33`}}>
+        <div style={{fontSize:28,marginBottom:10}}>🔔</div>
+        <div style={{color:C.white,fontSize:15,fontWeight:700,marginBottom:8}}>Notification</div>
+        <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:20}}>{notification.message}</div>
+        <GBtn label="Got it" onClick={()=>onDismiss(notification.id)} style={{width:"100%"}}/>
       </div>
     </div>
   );
@@ -259,12 +293,26 @@ const LoginScreen=({onLogin,onSignUp})=>{
 };
 
 // ── Sign Up ──
+const EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const PwReq=({ok,label})=>(<div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:ok?C.green:C.muted}}><span>{ok?"✓":"○"}</span>{label}</div>);
 const SignUpScreen=({onSignUp,onBack})=>{
-  const [name,setName]=useState(""); const [email,setE]=useState(""); const [pw,setPw]=useState(""); const [phone,setPhone]=useState("");
+  const [name,setName]=useState(""); const [email,setE]=useState(""); const [pw,setPw]=useState(""); const [confirmPw,setConfirmPw]=useState(""); const [phone,setPhone]=useState("");
   const [loading,setL]=useState(false); const [err,setErr]=useState(""); const [done,setDone]=useState(false);
+
+  const pwChecks={
+    len: pw.length>=8,
+    upper: /[A-Z]/.test(pw),
+    num: /[0-9]/.test(pw),
+    special: /[^A-Za-z0-9]/.test(pw),
+  };
+  const pwValid=Object.values(pwChecks).every(Boolean);
+  const emailValid=EMAIL_RE.test(email.trim());
+  const pwMatch=pw.length>0&&pw===confirmPw;
+  const canSubmit=name.trim()&&emailValid&&pwValid&&pwMatch&&!loading;
+
   const handle=async()=>{
-    if(!name||!email||!pw) return; setL(true); setErr("");
-    try{ const ok=await onSignUp(name.trim(),email,pw,phone.trim()||null); if(!ok) setDone(true); }
+    if(!canSubmit) return; setL(true); setErr("");
+    try{ const ok=await onSignUp(name.trim(),email.trim(),pw,phone.trim()||null); if(!ok) setDone(true); }
     catch(e){ setErr(friendlyAuthError(e.message)); }
     setL(false);
   };
@@ -279,7 +327,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
   );
   return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 28px"}}>
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,marginBottom:40}}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,marginBottom:32}}>
         <Logo size={88}/>
         <div style={{textAlign:"center"}}>
           <div style={{color:C.white,fontSize:22,fontWeight:900,letterSpacing:2,textTransform:"uppercase"}}>Create Account</div>
@@ -288,11 +336,26 @@ const SignUpScreen=({onSignUp,onBack})=>{
       </div>
       <div style={{width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:12}}>
         <input style={inp} placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
-        <input style={inp} placeholder="Email address" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
-        <input style={inp} type="password" placeholder="Password (min 6 chars)" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <div>
+          <input style={inp} placeholder="Email address" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+          {email.length>0&&!emailValid&&<div style={{color:C.pink,fontSize:12,marginTop:5}}>Enter a valid email address.</div>}
+        </div>
+        <input style={inp} type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        {pw.length>0&&(
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",display:"flex",flexDirection:"column",gap:5}}>
+            <PwReq ok={pwChecks.len} label="At least 8 characters"/>
+            <PwReq ok={pwChecks.upper} label="1 uppercase letter"/>
+            <PwReq ok={pwChecks.num} label="1 number"/>
+            <PwReq ok={pwChecks.special} label="1 special character"/>
+          </div>
+        )}
+        <div>
+          <input style={inp} type="password" placeholder="Confirm password" value={confirmPw} onChange={e=>setConfirmPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+          {confirmPw.length>0&&!pwMatch&&<div style={{color:C.pink,fontSize:12,marginTop:5}}>Passwords don't match.</div>}
+        </div>
         <input style={{...inp,opacity:0.7}} placeholder="Phone number (optional)" value={phone} onChange={e=>setPhone(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {err&&<div style={{color:C.pink,fontSize:13,textAlign:"center"}}>{err}</div>}
-        <GBtn label={loading?"Creating account...":"Create Account →"} onClick={handle} disabled={loading} style={{marginTop:4,width:"100%"}}/>
+        <GBtn label={loading?"Creating account...":"Create Account →"} onClick={handle} disabled={!canSubmit} style={{marginTop:4,width:"100%"}}/>
         <button onClick={onBack} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",padding:"8px",fontFamily:"inherit",textAlign:"center"}}>← Back to login</button>
       </div>
     </div>
@@ -525,21 +588,23 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
           recent.map((s,i)=>{
             const dn=computeDayNum(s,sessions,spw);
             return(
-              <Card key={i} style={{marginBottom:8}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:12}}>
-                    <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💪</div>
-                    <div>
-                      <div style={{display:"flex",alignItems:"center",gap:6}}>
-                        <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
-                        {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+              <button key={i} onClick={()=>onOpenSession(s)} style={{width:"100%",textAlign:"left",cursor:"pointer",fontFamily:"inherit",padding:0,border:"none",display:"block",marginBottom:8}}>
+                <Card>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12}}>
+                      <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💪</div>
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
+                          {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                        </div>
+                        <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
                       </div>
-                      <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
                     </div>
+                    <StatusBadge status="completed"/>
                   </div>
-                  <StatusBadge status="completed"/>
-                </div>
-              </Card>
+                </Card>
+              </button>
             );
           })
         }
@@ -549,7 +614,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
 };
 
 // ── Schedule ──
-const ScheduleScreen=({userId,token,sessions,pkg})=>{
+const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
   const [weekOffset,setWeekOffset]=useState(0);
   const [dayIdx,setDay]=useState(todayDow());
   const [slots,setSlots]=useState([]);
@@ -566,6 +631,7 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
   const [pickM,setPickM]=useState(0);
   const [reqSent,setReqSent]=useState(false);
   const [reqSending,setReqSending]=useState(false);
+  const [cancelBlockedMsg,setCancelBlockedMsg]=useState(false);
   const spw=pkg?.sessions_per_week||3;
 
   const weekDates=Array.from({length:7},(_,i)=>{
@@ -620,22 +686,44 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
     }).catch(()=>{}).finally(()=>setLoad(false));
   },[dayIdx,weekOffset]);
 
+  const adjustPkgUsed=async(delta)=>{
+    if(!pkg) return;
+    const newUsed=Math.max((pkg.sessions_used||0)+delta,0);
+    try{
+      await updatePkgUsed(pkg.id,newUsed,token);
+      onPkgUpdate?.({...pkg,sessions_used:newUsed});
+    }catch(e){}
+  };
+
   const handleBook=async(slot)=>{
     const already=myBooks.find(b=>b.slot_id===slot.id&&b.status==="booked");
     if(already){
+      const msToSession=sessionDT({session_date:selDay.iso,start_time_min:slot.start_time_min})-Date.now();
+      if(msToSession<48*3600000){
+        setCancelBlockedMsg(true); setTimeout(()=>setCancelBlockedMsg(false),4000);
+        return;
+      }
       await cancelBook(already.id,token).catch(()=>{});
       setMyB(p=>p.filter(b=>b.id!==already.id));
       setCounts(p=>({...p,[slot.id]:Math.max((p[slot.id]||1)-1,0)}));
       if(isCurrentWeek) setMyWeekBookCount(p=>Math.max(p-1,0));
       setWeekBookDates(p=>{ const n=new Set(p); n.delete(selDay.iso); return n; });
+      adjustPkgUsed(-1);
       const waitlist=await getSlotWaitlist(slot.id,selDay.iso,token).catch(()=>[]);
       if(waitlist?.length>0){
         const first=waitlist[0];
-        try{ await bookSlot(slot.id,first.client_id,selDay.iso,token); await leaveWaitlist(first.id,token); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); }catch(e){}
+        try{
+          await bookSlot(slot.id,first.client_id,selDay.iso,token);
+          await leaveWaitlist(first.id,token);
+          setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));
+          const promotedPkg=await getPackage(first.client_id,token).catch(()=>null);
+          if(promotedPkg) await updatePkgUsed(promotedPkg.id,(promotedPkg.sessions_used||0)+1,token).catch(()=>{});
+          await postNotification({client_id:first.client_id,type:"waitlist_promoted",message:`A spot opened up — you've been booked for ${fmtDate(selDay.iso)} at ${toTime(slot.start_time_min)}!`},token).catch(()=>{});
+        }catch(e){}
       }
       return;
     }
-    // "Change" case: already have a booking on a different slot today
+    // "Change" case: already have a booking on a different slot today — net zero on package credits
     const existingDayBook=myBooks.find(b=>b.status==="booked");
     if(existingDayBook){
       const cnt=counts[slot.id]||0;
@@ -655,7 +743,7 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
     if(cnt>=GYM_CAP){ const next=slots.find(s=>s.id!==slot.id&&(counts[s.id]||0)<GYM_CAP); setToast({slot,next}); return; }
     try{
       const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk;
-      if(created){ setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); if(isCurrentWeek) setMyWeekBookCount(p=>p+1); setWeekBookDates(p=>new Set(p).add(selDay.iso)); }
+      if(created){ setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); if(isCurrentWeek) setMyWeekBookCount(p=>p+1); setWeekBookDates(p=>new Set(p).add(selDay.iso)); adjustPkgUsed(1); }
     }catch(e){ alert("Error: "+e.message); }
   };
 
@@ -696,6 +784,14 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
     const onWaitlist=myWaitlist.find(w=>w.slot_id===slot.id);
     const cnt=(counts[slot.id]||0);
     const full=!booked&&cnt>=GYM_CAP;
+    const [waitlistRank,setWaitlistRank]=useState(null);
+    useEffect(()=>{
+      if(!onWaitlist){ setWaitlistRank(null); return; }
+      getSlotWaitlist(slot.id,selDay.iso,token).then(wl=>{
+        const idx=(wl||[]).findIndex(w=>w.client_id===userId);
+        setWaitlistRank(idx>=0?idx+1:null);
+      }).catch(()=>{});
+    },[onWaitlist?.id]);
     return(
       <Card glow={booked?C.cyan:null} style={{marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -707,7 +803,7 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
             ?<GBtn label="✕ Cancel" onClick={()=>handleBook(slot)} sm ghost color={C.muted}/>
             :full
               ?<button onClick={()=>handleWaitlist(slot)} style={{background:onWaitlist?C.amber+"33":C.pink+"20",border:`1px solid ${onWaitlist?C.amber+"55":C.pink+"44"}`,borderRadius:8,padding:"8px 14px",color:onWaitlist?C.amber:C.pink,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
-                {onWaitlist?"On Waitlist ✓":"Join Waitlist"}
+                {onWaitlist?(waitlistRank?`#${waitlistRank} on waitlist`:"On Waitlist ✓"):"Join Waitlist"}
               </button>
               :hasOtherBook
                 ?<GBtn label="Change →" onClick={()=>handleBook(slot)} sm/>
@@ -715,7 +811,7 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
           }
         </div>
         <div style={{color:booked?C.cyan:full?C.pink:C.green,fontSize:12,fontWeight:700}}>
-          {booked?"Booked ✓":full?"Full":"Available"}
+          {booked?"Booked ✓":full?"Full":onWaitlist&&waitlistRank?`You are #${waitlistRank} on the waitlist`:"Available"}
         </div>
       </Card>
     );
@@ -731,6 +827,11 @@ const ScheduleScreen=({userId,token,sessions,pkg})=>{
       {weekMsgVisible&&(
         <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.amber}66`,borderRadius:14,padding:"14px 16px",zIndex:200,textAlign:"center"}}>
           <div style={{color:C.amber,fontWeight:700,fontSize:14}}>Week quota reached — rest up! Contact trainer for extras.</div>
+        </div>
+      )}
+      {cancelBlockedMsg&&(
+        <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.pink}66`,borderRadius:14,padding:"14px 16px",zIndex:200,textAlign:"center"}}>
+          <div style={{color:C.pink,fontWeight:700,fontSize:14}}>Cancellation not allowed within 48 hours. Please contact your trainer.</div>
         </div>
       )}
       {toast&&(
@@ -1049,6 +1150,7 @@ export default function App(){
   const [screen,setScreen]=useState("home");
   const [openSess,setOpenSess]=useState(null);
   const [showSignUp,setShowSignUp]=useState(false);
+  const [notifications,setNotifications]=useState([]);
 
   useEffect(()=>{
     const init=async()=>{
@@ -1070,10 +1172,17 @@ export default function App(){
       const pkg=await getPackage(userId,token).catch(()=>null);
       const sessions=await getSessions(userId,token).catch(()=>[]);
       const prs=await getPRs(userId,token).catch(()=>[]);
+      const notifs=await getMyNotifications(userId,token).catch(()=>[]);
       setAuth({loading:false,token,userId,profile,pkg:pkg||null,sessions:sessions||[],prs:prs||[]});
+      setNotifications(notifs||[]);
     }catch(e){
       setAuth(prev=>({...prev,loading:false}));
     }
+  };
+
+  const dismissNotification=async(id)=>{
+    setNotifications(p=>p.filter(n=>n.id!==id));
+    try{ await markNotificationRead(id,auth.token); }catch(e){}
   };
 
   const handleSignUp=async(name,email,pw,phone=null)=>{
@@ -1119,7 +1228,7 @@ export default function App(){
   const renderScreen=()=>{
     switch(screen){
       case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={setScreen} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId}/>;
-      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg}/>;
+      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;
@@ -1129,6 +1238,7 @@ export default function App(){
   return(
     <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
       {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
+      {!openSess&&notifications.length>0&&<NotificationModal notification={notifications[0]} onDismiss={dismissNotification}/>}
       {renderScreen()}
       <BottomNav active={screen} onNav={setScreen} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials}/>
     </div>
