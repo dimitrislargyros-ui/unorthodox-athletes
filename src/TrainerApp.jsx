@@ -612,7 +612,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                   <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}{!isBooking&&s.exercises?.length>0?` · ${s.exercises.length} exercises`:""}</div>
                 </div>
               </div>
-              {!isBooking&&<span style={{color:s._type==="completed"?C.pink:C.cyan,fontSize:12,fontWeight:700,flexShrink:0}}>{s._type==="completed"?"Edit →":"View →"}</span>}
+              {!isBooking&&<span style={{color:s._type==="completed"?C.pink:C.cyan,fontSize:12,fontWeight:700,flexShrink:0}}>Edit →</span>}
             </button>
           );})
         }
