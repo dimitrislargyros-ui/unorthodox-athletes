@@ -36,6 +36,19 @@ const GBtn=({label,onClick,style={},disabled})=>(
 );
 const inp={background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",color:C.white,fontSize:15,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"};
 
+const Shell=({children})=>(
+  <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 28px",fontFamily:"'Inter',-apple-system,sans-serif"}}>
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,marginBottom:36}}>
+      <Logo size={100}/>
+      <div style={{textAlign:"center"}}>
+        <div style={{color:C.white,fontSize:24,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1}}>UNORTHODOX</div>
+        <div style={{fontSize:24,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1,background:`linear-gradient(90deg,${C.cyan},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>ATHLETES</div>
+      </div>
+    </div>
+    <div style={{width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:12}}>{children}</div>
+  </div>
+);
+
 export default function ResetPassword(){
   const [accessToken,setAccessToken]=useState(null);
   const [step,setStep]=useState("checking"); // checking | request | sent | reset | done
@@ -71,19 +84,6 @@ export default function ResetPassword(){
     catch(e){ setErr(friendlyError(e.message)); }
     setLoading(false);
   };
-
-  const Shell=({children})=>(
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 28px",fontFamily:"'Inter',-apple-system,sans-serif"}}>
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,marginBottom:36}}>
-        <Logo size={100}/>
-        <div style={{textAlign:"center"}}>
-          <div style={{color:C.white,fontSize:24,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1}}>UNORTHODOX</div>
-          <div style={{fontSize:24,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1,background:`linear-gradient(90deg,${C.cyan},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>ATHLETES</div>
-        </div>
-      </div>
-      <div style={{width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:12}}>{children}</div>
-    </div>
-  );
 
   if(step==="checking") return <Shell><div style={{color:C.muted,fontSize:14,textAlign:"center"}}>Loading...</div></Shell>;
 

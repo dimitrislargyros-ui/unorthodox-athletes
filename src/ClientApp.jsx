@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import ExercisePicker from "./ExercisePicker.jsx";
 
 const LOGO_SRC = '/logo.png';
 
@@ -44,11 +45,11 @@ const dbDelete   = (tbl,q,tk)   => sb(`/rest/v1/${tbl}?${q}`,"DELETE",null,tk,"r
 
 // ── Data helpers ──
 const getProfile  = (uid,tk) => dbGet("profiles",`id=eq.${uid}&select=*`,tk).then(r=>r?.[0]);
-const getPackage  = (uid,tk) => dbGet("packages",`client_id=eq.${uid}&is_active=eq.true&order=created_at.desc&limit=1`,tk).then(r=>r?.[0]);
+const getPackage  = (uid,tk) => dbGet("packages",`client_id=eq.${uid}&is_active=eq.true&order=created_at.desc&limit=1&select=*,workout_templates(id,name)`,tk).then(r=>r?.[0]);
 const getSessions = (uid,tk) => dbGet("sessions",`client_id=eq.${uid}&order=session_date.desc&select=*,session_notes(*),exercises(*)`,tk);
 const getPRs      = (uid,tk) => dbGet("personal_records",`client_id=eq.${uid}&order=record_date.desc`,tk);
 const getSlots    = (dow,tk) => dbGet("schedule_slots",`day_of_week=eq.${dow}&is_active=eq.true&order=start_time_min.asc`,tk);
-const getActivePeriodForToday = (tk) => { const t=new Date().toISOString().split("T")[0]; return dbGet("schedule_periods",`start_date=lte.${t}&end_date=gte.${t}&order=start_date.desc&limit=1`,tk).then(r=>r?.[0]); };
+const getActivePeriodForToday = (tk) => { const t=todayISO(); return dbGet("schedule_periods",`start_date=lte.${t}&end_date=gte.${t}&order=start_date.desc&limit=1`,tk).then(r=>r?.[0]); };
 const getAllSlotsForDay = (dow,tk) => dbGet("schedule_slots",`day_of_week=eq.${dow}&order=start_time_min.asc`,tk);
 // Uses the active Schedule Period's slots for today's date if one exists, else falls back to the default is_active slots
 const getActiveSlots = async (dow,tk) => {
@@ -65,7 +66,7 @@ const getDayBooks = (date,tk)=> dbGet("bookings",`book_date=eq.${date}&status=eq
 const getMyBooks  = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=eq.${date}&select=*`,tk);
 const bookSlot    = (slotId,uid,date,tk) => dbPost("bookings",{slot_id:slotId,client_id:uid,book_date:date},tk);
 const cancelBook  = (id,tk)  => dbPatch("bookings",`id=eq.${id}`,{status:"cancelled"},tk);
-const addPR       = (uid,d,tk)=> dbPost("personal_records",{...d,client_id:uid,record_date:new Date().toISOString().split("T")[0]},tk);
+const addPR       = (uid,d,tk)=> dbPost("personal_records",{...d,client_id:uid,record_date:todayISO()},tk);
 const deletePR    = (id,tk)  => dbDelete("personal_records",`id=eq.${id}`,tk);
 const updateProfile=(uid,d,tk)=> dbPatch("profiles",`id=eq.${uid}`,d,tk);
 const uploadAvatar=async(uid,file,tk)=>{
@@ -116,7 +117,11 @@ const friendlyAuthError=(raw)=>{
   if(msg.includes("password")&&msg.includes("short")) return "Password is too short.";
   return parsed.msg||parsed.error_description||parsed.error||"Something went wrong. Please try again.";
 };
-const todayISO = () => new Date().toISOString().split("T")[0];
+// Local calendar-date "YYYY-MM-DD" — NOT toISOString(), which converts to UTC
+// and silently returns the wrong day for hours near local midnight (e.g. all
+// of 00:00-02:59 in UTC+3 timezones like Athens).
+const localISO = (d=new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const todayISO = () => localISO();
 const todayDow = () => { const d=new Date().getDay(); return d===0?6:d-1; };
 const calcDayNum = (sessionsUsedBefore, sessionsPerWeek=3) => (sessionsUsedBefore % sessionsPerWeek) + 1;
 
@@ -131,7 +136,7 @@ const computeDayNum = (session, allSessions, spw=3) => {
 const WDAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const WDATES_BASE = (() => {
   const d=new Date(), dow=d.getDay()===0?6:d.getDay()-1;
-  return Array.from({length:7},(_,i)=>{ const dd=new Date(d); dd.setDate(d.getDate()-dow+i); return {label:dd.getDate(),iso:dd.toISOString().split("T")[0],dow:i}; });
+  return Array.from({length:7},(_,i)=>{ const dd=new Date(d); dd.setDate(d.getDate()-dow+i); return {label:dd.getDate(),iso:localISO(dd),dow:i}; });
 })();
 const addDays = (isoDate, n) => { const d=new Date(isoDate); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().split("T")[0]; };
 const HOURS=[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21];
@@ -930,6 +935,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
       <div style={{padding:"22px 20px 12px"}}>
         <div style={{color:C.white,fontSize:22,fontWeight:800}}>Book a Session</div>
         <div style={{color:C.muted,fontSize:13,marginTop:2}}>Personal training · 90 min · Max {GYM_CAP} in gym</div>
+        {pkg?.workout_templates?.name&&<div style={{color:C.cyan,fontSize:13,fontWeight:700,marginTop:6}}>🏋️ Program: {pkg.workout_templates.name}</div>}
       </div>
 
       {!pkg
@@ -1160,6 +1166,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
                 <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.8}}>{pkg.sessions_total}-Session Pack</div>
                 <div style={{color:C.bg,fontSize:20,fontWeight:900,marginTop:3}}>{spw}x per week · {pkg.weeks} weeks</div>
                 <div style={{color:C.bg,fontSize:12,opacity:0.8,marginTop:4}}>{fmtDate(pkg.start_date)} → {fmtDate(pkg.end_date)}</div>
+                {pkg.workout_templates?.name&&<div style={{color:C.bg,fontSize:11,fontWeight:700,marginTop:4}}>🏋️ {pkg.workout_templates.name}</div>}
                 {pkg.package_notes&&<div style={{color:C.bg,fontSize:11,opacity:0.8,marginTop:4}}>📋 {pkg.package_notes}</div>}
                 {pkg.has_injury&&<div style={{color:"rgba(0,0,0,0.7)",fontSize:11,marginTop:4}}>⚠️ {pkg.injury_notes}</div>}
               </div>
@@ -1179,7 +1186,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
       {/* Stats */}
       <div style={{padding:"0 20px 16px"}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-          {[{l:"Total",v:sessions.filter(s=>s.status==="completed").length},{l:"This Month",v:sessions.filter(s=>s.status==="completed"&&s.session_date?.slice(0,7)===new Date().toISOString().slice(0,7)).length},{l:"PRs",v:prs.length}].map(s=>(
+          {[{l:"Total",v:sessions.filter(s=>s.status==="completed").length},{l:"This Month",v:sessions.filter(s=>s.status==="completed"&&s.session_date?.slice(0,7)===todayISO().slice(0,7)).length},{l:"PRs",v:prs.length}].map(s=>(
             <div key={s.l} style={{background:C.surface,borderRadius:12,padding:"14px 10px",textAlign:"center",border:`1px solid ${C.border}`}}>
               <div style={{color:C.cyan,fontSize:22,fontWeight:900}}>{s.v}</div>
               <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:3}}>{s.l}</div>
@@ -1196,7 +1203,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
         </div>
         {showAddPR&&(
           <Card style={{marginBottom:12}}>
-            <div style={{display:"flex",gap:8,marginBottom:8}}>{inp(newPR.exercise,v=>setNew(p=>({...p,exercise:v})),"Exercise name")}</div>
+            <div style={{display:"flex",gap:8,marginBottom:8}}><ExercisePicker value={newPR.exercise} onChange={v=>setNew(p=>({...p,exercise:v}))} placeholder="Exercise name"/></div>
             <div style={{display:"flex",gap:8,marginBottom:8}}>
               {inp(newPR.weight,v=>setNew(p=>({...p,weight:v})),"Weight")}
               {inp(newPR.reps,v=>setNew(p=>({...p,reps:v})),"Reps")}
@@ -1320,7 +1327,10 @@ export default function App(){
     const {access_token,expires_at,user}=data||{};
     if(!access_token) return false;
     const initials=name.trim().split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
-    await dbPost("profiles",{id:user.id,role:"client",name:name.trim(),email,initials,...(phone&&{phone})},access_token).catch(()=>{});
+    // A DB trigger auto-creates the profiles row (with a placeholder name) when the
+    // auth.users row is created, so this must PATCH the existing row, not INSERT —
+    // clients have no INSERT policy on profiles, only UPDATE-own-row.
+    await updateProfile(user.id,{name:name.trim(),initials,...(phone&&{phone})},access_token).catch(()=>{});
     localStorage.setItem("ua_client_auth",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
     await loadData(access_token,user.id);
     return true;

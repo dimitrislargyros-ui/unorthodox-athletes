@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import ExercisePicker from "./ExercisePicker.jsx";
 
 const LOGO_SRC = '/logo.png';
 
@@ -33,7 +34,7 @@ const dbDelete   = (tbl,q,tk)   => sb(`/rest/v1/${tbl}?${q}`,"DELETE",null,tk,"r
 // ── Data helpers ──
 const getProfile     = (uid,tk)  => dbGet("profiles",`id=eq.${uid}&select=*`,tk).then(r=>r?.[0]);
 const getClients     = (tk)      => dbGet("profiles","role=eq.client&order=name.asc",tk);
-const getAllPkgs      = (tk)      => dbGet("packages","is_active=eq.true&select=*",tk);
+const getAllPkgs      = (tk)      => dbGet("packages","is_active=eq.true&select=*,workout_templates(id,name)",tk);
 const getTodayBooks  = (date,tk) => dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=*,schedule_slots(start_time_min),profiles(id,name,initials)`,tk);
 const getClientSess  = (uid,tk)  => dbGet("sessions",`client_id=eq.${uid}&order=session_date.desc&select=*,session_notes(*),exercises(*)`,tk);
 const getSlots       = (dow,tk)  => dbGet("schedule_slots",`day_of_week=eq.${dow}&is_active=eq.true&order=start_time_min.asc`,tk);
@@ -107,7 +108,11 @@ const friendlyAuthError=(raw)=>{
   if(msg.includes("rate limit")||msg.includes("too many")) return "Too many attempts. Please wait a moment and try again.";
   return parsed.msg||parsed.error_description||parsed.error||"Something went wrong. Please try again.";
 };
-const todayISO= ()    => new Date().toISOString().split("T")[0];
+// Local calendar-date "YYYY-MM-DD" — NOT toISOString(), which converts to UTC
+// and silently returns the wrong day for hours near local midnight (e.g. all
+// of 00:00-02:59 in UTC+3 timezones like Athens).
+const localISO = (d=new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const todayISO= ()    => localISO();
 const todayDow= ()    => { const d=new Date().getDay(); return d===0?6:d-1; };
 
 // Day num: (count of all client sessions up to date) % spw + 1
@@ -119,7 +124,7 @@ const calcDayNum = async (clientId, date, tk, spw=3) => {
 const WDAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const WDATES_BASE = (() => {
   const d=new Date(),dow=d.getDay()===0?6:d.getDay()-1;
-  return Array.from({length:7},(_,i)=>{ const dd=new Date(d); dd.setDate(d.getDate()-dow+i); return {label:dd.getDate(),iso:dd.toISOString().split("T")[0],dow:i}; });
+  return Array.from({length:7},(_,i)=>{ const dd=new Date(d); dd.setDate(d.getDate()-dow+i); return {label:dd.getDate(),iso:localISO(dd),dow:i}; });
 })();
 const addDays=(isoDate,n)=>{ const d=new Date(isoDate); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().split("T")[0]; };
 const dowOf=(iso)=>{ const d=new Date(iso+"T12:00:00"); return d.getDay()===0?6:d.getDay()-1; };
@@ -248,7 +253,7 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
         )}
         {showAdd&&(
           <div style={{background:C.surface2,borderRadius:10,padding:"12px",marginBottom:10}}>
-            <div style={{display:"flex",gap:6,marginBottom:8}}>{inp(newEx.name,v=>setNewEx(p=>({...p,name:v})),"Exercise name")}</div>
+            <div style={{display:"flex",gap:6,marginBottom:8}}><ExercisePicker value={newEx.name} onChange={v=>setNewEx(p=>({...p,name:v}))} placeholder="Exercise name"/></div>
             <div style={{display:"flex",gap:6,marginBottom:8}}>
               {inp(newEx.sets,v=>setNewEx(p=>({...p,sets:v})),"Sets")}
               {inp(newEx.reps,v=>setNewEx(p=>({...p,reps:v})),"Reps")}
@@ -531,7 +536,7 @@ const ClientsScreen=({clients,onViewClient})=>{
 // ── Monthly Report ──
 const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
   const now=new Date();
-  const monthStr=now.toISOString().slice(0,7);
+  const monthStr=localISO(now).slice(0,7);
   const monthLabel=now.toLocaleDateString("en-US",{month:"long",year:"numeric"});
   const monthItems=timeline.filter(t=>t._type!=="booking"&&statusMap[t.id]==="completed"&&t.session_date?.slice(0,7)===monthStr);
   const weeksElapsed=Math.max(1,Math.ceil(now.getDate()/7));
@@ -611,6 +616,9 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [editInjuryNotes,setEditInjNotes]=useState("");
   const [editPkgNotes,setEditPkgNotes]=useState("");
   const [savingNotes,setSavingNotes]=useState(false);
+  const [programs,setPrograms]=useState([]);
+  const [newPkgProgramId,setNewPkgProgramId]=useState(null);
+  const [editProgramId,setEditProgramId]=useState(null);
   const [logDate,setLogDate]=useState(todayISO());
   const [logTime,setLogTime]=useState(300);
   const [logging,setLogging]=useState(false);
@@ -625,7 +633,28 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     Promise.all([getClientSess(client.id,token), getClientBooks(client.id,token)])
       .then(([s,b])=>{ setSessions(s||[]); setClientBooks(b||[]); })
       .finally(()=>setLoad(false));
+    getTemplates(trainerId,token).then(r=>setPrograms(r||[])).catch(()=>{});
   },[client.id]);
+
+  const programPicker=(selectedId,onSelect)=>(
+    <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
+      <button onClick={()=>onSelect(null)} style={{background:!selectedId?C.cyan+"33":C.surface2,border:`1px solid ${!selectedId?C.cyan:C.border}`,borderRadius:8,padding:"8px 12px",color:!selectedId?C.cyan:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>No program</button>
+      {programs.map(p=>(
+        <button key={p.id} onClick={()=>onSelect(p.id)} style={{background:selectedId===p.id?C.pink+"33":C.surface2,border:`1px solid ${selectedId===p.id?C.pink:C.border}`,borderRadius:8,padding:"8px 12px",color:selectedId===p.id?C.pink:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{p.name}</button>
+      ))}
+      <button onClick={()=>handleCreateProgramInline(onSelect)} style={{background:"transparent",border:`1px dashed ${C.border}`,borderRadius:8,padding:"8px 12px",color:C.cyan,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ New</button>
+    </div>
+  );
+
+  const handleCreateProgramInline=async(setter)=>{
+    const name=window.prompt("New program name:");
+    if(!name||!name.trim()) return;
+    try{
+      const res=await createTemplate({trainer_id:trainerId,name:name.trim(),exercises:[]},token);
+      const created=Array.isArray(res)?res[0]:res;
+      if(created){ setPrograms(p=>[...p,created].sort((a,b)=>a.name.localeCompare(b.name))); setter(created.id); }
+    }catch(e){ alert("Error: "+e.message); }
+  };
 
   useEffect(()=>{
     if(!showLog) return;
@@ -638,8 +667,9 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     try{
       await deactivatePkgs(client.id,token);
       const end=new Date(); end.setDate(end.getDate()+35);
-      const res=await createPkg({client_id:client.id,sessions_total:parseInt(newPkgTotal),sessions_used:0,sessions_per_week:parseInt(newSpw),weeks:5,start_date:todayISO(),end_date:end.toISOString().split("T")[0],has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes},token);
+      const res=await createPkg({client_id:client.id,sessions_total:parseInt(newPkgTotal),sessions_used:0,sessions_per_week:parseInt(newSpw),weeks:5,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null},token);
       const created=Array.isArray(res)?res[0]:res;
+      created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
       setPkg(created); setShowPkg(false);
       onClientUpdated({...client,_pkg:created});
       await postNotification({client_id:client.id,type:"package_renewed",message:`Your package was renewed: ${newPkgTotal} sessions · ${newSpw}x/week.`},token).catch(()=>{});
@@ -695,6 +725,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     setEditHasInj(pkg?.has_injury||false);
     setEditInjNotes(pkg?.injury_notes||"");
     setEditPkgNotes(pkg?.package_notes||"");
+    setEditProgramId(pkg?.program_id||null);
     setShowEditNotes(true);
   };
 
@@ -702,9 +733,9 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     if(!pkg||savingNotes) return;
     setSavingNotes(true);
     try{
-      const body={has_injury:editHasInjury,injury_notes:editHasInjury?editInjuryNotes:"",package_notes:editPkgNotes};
+      const body={has_injury:editHasInjury,injury_notes:editHasInjury?editInjuryNotes:"",package_notes:editPkgNotes,program_id:editProgramId||null};
       await dbPatch("packages",`id=eq.${pkg.id}`,body,token);
-      const updPkg={...pkg,...body};
+      const updPkg={...pkg,...body,workout_templates:programs.find(p=>p.id===editProgramId)||null};
       setPkg(updPkg);
       onClientUpdated({...client,_pkg:updPkg});
       setShowEditNotes(false);
@@ -792,6 +823,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               <button onClick={()=>setEditHasInj(p=>!p)} style={{background:editHasInjury?C.amber+"33":C.surface2,border:`1px solid ${editHasInjury?C.amber:C.border}`,borderRadius:20,padding:"6px 16px",color:editHasInjury?C.amber:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{editHasInjury?"Yes ✓":"No"}</button>
             </div>
             {editHasInjury&&<input value={editInjuryNotes} onChange={e=>setEditInjNotes(e.target.value)} placeholder="Describe the injury..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.amber}55`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>}
+            <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Program</div>
+            {programPicker(editProgramId,setEditProgramId)}
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Training Notes</div>
             <textarea value={editPkgNotes} onChange={e=>setEditPkgNotes(e.target.value)} placeholder="Focus areas, goals..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,fontFamily:"inherit",resize:"none",height:70,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:12}}/>
             <GBtn label={savingNotes?"Saving...":"Save"} onClick={handleSaveNotes} disabled={savingNotes} style={{width:"100%"}}/>
@@ -813,6 +846,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               <button onClick={()=>setHasInj(p=>!p)} style={{background:hasInjury?C.amber+"33":C.surface2,border:`1px solid ${hasInjury?C.amber:C.border}`,borderRadius:20,padding:"6px 16px",color:hasInjury?C.amber:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{hasInjury?"Yes ✓":"No"}</button>
             </div>
             {hasInjury&&<input value={injuryNotes} onChange={e=>setInjNotes(e.target.value)} placeholder="Describe the injury..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.amber}55`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>}
+            <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Program</div>
+            {programPicker(newPkgProgramId,setNewPkgProgramId)}
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Training Notes</div>
             <textarea value={pkgNotes} onChange={e=>setPkgNotes(e.target.value)} placeholder="Focus areas, goals..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,fontFamily:"inherit",resize:"none",height:70,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:12}}/>
             <GBtn label={`Assign ${newPkgTotal}-Session Pack (${newSpw}x/week)`} onClick={handleRenew} style={{width:"100%"}}/>
@@ -825,6 +860,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                 <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.8}}>{pkg.sessions_total}-Session Pack</div>
                 <div style={{color:C.bg,fontSize:20,fontWeight:900,marginTop:3}}>{pkg.sessions_per_week||3}x per week · {pkg.weeks} weeks</div>
                 <div style={{color:C.bg,fontSize:12,opacity:0.8,marginTop:4}}>{fmtDate(pkg.start_date)} → {fmtDate(pkg.end_date)}</div>
+                {pkg.workout_templates?.name&&<div style={{color:C.bg,fontSize:11,fontWeight:700,marginTop:4}}>🏋️ {pkg.workout_templates.name}</div>}
                 {pkg.package_notes&&<div style={{color:C.bg,fontSize:11,opacity:0.8,marginTop:4}}>📋 {pkg.package_notes}</div>}
                 {pkg.has_injury&&<div style={{color:"rgba(0,0,0,0.7)",fontSize:11,marginTop:4}}>⚠️ {pkg.injury_notes}</div>}
               </div>
@@ -1354,7 +1390,7 @@ const ProgramsScreen=({trainerId,token})=>{
                     </div>
                     {showAddEx===prog.id?(
                       <div style={{background:C.surface2,borderRadius:10,padding:"12px",marginBottom:10}}>
-                        <div style={{display:"flex",gap:6,marginBottom:8}}>{inp(newEx.name,v=>setNewEx(p=>({...p,name:v})),"Exercise name")}</div>
+                        <div style={{display:"flex",gap:6,marginBottom:8}}><ExercisePicker value={newEx.name} onChange={v=>setNewEx(p=>({...p,name:v}))} placeholder="Exercise name"/></div>
                         <div style={{display:"flex",gap:6,marginBottom:8}}>
                           {inp(newEx.sets,v=>setNewEx(p=>({...p,sets:v})),"Sets")}
                           {inp(newEx.reps,v=>setNewEx(p=>({...p,reps:v})),"Reps")}
