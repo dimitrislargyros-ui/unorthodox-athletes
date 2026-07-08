@@ -72,6 +72,8 @@ const cancelBookingRow    = (id,tk)              => dbPatch("bookings",`id=eq.${
 const cancelSessionRow    = (id,tk)              => dbPatch("sessions",`id=eq.${id}`,{status:"cancelled"},tk);
 const decrementPkgUsed    = (pkgId,currentUsed,tk)=> dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max((currentUsed||0)-1,0)},tk);
 const postNotification    = (d,tk)              => dbPost("notifications",d,tk);
+const getTrainerNotifications = (trainerId,tk)  => dbGet("notifications",`client_id=eq.${trainerId}&read=eq.false&order=created_at.desc`,tk);
+const markTrainerNotifRead    = (id,tk)         => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
 
 // ── Schedule periods ──
 const getAllPeriods      = (tk)             => dbGet("schedule_periods","order=start_date.desc",tk);
@@ -327,6 +329,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
   const [annTitle,setAnnTitle]=useState("");
   const [annBody,setAnnBody]=useState("");
   const [annPosting,setAnnPosting]=useState(false);
+  const [signupNotifs,setSignupNotifs]=useState([]);
 
   useEffect(()=>{
     const today=todayISO();
@@ -343,7 +346,13 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
       setSessions([...sessArr,...bkItems]);
       setAnn(anns||[]);
     }).finally(()=>setLoad(false));
+    getTrainerNotifications(trainerId,token).then(r=>setSignupNotifs((r||[]).filter(n=>n.type==="new_signup"))).catch(()=>{});
   },[]);
+
+  const dismissSignupNotif=async(id)=>{
+    setSignupNotifs(p=>p.filter(n=>n.id!==id));
+    try{ await markTrainerNotifRead(id,token); }catch(e){}
+  };
 
   const getDayNumForItem=(item,clients)=>{
     if(item.day_num) return item.day_num;
@@ -399,6 +408,25 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
           </div>
         </div>
       </div>
+
+      {/* New sign-ups */}
+      {signupNotifs.length>0&&(
+        <div style={{padding:"12px 20px 0"}}>
+          <div style={{background:C.surface,border:`1px solid ${C.cyan}44`,borderRadius:12,padding:"13px 16px"}}>
+            <div style={{color:C.cyan,fontSize:12,fontWeight:700,marginBottom:8}}>🆕 New Sign-ups ({signupNotifs.length})</div>
+            {signupNotifs.map(n=>{
+              const cl=clients.find(c=>c.id===n.related_client_id);
+              return(<div key={n.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                <div style={{color:C.white,fontSize:13}}>{n.message}</div>
+                <div style={{display:"flex",gap:6,flexShrink:0}}>
+                  {cl&&<button onClick={()=>{dismissSignupNotif(n.id);onViewClient(cl);}} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Set up →</button>}
+                  <button onClick={()=>dismissSignupNotif(n.id)} style={{background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:"0 2px"}}>✕</button>
+                </div>
+              </div>);
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Alerts */}
       {alerts.length>0&&(
