@@ -319,6 +319,7 @@ const LoginScreen=({onLogin,onSignUp})=>{
         <input style={inp} type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {err&&<div style={{color:C.pink,fontSize:13,textAlign:"center"}}>{err}</div>}
         <GBtn label={loading?"Logging in...":"Let's Go →"} onClick={handle} disabled={loading} style={{marginTop:4,width:"100%"}}/>
+        <a href="/reset-password" style={{background:"none",border:"none",color:C.muted,fontSize:13,fontFamily:"inherit",textAlign:"center",width:"100%",textDecoration:"none"}}>Forgot password?</a>
         <button onClick={onSignUp} style={{background:"none",border:"none",color:C.cyan,fontSize:13,cursor:"pointer",padding:"8px",fontFamily:"inherit",textAlign:"center",width:"100%"}}>Don't have an account? Sign up →</button>
       </div>
     </div>

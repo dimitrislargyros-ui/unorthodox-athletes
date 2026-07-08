@@ -64,6 +64,9 @@ const postAnnouncement    = (d,tk)              => dbPost("announcements",d,tk);
 const deleteAnnouncement  = (id,tk)             => dbDelete("announcements",`id=eq.${id}`,tk);
 const getPendingRequests  = (tk)                => dbGet("slot_requests","status=eq.pending&select=*,profiles(name,initials)&order=created_at.asc",tk);
 const resolveRequest      = (id,status,tk)      => dbPatch("slot_requests",`id=eq.${id}`,{status},tk);
+const findActiveSlot      = (trainerId,dow,startMin,tk) => dbGet("schedule_slots",`trainer_id=eq.${trainerId}&day_of_week=eq.${dow}&start_time_min=eq.${startMin}&is_active=eq.true`,tk).then(r=>r?.[0]||null);
+const getSlotBookCount    = (slotId,date,tk)    => dbGet("bookings",`slot_id=eq.${slotId}&book_date=eq.${date}&status=eq.booked&select=id`,tk).then(r=>r?.length||0);
+const createBooking       = (d,tk)              => dbPost("bookings",d,tk);
 const cancelBookingRow    = (id,tk)              => dbPatch("bookings",`id=eq.${id}`,{status:"cancelled"},tk);
 const cancelSessionRow    = (id,tk)              => dbPatch("sessions",`id=eq.${id}`,{status:"cancelled"},tk);
 const decrementPkgUsed    = (pkgId,currentUsed,tk)=> dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max((currentUsed||0)-1,0)},tk);
@@ -78,9 +81,11 @@ const getAllSlotsForDay  = (dow,tk)         => dbGet("schedule_slots",`day_of_we
 const addPeriodSlot      = (d,tk)           => dbPost("period_slots",d,tk);
 const removePeriodSlotRow= (id,tk)          => dbDelete("period_slots",`id=eq.${id}`,tk);
 
-// ── Workout templates ──
-const getTemplates  = (trainerId,tk) => dbGet("workout_templates",`trainer_id=eq.${trainerId}&order=name.asc`,tk);
-const createTemplate= (d,tk)         => dbPost("workout_templates",d,tk);
+// ── Workout templates (Programs) ──
+const getTemplates   = (trainerId,tk)    => dbGet("workout_templates",`trainer_id=eq.${trainerId}&order=name.asc`,tk);
+const createTemplate = (d,tk)            => dbPost("workout_templates",d,tk);
+const updateTemplate = (id,d,tk)         => dbPatch("workout_templates",`id=eq.${id}`,d,tk);
+const deleteTemplate = (id,tk)           => dbDelete("workout_templates",`id=eq.${id}`,tk);
 
 // ── Personal records (for monthly report) ──
 const getClientPRs  = (uid,tk) => dbGet("personal_records",`client_id=eq.${uid}&order=record_date.desc`,tk);
@@ -117,6 +122,7 @@ const WDATES_BASE = (() => {
   return Array.from({length:7},(_,i)=>{ const dd=new Date(d); dd.setDate(d.getDate()-dow+i); return {label:dd.getDate(),iso:dd.toISOString().split("T")[0],dow:i}; });
 })();
 const addDays=(isoDate,n)=>{ const d=new Date(isoDate); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().split("T")[0]; };
+const dowOf=(iso)=>{ const d=new Date(iso+"T12:00:00"); return d.getDay()===0?6:d.getDay()-1; };
 const HOURS=[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23];
 const SLOT_TIMES=[300,390,480,840,900,1020];
 
@@ -153,7 +159,7 @@ const computeStatusMap=(items,now)=>{
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
 };
-const BottomNav=({active,onNav,scheduleBadge=0})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><div style={{position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:20}}>{t.i}</span>{t.id==="schedule"&&scheduleBadge>0&&<span style={{position:"absolute",top:-4,right:-6,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
+const BottomNav=({active,onNav,scheduleBadge=0})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"},{id:"programs",l:"Programs",i:"▦"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><div style={{position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:20}}>{t.i}</span>{t.id==="schedule"&&scheduleBadge>0&&<span style={{position:"absolute",top:-4,right:-6,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
 
 // ── Session Editor ──
 const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
@@ -301,6 +307,7 @@ const LoginScreen=({onLogin})=>{
         <input style={inp} type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {err&&<div style={{color:C.pink,fontSize:13,textAlign:"center"}}>{err}</div>}
         <GBtn label={loading?"Entering...":"Enter →"} onClick={handle} disabled={loading} style={{marginTop:4,width:"100%"}}/>
+        <a href="/reset-password" style={{background:"none",border:"none",color:C.muted,fontSize:13,fontFamily:"inherit",textAlign:"center",width:"100%",textDecoration:"none"}}>Forgot password?</a>
       </div>
     </div>
   );
@@ -935,9 +942,9 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
     getAllSlotsForDay(periodDayIdx,token).then(r=>setPeriodDaySlots(r||[])).catch(()=>setPeriodDaySlots([]));
   },[expandedPeriod,periodDayIdx]);
 
-  useEffect(()=>{
+  const reloadDay=()=>{
     if(isSun) return; setLoad(true);
-    Promise.all([getSlots(selDay.dow,token),getDayBookings(selDay.iso,token)])
+    return Promise.all([getSlots(selDay.dow,token),getDayBookings(selDay.iso,token)])
       .then(([sl,bks])=>{
         setSlots(sl||[]);
         const m={};
@@ -945,7 +952,8 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         setBookingsMap(m);
       })
       .finally(()=>setLoad(false));
-  },[dayIdx,weekOffset]);
+  };
+  useEffect(()=>{ reloadDay(); },[dayIdx,weekOffset]);
 
   const selectedStart=pickH!=null?pickH*60+pickM:null;
   const conflict=selectedStart!=null&&slots.find(s=>s.start_time_min===selectedStart);
@@ -966,6 +974,32 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const handleRemove=async(slot)=>{
     try{ await removeSlot(slot.id,token); setSlots(p=>p.filter(s=>s.id!==slot.id)); setConf(null); }
     catch(e){ alert("Error: "+e.message); }
+  };
+
+  const handleApproveRequest=async(r)=>{
+    try{
+      const dow=dowOf(r.requested_date);
+      let slot=await findActiveSlot(trainerId,dow,r.requested_time_min,token);
+      if(!slot){
+        const created=await addSlot({trainer_id:trainerId,day_of_week:dow,start_time_min:r.requested_time_min},token);
+        slot=Array.isArray(created)?created[0]:created;
+      }
+      const cnt=await getSlotBookCount(slot.id,r.requested_date,token);
+      if(cnt>=GYM_CAP){ alert(`That slot is already full (${GYM_CAP}/${GYM_CAP}) on ${fmtDate(r.requested_date)}. Reject the request or free up a spot first.`); return; }
+      await createBooking({slot_id:slot.id,client_id:r.client_id,book_date:r.requested_date,status:"booked"},token);
+      await resolveRequest(r.id,"approved",token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"slot_request_approved",message:`Your custom time request for ${fmtDate(r.requested_date)} at ${toTime(r.requested_time_min)} was approved — it's on your schedule!`},token).catch(()=>{});
+      const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length);
+      if(r.requested_date===selDay.iso&&dow===selDay.dow) reloadDay();
+    }catch(e){ alert("Error: "+e.message); }
+  };
+
+  const handleRejectRequest=async(r)=>{
+    try{
+      await resolveRequest(r.id,"rejected",token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"slot_request_rejected",message:`Your custom time request for ${fmtDate(r.requested_date)} at ${toTime(r.requested_time_min)} was declined. Talk to your trainer for alternatives.`},token).catch(()=>{});
+      const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length);
+    }catch(e){ alert("Error: "+e.message); }
   };
 
   const handleCancelBooking=async(b,slot)=>{
@@ -1065,8 +1099,8 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{r.requested_date} · {toTime(r.requested_time_min)}</div>
                 </div>
                 <div style={{display:"flex",gap:6}}>
-                  <button onClick={async()=>{ await resolveRequest(r.id,"approved",token).catch(()=>{}); const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length); }} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 10px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓</button>
-                  <button onClick={async()=>{ await resolveRequest(r.id,"rejected",token).catch(()=>{}); const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length); }} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                  <button onClick={()=>handleApproveRequest(r)} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 10px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓</button>
+                  <button onClick={()=>handleRejectRequest(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
                 </div>
               </div>
             ))}
@@ -1211,6 +1245,140 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   );
 };
 
+// ── Programs (named workout templates) ──
+const ProgramsScreen=({trainerId,token})=>{
+  const [programs,setPrograms]=useState([]);
+  const [loading,setLoad]=useState(true);
+  const [expanded,setExpanded]=useState(null);
+  const [showNew,setShowNew]=useState(false);
+  const [newName,setNewName]=useState("");
+  const [creating,setCreating]=useState(false);
+  const [newEx,setNewEx]=useState({name:"",sets:"",reps:"",weight:""});
+  const [showAddEx,setShowAddEx]=useState(null);
+  const [savingId,setSavingId]=useState(null);
+
+  useEffect(()=>{
+    getTemplates(trainerId,token).then(r=>setPrograms(r||[])).catch(()=>{}).finally(()=>setLoad(false));
+  },[]);
+
+  const handleCreate=async()=>{
+    if(!newName.trim()) return;
+    setCreating(true);
+    try{
+      const res=await createTemplate({trainer_id:trainerId,name:newName.trim(),exercises:[]},token);
+      const created=Array.isArray(res)?res[0]:res;
+      if(created){ setPrograms(p=>[...p,created].sort((a,b)=>a.name.localeCompare(b.name))); setExpanded(created.id); }
+      setNewName(""); setShowNew(false);
+    }catch(e){ alert("Error: "+e.message); }
+    setCreating(false);
+  };
+
+  const handleDelete=async(prog)=>{
+    if(!window.confirm(`Delete "${prog.name}"? This can't be undone.`)) return;
+    try{ await deleteTemplate(prog.id,token); setPrograms(p=>p.filter(x=>x.id!==prog.id)); if(expanded===prog.id) setExpanded(null); }
+    catch(e){ alert("Error: "+e.message); }
+  };
+
+  const persistExercises=async(prog,exs)=>{
+    setSavingId(prog.id);
+    try{
+      await updateTemplate(prog.id,{exercises:exs},token);
+      setPrograms(p=>p.map(x=>x.id===prog.id?{...x,exercises:exs}:x));
+    }catch(e){ alert("Error: "+e.message); }
+    setSavingId(null);
+  };
+
+  const handleAddExercise=(prog)=>{
+    if(!newEx.name) return;
+    persistExercises(prog,[...(prog.exercises||[]),{...newEx}]);
+    setNewEx({name:"",sets:"",reps:"",weight:""});
+    setShowAddEx(null);
+  };
+
+  const handleRemoveExercise=(prog,idx)=>{
+    persistExercises(prog,(prog.exercises||[]).filter((_,i)=>i!==idx));
+  };
+
+  const handleRename=(prog)=>{
+    const name=window.prompt("Program name:",prog.name);
+    if(!name||!name.trim()||name.trim()===prog.name) return;
+    updateTemplate(prog.id,{name:name.trim()},token)
+      .then(()=>setPrograms(p=>p.map(x=>x.id===prog.id?{...x,name:name.trim()}:x).sort((a,b)=>a.name.localeCompare(b.name))))
+      .catch(e=>alert("Error: "+e.message));
+  };
+
+  const inp=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1}}/>);
+
+  return(
+    <div style={{paddingBottom:80}}>
+      <div style={{padding:"22px 20px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:C.white,fontSize:22,fontWeight:800}}>Programs</div><div style={{color:C.muted,fontSize:13,marginTop:2}}>Reusable workout programs</div></div>
+        <Logo size={40}/>
+      </div>
+      <div style={{padding:"0 20px 16px"}}>
+        <GBtn label={showNew?"▲ Cancel":"+ New Program"} onClick={()=>setShowNew(p=>!p)} ghost={showNew} style={{width:"100%"}}/>
+        {showNew&&(
+          <Card style={{marginTop:10}}>
+            <div style={{display:"flex",gap:8}}>{inp(newName,setNewName,"Program name (e.g. Agility Train)")}</div>
+            <GBtn label={creating?"Creating...":"Create"} onClick={handleCreate} disabled={creating||!newName.trim()} sm style={{width:"100%",marginTop:10}}/>
+          </Card>
+        )}
+      </div>
+      <div style={{padding:"0 20px"}}>
+        {loading?<Spinner/>:programs.length===0?<Empty msg="No programs yet — create one above"/>:
+          programs.map(prog=>{
+            const isExpanded=expanded===prog.id;
+            const exs=prog.exercises||[];
+            return(
+              <Card key={prog.id} style={{marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{flex:1,cursor:"pointer"}} onClick={()=>setExpanded(isExpanded?null:prog.id)}>
+                    <div style={{color:C.white,fontSize:15,fontWeight:700}}>{prog.name}</div>
+                    <div style={{color:C.muted,fontSize:12,marginTop:2}}>{exs.length} exercise{exs.length!==1?"s":""}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button onClick={()=>handleRename(prog)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Rename</button>
+                    <button onClick={()=>handleDelete(prog)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+                    <button onClick={()=>setExpanded(isExpanded?null:prog.id)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.muted,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{isExpanded?"▲":"▾"}</button>
+                  </div>
+                </div>
+                {isExpanded&&(
+                  <div style={{marginTop:14}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
+                      {exs.length===0?<Empty msg="No exercises yet"/>:exs.map((ex,i)=>(
+                        <div key={i} style={{background:C.surface2,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div><div style={{color:C.white,fontSize:14,fontWeight:600}}>{ex.name}</div><div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:2}}>{ex.sets}×{ex.reps} · {ex.weight}</div></div>
+                          <button onClick={()=>handleRemoveExercise(prog,i)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16,padding:"4px"}}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                    {showAddEx===prog.id?(
+                      <div style={{background:C.surface2,borderRadius:10,padding:"12px",marginBottom:10}}>
+                        <div style={{display:"flex",gap:6,marginBottom:8}}>{inp(newEx.name,v=>setNewEx(p=>({...p,name:v})),"Exercise name")}</div>
+                        <div style={{display:"flex",gap:6,marginBottom:8}}>
+                          {inp(newEx.sets,v=>setNewEx(p=>({...p,sets:v})),"Sets")}
+                          {inp(newEx.reps,v=>setNewEx(p=>({...p,reps:v})),"Reps")}
+                          {inp(newEx.weight,v=>setNewEx(p=>({...p,weight:v})),"Weight")}
+                        </div>
+                        <div style={{display:"flex",gap:8}}>
+                          <GBtn label="Add" onClick={()=>handleAddExercise(prog)} disabled={!newEx.name} sm style={{flex:1}}/>
+                          <GBtn label="Cancel" onClick={()=>{setShowAddEx(null);setNewEx({name:"",sets:"",reps:"",weight:""});}} ghost sm style={{flex:1}}/>
+                        </div>
+                      </div>
+                    ):(
+                      <GBtn label={savingId===prog.id?"Saving...":"+ Add Exercise"} onClick={()=>setShowAddEx(prog.id)} sm ghost style={{width:"100%"}} disabled={savingId===prog.id}/>
+                    )}
+                  </div>
+                )}
+              </Card>
+            );
+          })
+        }
+      </div>
+    </div>
+  );
+};
+
 // ── App Root ──
 export default function App(){
   const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null});
@@ -1273,6 +1441,7 @@ export default function App(){
       case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
       case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel}/>;
       case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
+      case "programs": return <ProgramsScreen trainerId={auth.userId} token={auth.token}/>;
       default: return null;
     }
   };
