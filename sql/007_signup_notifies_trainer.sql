@@ -1,6 +1,12 @@
 -- ============================================================================
--- New client sign-ups now notify the trainer, so they know to set up the
--- client's package/program. Idempotent, safe to re-run.
+-- SUPERSEDED: the "notify trainer via a cross-user notifications row" design
+-- below hit an RLS issue in production that we couldn't pin down (the INSERT
+-- policy existed exactly as intended per pg_policies but inserts still got
+-- rejected 42501). The app was changed instead to derive "new clients still
+-- needing a package" directly from data the trainer already has full read
+-- access to (TrainerApp.jsx TodayScreen), no new write path needed. This
+-- migration is harmless to leave applied (unused column + policies) — no
+-- need to run it if you haven't already, and no need to revert it if you have.
 -- ============================================================================
 
 -- A fresh client needs to resolve the trainer's id to notify them.

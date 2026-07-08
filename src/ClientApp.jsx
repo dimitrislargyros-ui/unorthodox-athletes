@@ -1331,9 +1331,6 @@ export default function App(){
     // auth.users row is created, so this must PATCH the existing row, not INSERT —
     // clients have no INSERT policy on profiles, only UPDATE-own-row.
     await updateProfile(user.id,{name:name.trim(),initials,...(phone&&{phone})},access_token).catch(()=>{});
-    const trainer=await dbGet("profiles","role=eq.trainer&select=id&limit=1",access_token).catch(()=>[]);
-    const trainerId=trainer?.[0]?.id;
-    if(trainerId) await postNotification({client_id:trainerId,related_client_id:user.id,type:"new_signup",message:`${name.trim()} just signed up — set up their package.`},access_token).catch(()=>{});
     localStorage.setItem("ua_client_auth",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
     await loadData(access_token,user.id);
     return true;
