@@ -1017,6 +1017,16 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       const dow=dowOf(r.requested_date);
       let slot=await findActiveSlot(trainerId,dow,r.requested_time_min,token);
       if(!slot){
+        // A custom time that doesn't land on an existing slot must not overlap
+        // one either — otherwise gym capacity at the overlapped time wouldn't
+        // reflect this booking at all (two unrelated slot rows, same room).
+        const daySlots=await getSlots(dow,token).catch(()=>[]);
+        const reqStart=r.requested_time_min, reqEnd=reqStart+SESS_MIN;
+        const overlapping=(daySlots||[]).find(s=>reqStart<s.start_time_min+SESS_MIN&&s.start_time_min<reqEnd);
+        if(overlapping){
+          alert(`${toTime(reqStart)} overlaps the existing ${toTime(overlapping.start_time_min)} slot. Approve them into that slot instead, or reject and ask for a fully free time.`);
+          return;
+        }
         const created=await addSlot({trainer_id:trainerId,day_of_week:dow,start_time_min:r.requested_time_min},token);
         slot=Array.isArray(created)?created[0]:created;
       }
