@@ -913,8 +913,9 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
         setWaitlistRank(idx>=0?idx+1:null);
       }).catch(()=>{});
     },[onWaitlist?.id]);
-    const bookedSess=booked?sessions.find(s=>s.session_date===selDay.iso&&(s.status==="booked"||s.status==="completed")):null;
-    const bookedDayNum=bookedSess?computeDayNum(bookedSess,sessions,spw):null;
+    // Count booked/completed days in the viewed week up to and including selDay
+    // sessionDaySet already combines sessions prop + weekBookDates (updated on booking)
+    const bookedDayNum=booked?(([...sessionDaySet].filter(d=>d>=weekDates[0].iso&&d<=selDay.iso).length)||null):null;
     return(
       <Card glow={booked?C.cyan:null} style={{marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>

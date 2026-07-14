@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
+import { EXERCISE_LIST } from "./exerciseList.js";
 
 // ── Premium Design System (injected once) ──
 ;(()=>{
@@ -18,6 +19,11 @@ import ExercisePicker from "./ExercisePicker.jsx";
     .ua-btn-ghost{transition:background .18s ease,border-color .18s ease}
     .ua-btn-ghost:not(:disabled):hover{background:rgba(0,201,225,.15)!important}
     .ua-card-glass{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+    ::-webkit-scrollbar{width:4px;height:4px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.13);border-radius:4px}
+    ::-webkit-scrollbar-thumb:hover{background:rgba(0,201,225,0.55)}
+    *{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.13) transparent}
   `;
   document.head.appendChild(style);
 })();
@@ -1340,20 +1346,191 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   );
 };
 
+// ── Exercise Library (localStorage) ──
+const LIB_KEY=id=>`ua_ex_lib_${id}`;
+const loadLib=id=>{try{return JSON.parse(localStorage.getItem(LIB_KEY(id))||"[]");}catch{return [];}};
+const saveLib=(id,list)=>localStorage.setItem(LIB_KEY(id),JSON.stringify(list));
+const allExercises=customLib=>[...new Set([...EXERCISE_LIST,...customLib])].sort((a,b)=>a.localeCompare(b));
+
+// ── Library Sheet ──
+const LibrarySheet=({trainerId,onClose})=>{
+  const [custom,setCustom]=useState(()=>loadLib(trainerId));
+  const [search,setSearch]=useState("");
+  const [newName,setNewName]=useState("");
+  const save=list=>{saveLib(trainerId,list);setCustom(list);};
+  const add=()=>{const n=newName.trim();if(!n||custom.includes(n))return;save([...custom,n].sort((a,b)=>a.localeCompare(b)));setNewName("");};
+  const all=allExercises(custom);
+  const filtered=search?all.filter(e=>e.toLowerCase().includes(search.toLowerCase())):all;
+  const isCustom=n=>custom.includes(n);
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px",maxHeight:"80vh",display:"flex",flexDirection:"column"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:36,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div><div style={{color:C.white,fontSize:17,fontWeight:800}}>Exercise Library</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{all.length} exercises · {custom.length} custom</div></div>
+          <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+        </div>
+        {/* Add custom */}
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          <input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Add custom exercise…" style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit"}}/>
+          <button onClick={add} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"9px 14px",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
+        </div>
+        {/* Search */}
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search exercises…" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",marginBottom:10}}/>
+        {/* List */}
+        <div style={{overflowY:"auto",flex:1}}>
+          {filtered.map(name=>(
+            <div key={name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 4px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{color:C.white,fontSize:13}}>{name}</div>
+                {isCustom(name)&&<span style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:10,padding:"1px 7px",color:C.pink,fontSize:10,fontWeight:700}}>custom</span>}
+              </div>
+              {isCustom(name)&&<button onClick={()=>save(custom.filter(e=>e!==name))} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,padding:"2px 6px"}}>✕</button>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Program Editor Modal ──
+const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
+  const [exs,setExs]=useState(prog.exercises||[]);
+  const [saving,setSaving]=useState(false);
+  const [step,setStep]=useState("list"); // "list" | "pick" | "detail"
+  const [pickSearch,setPickSearch]=useState("");
+  const [pickedName,setPickedName]=useState("");
+  const [det,setDet]=useState({sets:"3",reps:"10",weight:"",unit:"kg"});
+  const lib=useMemo(()=>loadLib(trainerId),[trainerId]);
+  const all=useMemo(()=>allExercises(lib),[lib]);
+  const filtered=pickSearch?all.filter(e=>e.toLowerCase().includes(pickSearch.toLowerCase())):all;
+
+  const persist=async(newExs)=>{
+    setSaving(true);
+    try{
+      await updateTemplate(prog.id,{exercises:newExs},token);
+      setExs(newExs);
+      onUpdate({...prog,exercises:newExs});
+    }catch(e){alert("Error: "+e.message);}
+    setSaving(false);
+  };
+  const move=(idx,dir)=>{const n=[...exs];const to=idx+dir;if(to<0||to>=n.length)return;[n[idx],n[to]]=[n[to],n[idx]];persist(n);};
+  const remove=(idx)=>persist(exs.filter((_,i)=>i!==idx));
+  const confirmAdd=()=>{
+    if(!pickedName)return;
+    const w=det.unit==="BW"?"BW":(det.weight?`${det.weight}${det.unit}`:"");
+    persist([...exs,{name:pickedName,sets:det.sets,reps:det.reps,weight:w}]);
+    setPickedName("");setDet({sets:"3",reps:"10",weight:"",unit:"kg"});setPickSearch("");setStep("list");
+  };
+
+  const si=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{flex:1,minWidth:0,background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit"}}/>);
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:350,display:"flex",flexDirection:"column"}}>
+      <div style={{flex:1,display:"flex",flexDirection:"column",background:C.surface,marginTop:44,borderRadius:"20px 20px 0 0",overflow:"hidden"}}>
+        {/* Header */}
+        <div style={{padding:"16px 20px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+          <button onClick={step!=="list"?()=>setStep("list"):onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 13px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>
+            {step!=="list"?"← Back":"✕ Close"}
+          </button>
+          <div style={{flex:1}}>
+            <div style={{color:C.white,fontSize:17,fontWeight:800,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5}}>{prog.name}</div>
+            <div style={{color:C.muted,fontSize:12,marginTop:1}}>{exs.length} exercise{exs.length!==1?"s":""}{saving?" · saving…":""}</div>
+          </div>
+        </div>
+
+        {/* ── Step: exercise list ── */}
+        {step==="list"&&(<>
+          <div style={{flex:1,overflowY:"auto",padding:"14px 20px"}}>
+            {exs.length===0
+              ? <Empty msg="No exercises yet"/>
+              : exs.map((ex,i)=>(
+                  <div key={i} style={{background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:8,border:`1px solid ${C.border}`}}>
+                    <div style={{color:C.muted,fontSize:12,fontWeight:800,minWidth:22,textAlign:"center"}}>{i+1}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{color:C.white,fontSize:14,fontWeight:700}}>{ex.name}</div>
+                      <div style={{color:C.pink,fontSize:12,fontWeight:700,marginTop:2}}>
+                        {ex.sets&&ex.reps?`${ex.sets} sets × ${ex.reps} reps`:ex.sets?`${ex.sets} sets`:ex.reps?`${ex.reps} reps`:""}
+                        {ex.weight?` · ${ex.weight}`:""}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                      <button onClick={()=>move(i,-1)} disabled={i===0||saving} style={{background:"none",border:"none",color:i===0?C.border:C.muted,cursor:i===0?"default":"pointer",fontSize:12,padding:"2px 5px",lineHeight:1}}>▲</button>
+                      <button onClick={()=>move(i,1)} disabled={i===exs.length-1||saving} style={{background:"none",border:"none",color:i===exs.length-1?C.border:C.muted,cursor:i===exs.length-1?"default":"pointer",fontSize:12,padding:"2px 5px",lineHeight:1}}>▼</button>
+                    </div>
+                    <button onClick={()=>remove(i)} disabled={saving} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:17,padding:"4px"}}>✕</button>
+                  </div>
+                ))
+            }
+          </div>
+          <div style={{flexShrink:0,padding:"12px 20px 28px",borderTop:`1px solid ${C.border}`}}>
+            <GBtn label={saving?"Saving…":"+ Add Exercise"} onClick={()=>setStep("pick")} style={{width:"100%"}} disabled={saving}/>
+          </div>
+        </>)}
+
+        {/* ── Step: pick exercise from library ── */}
+        {step==="pick"&&(<>
+          <div style={{padding:"14px 20px 10px",flexShrink:0}}>
+            <input value={pickSearch} onChange={e=>setPickSearch(e.target.value)} placeholder="🔍 Search exercises…" autoFocus style={{width:"100%",background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:"0 20px 10px"}}>
+            {filtered.map(name=>(
+              <button key={name} onClick={()=>{setPickedName(name);setStep("detail");}} style={{width:"100%",background:"none",border:"none",textAlign:"left",padding:"11px 4px",borderBottom:`1px solid ${C.border}`,cursor:"pointer",fontFamily:"inherit"}}>
+                <span style={{color:C.white,fontSize:14}}>{name}</span>
+                {lib.includes(name)&&<span style={{marginLeft:8,background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:10,padding:"1px 7px",color:C.pink,fontSize:10,fontWeight:700}}>custom</span>}
+              </button>
+            ))}
+          </div>
+        </>)}
+
+        {/* ── Step: enter sets/reps/weight ── */}
+        {step==="detail"&&(
+          <div style={{flex:1,padding:"20px",display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{background:"rgba(255,255,255,0.05)",borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+              <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Exercise</div>
+              <div style={{color:C.white,fontSize:17,fontWeight:800}}>{pickedName}</div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div><div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Sets</div>{si(det.sets,v=>setDet(p=>({...p,sets:v})),"e.g. 3")}</div>
+              <div><div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Reps</div>{si(det.reps,v=>setDet(p=>({...p,reps:v})),"e.g. 10")}</div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10}}>
+              <div>
+                <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Weight</div>
+                {det.unit==="BW"
+                  ? <div style={{background:"rgba(255,255,255,0.04)",borderRadius:8,padding:"9px 12px",color:C.muted,fontSize:13}}>Bodyweight</div>
+                  : si(det.weight,v=>setDet(p=>({...p,weight:v})),"e.g. 80")
+                }
+              </div>
+              <div>
+                <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Unit</div>
+                <select value={det.unit} onChange={e=>setDet(p=>({...p,unit:e.target.value}))} style={{background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontFamily:"inherit",outline:"none",fontSize:13,height:"100%"}}>
+                  <option value="kg">kg</option><option value="lbs">lbs</option><option value="BW">BW</option>
+                </select>
+              </div>
+            </div>
+            <div style={{marginTop:"auto"}}>
+              <GBtn label="Add to Program" onClick={confirmAdd} style={{width:"100%"}}/>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── Programs (named workout templates) ──
 const PROG_PRESETS=["Agility","Conditioning","Strength","Cardio","Mobility","Flexibility","HIIT","Olympic Lifting"];
 
 const ProgramsScreen=({trainerId,token})=>{
   const [programs,setPrograms]=useState([]);
   const [loading,setLoad]=useState(true);
-  const [expanded,setExpanded]=useState(null);
   const [showNew,setShowNew]=useState(false);
   const [newName,setNewName]=useState("");
   const [creating,setCreating]=useState(false);
-  const [newEx,setNewEx]=useState({name:"",sets:"3",reps:"10",weight:"",unit:"kg"});
-  const [showAddEx,setShowAddEx]=useState(null);
-  const [savingId,setSavingId]=useState(null);
-  const [editEx,setEditEx]=useState(null); // {progId, idx}
+  const [editProg,setEditProg]=useState(null);   // program open in modal
+  const [showLib,setShowLib]=useState(false);     // library sheet
 
   useEffect(()=>{
     getTemplates(trainerId,token).then(r=>setPrograms(r||[])).catch(()=>{}).finally(()=>setLoad(false));
@@ -1366,72 +1543,42 @@ const ProgramsScreen=({trainerId,token})=>{
     try{
       const res=await createTemplate({trainer_id:trainerId,name,exercises:[]},token);
       const created=Array.isArray(res)?res[0]:res;
-      if(created){ setPrograms(p=>[...p,created].sort((a,b)=>a.name.localeCompare(b.name))); setExpanded(created.id); }
+      if(created){
+        const updated=[...programs,created].sort((a,b)=>a.name.localeCompare(b.name));
+        setPrograms(updated);
+        setEditProg(created);   // open the new program immediately
+      }
       setNewName(""); setShowNew(false);
     }catch(e){ alert("Error: "+e.message); }
     setCreating(false);
   };
 
-  const handleDelete=async(prog)=>{
+  const handleDelete=async(prog,e)=>{
+    e.stopPropagation();
     if(!window.confirm(`Delete "${prog.name}"? This can't be undone.`)) return;
-    try{ await deleteTemplate(prog.id,token); setPrograms(p=>p.filter(x=>x.id!==prog.id)); if(expanded===prog.id) setExpanded(null); }
-    catch(e){ alert("Error: "+e.message); }
+    try{ await deleteTemplate(prog.id,token); setPrograms(p=>p.filter(x=>x.id!==prog.id)); }
+    catch(e2){ alert("Error: "+e2.message); }
   };
 
-  const persistExercises=async(prog,exs)=>{
-    setSavingId(prog.id);
-    try{
-      await updateTemplate(prog.id,{exercises:exs},token);
-      setPrograms(p=>p.map(x=>x.id===prog.id?{...x,exercises:exs}:x));
-    }catch(e){ alert("Error: "+e.message); }
-    setSavingId(null);
+  const handleUpdate=(updated)=>{
+    setPrograms(p=>p.map(x=>x.id===updated.id?updated:x));
   };
 
-  const handleAddExercise=(prog)=>{
-    if(!newEx.name) return;
-    const ex={name:newEx.name,sets:newEx.sets,reps:newEx.reps,weight:newEx.weight?`${newEx.weight}${newEx.unit}`:newEx.unit==="BW"?"BW":""};
-    persistExercises(prog,[...(prog.exercises||[]),ex]);
-    setNewEx({name:"",sets:"3",reps:"10",weight:"",unit:"kg"});
-    setShowAddEx(null);
-  };
-
-  const handleRemoveExercise=(prog,idx)=>{
-    persistExercises(prog,(prog.exercises||[]).filter((_,i)=>i!==idx));
-  };
-
-  const handleMove=(prog,idx,dir)=>{
-    const exs=[...(prog.exercises||[])];
-    const to=idx+dir;
-    if(to<0||to>=exs.length) return;
-    [exs[idx],exs[to]]=[exs[to],exs[idx]];
-    persistExercises(prog,exs);
-  };
-
-  const handleRename=(prog)=>{
-    const name=window.prompt("Program name:",prog.name);
-    if(!name||!name.trim()||name.trim()===prog.name) return;
-    updateTemplate(prog.id,{name:name.trim()},token)
-      .then(()=>setPrograms(p=>p.map(x=>x.id===prog.id?{...x,name:name.trim()}:x).sort((a,b)=>a.name.localeCompare(b.name))))
-      .catch(e=>alert("Error: "+e.message));
-  };
-
-  const inp=(val,set,ph,type="text")=>(<input type={type} value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1,minWidth:0}}/>);
-
-  const unitSel=(val,set)=>(
-    <select value={val} onChange={e=>set(e.target.value)} style={{background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 8px",color:C.white,fontFamily:"inherit",outline:"none",fontSize:13}}>
-      <option value="kg">kg</option><option value="lbs">lbs</option><option value="BW">BW</option>
-    </select>
-  );
-
-  // presets available = those not yet created
   const existingNames=new Set(programs.map(p=>p.name.toLowerCase()));
   const availablePresets=PROG_PRESETS.filter(n=>!existingNames.has(n.toLowerCase()));
 
   return(
     <div style={{paddingBottom:80}}>
+      {/* Header */}
       <div style={{padding:"22px 20px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div><div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Programs</div><div style={{color:C.muted,fontSize:13,marginTop:2}}>Reusable workout programs</div></div>
-        <Logo size={40}/>
+        <div>
+          <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Programs</div>
+          <div style={{color:C.muted,fontSize:13,marginTop:2}}>Workout templates</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={()=>setShowLib(true)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 14px",color:C.cyan,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.3}}>Library</button>
+          <Logo size={40}/>
+        </div>
       </div>
 
       <div style={{padding:"0 20px 16px"}}>
@@ -1441,7 +1588,7 @@ const ProgramsScreen=({trainerId,token})=>{
             <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>Quick create</div>
             <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
               {availablePresets.map(n=>(
-                <button key={n} onClick={()=>handleCreate(n)} style={{background:"rgba(255,255,255,0.05)",border:`1px dashed ${C.pink}66`,borderRadius:20,padding:"7px 14px",color:C.pink,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.5}}>+ {n}</button>
+                <button key={n} onClick={()=>handleCreate(n)} disabled={creating} style={{background:"rgba(255,255,255,0.05)",border:`1px dashed ${C.pink}66`,borderRadius:20,padding:"7px 14px",color:C.pink,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.5}}>+ {n}</button>
               ))}
             </div>
           </div>
@@ -1457,88 +1604,52 @@ const ProgramsScreen=({trainerId,token})=>{
         )}
       </div>
 
+      {/* Program cards — compact, tap to edit */}
       <div style={{padding:"0 20px"}}>
         {loading?<Spinner/>:programs.length===0?<Empty msg="No programs yet — use Quick Create or Custom above"/>:
           programs.map(prog=>{
-            const isExpanded=expanded===prog.id;
             const exs=prog.exercises||[];
-            const isSaving=savingId===prog.id;
             return(
-              <Card key={prog.id} style={{marginBottom:10}}>
-                {/* Header */}
+              <Card key={prog.id} style={{marginBottom:10,cursor:"pointer"}} onClick={()=>setEditProg(prog)}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>setExpanded(isExpanded?null:prog.id)}>
+                  <div style={{flex:1,minWidth:0}}>
                     <div style={{color:C.white,fontSize:15,fontWeight:700}}>{prog.name}</div>
-                    <div style={{color:C.muted,fontSize:12,marginTop:2}}>{exs.length} exercise{exs.length!==1?"s":""}{isSaving?" · saving…":""}</div>
+                    <div style={{color:C.muted,fontSize:12,marginTop:3}}>
+                      {exs.length===0?"No exercises yet":`${exs.length} exercise${exs.length!==1?"s":""}`}
+                      {exs.length>0&&(
+                        <span style={{color:C.border,marginLeft:6,marginRight:6}}>·</span>
+                      )}
+                      {exs.length>0&&(
+                        <span style={{color:C.surface2==="pink"?C.pink:C.muted}}>
+                          {exs.slice(0,2).map(e=>e.name).join(", ")}{exs.length>2?` +${exs.length-2} more`:""}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{display:"flex",gap:6,flexShrink:0}}>
-                    <button onClick={()=>handleRename(prog)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Rename</button>
-                    <button onClick={()=>handleDelete(prog)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
-                    <button onClick={()=>setExpanded(isExpanded?null:prog.id)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,width:28,height:28,color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center"}}>{isExpanded?"▲":"▾"}</button>
+                  <div style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}}>
+                    <button onClick={(e)=>handleDelete(prog,e)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+                    <span style={{color:C.muted,fontSize:16}}>›</span>
                   </div>
                 </div>
-
-                {/* Expanded: exercise list */}
-                {isExpanded&&(
-                  <div style={{marginTop:14}}>
-                    {exs.length===0
-                      ? <Empty msg="No exercises yet — add one below"/>
-                      : <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
-                          {exs.map((ex,i)=>(
-                            <div key={i} style={{background:"rgba(255,255,255,0.05)",borderRadius:10,padding:"11px 12px",display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.border}`}}>
-                              {/* Order number */}
-                              <div style={{color:C.muted,fontSize:11,fontWeight:800,minWidth:18,textAlign:"center"}}>{i+1}</div>
-                              {/* Info */}
-                              <div style={{flex:1,minWidth:0}}>
-                                <div style={{color:C.white,fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ex.name}</div>
-                                <div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:2}}>
-                                  {ex.sets&&ex.reps?`${ex.sets} sets × ${ex.reps} reps`:ex.sets?`${ex.sets} sets`:ex.reps?`${ex.reps} reps`:""}
-                                  {ex.weight?` · ${ex.weight}`:""}
-                                </div>
-                              </div>
-                              {/* Reorder */}
-                              <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                                <button onClick={()=>handleMove(prog,i,-1)} disabled={i===0||isSaving} style={{background:"none",border:"none",color:i===0?C.border:C.muted,cursor:i===0?"default":"pointer",fontSize:11,padding:"1px 4px",lineHeight:1}}>▲</button>
-                                <button onClick={()=>handleMove(prog,i,1)} disabled={i===exs.length-1||isSaving} style={{background:"none",border:"none",color:i===exs.length-1?C.border:C.muted,cursor:i===exs.length-1?"default":"pointer",fontSize:11,padding:"1px 4px",lineHeight:1}}>▼</button>
-                              </div>
-                              {/* Remove */}
-                              <button onClick={()=>handleRemoveExercise(prog,i)} disabled={isSaving} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16,padding:"4px",flexShrink:0}}>✕</button>
-                            </div>
-                          ))}
-                        </div>
-                    }
-
-                    {/* Add exercise form */}
-                    {showAddEx===prog.id?(
-                      <div style={{background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px",border:`1px solid ${C.border}`}}>
-                        <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>New Exercise</div>
-                        <div style={{marginBottom:8}}>
-                          <ExercisePicker value={newEx.name} onChange={v=>setNewEx(p=>({...p,name:v}))} placeholder="Exercise name"/>
-                        </div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:6,marginBottom:10}}>
-                          {inp(newEx.sets,v=>setNewEx(p=>({...p,sets:v})),"Sets","text")}
-                          {inp(newEx.reps,v=>setNewEx(p=>({...p,reps:v})),"Reps","text")}
-                          {newEx.unit!=="BW"
-                            ? inp(newEx.weight,v=>setNewEx(p=>({...p,weight:v})),"Weight","text")
-                            : <div style={{background:"rgba(255,255,255,0.04)",borderRadius:8,padding:"9px 10px",color:C.muted,fontSize:12,display:"flex",alignItems:"center"}}>Bodyweight</div>
-                          }
-                          {unitSel(newEx.unit,v=>setNewEx(p=>({...p,unit:v})))}
-                        </div>
-                        <div style={{display:"flex",gap:8}}>
-                          <GBtn label="Add Exercise" onClick={()=>handleAddExercise(prog)} disabled={!newEx.name||isSaving} sm style={{flex:1}}/>
-                          <GBtn label="Cancel" onClick={()=>{setShowAddEx(null);setNewEx({name:"",sets:"3",reps:"10",weight:"",unit:"kg"});}} ghost sm style={{flex:1}}/>
-                        </div>
-                      </div>
-                    ):(
-                      <GBtn label={isSaving?"Saving…":"+ Add Exercise"} onClick={()=>setShowAddEx(prog.id)} sm ghost style={{width:"100%"}} disabled={isSaving}/>
-                    )}
-                  </div>
-                )}
               </Card>
             );
           })
         }
       </div>
+
+      {/* Program editor modal */}
+      {editProg&&(
+        <ProgramEditorModal
+          prog={programs.find(p=>p.id===editProg.id)||editProg}
+          trainerId={trainerId}
+          token={token}
+          onClose={()=>setEditProg(null)}
+          onUpdate={handleUpdate}
+        />
+      )}
+
+      {/* Exercise library sheet */}
+      {showLib&&<LibrarySheet trainerId={trainerId} onClose={()=>setShowLib(false)}/>}
     </div>
   );
 };
