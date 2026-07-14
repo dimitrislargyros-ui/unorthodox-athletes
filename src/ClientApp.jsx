@@ -18,19 +18,29 @@ import ExercisePicker from "./ExercisePicker.jsx";
     .ua-btn-ghost{transition:background .18s ease,border-color .18s ease}
     .ua-btn-ghost:not(:disabled):hover{background:rgba(0,201,225,.15)!important}
     .ua-card-glass{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+    ::-webkit-scrollbar{width:4px;height:4px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.13);border-radius:4px}
+    ::-webkit-scrollbar-thumb:hover{background:rgba(0,201,225,0.55)}
+    *{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.13) transparent}
   `;
   document.head.appendChild(style);
 })();
 
 const LOGO_SRC = '/logo.png';
 
-// ── Colors ──
-const C = {
-  bg:"#0A0A0A", surface:"#161616", surface2:"#252525",
-  cyan:"#00C9E1", pink:"#E8197A", white:"#FFFFFF",
-  muted:"#666666", border:"#2A2A2A", green:"#22C55E", amber:"#F59E0B",
-};
 const GYM_CAP = 8;
+// ── Themes ──
+const THEMES={
+  cyber:{bg:"#0A0A0A",surface:"#161616",surface2:"#252525",cyan:"#00C9E1",pink:"#E8197A",white:"#FFFFFF",muted:"#666666",border:"#2A2A2A",green:"#22C55E",amber:"#F59E0B"},
+  electric:{bg:"#07071A",surface:"#0E0E2C",surface2:"#181838",cyan:"#4361EE",pink:"#F72585",white:"#FFFFFF",muted:"#5A5A88",border:"#22224A",green:"#22C55E",amber:"#F59E0B"},
+  emerald:{bg:"#060F09",surface:"#0E1A12",surface2:"#18281C",cyan:"#10B981",pink:"#F43F5E",white:"#FFFFFF",muted:"#4A6050",border:"#1E301E",green:"#22C55E",amber:"#F59E0B"},
+  violet:{bg:"#0C0916",surface:"#150D20",surface2:"#20152E",cyan:"#8B5CF6",pink:"#EC4899",white:"#FFFFFF",muted:"#5A4878",border:"#251D3E",green:"#22C55E",amber:"#F59E0B"},
+  gold:{bg:"#100900",surface:"#1C1000",surface2:"#281A00",cyan:"#F59E0B",pink:"#EF4444",white:"#FFFFFF",muted:"#70540A",border:"#302000",green:"#22C55E",amber:"#F59E0B"},
+};
+const THEME_KEY="ua_theme";
+const getTheme=()=>THEMES[localStorage.getItem(THEME_KEY)||"cyber"]||THEMES.cyber;
+const C=getTheme();
 const SESS_MIN = 90;
 
 // ── Supabase ──
@@ -354,8 +364,13 @@ const LoginScreen=({onLogin,onSignUp})=>{
 const EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const PwReq=({ok,label})=>(<div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:ok?C.green:C.muted}}><span>{ok?"✓":"○"}</span>{label}</div>);
 const SignUpScreen=({onSignUp,onBack})=>{
-  const [name,setName]=useState(""); const [email,setE]=useState(""); const [pw,setPw]=useState(""); const [confirmPw,setConfirmPw]=useState(""); const [phone,setPhone]=useState("");
+  const [firstName,setFirstName]=useState("");
+  const [lastName,setLastName]=useState("");
+  const [email,setE]=useState(""); const [pw,setPw]=useState(""); const [confirmPw,setConfirmPw]=useState(""); const [phone,setPhone]=useState("");
   const [loading,setL]=useState(false); const [err,setErr]=useState(""); const [done,setDone]=useState(false);
+
+  const latinize=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z]/g,'');
+  const previewUsername=firstName.trim()&&lastName.trim()?`${latinize(firstName.trim())}.${latinize(lastName.trim())}`:"";
 
   const pwChecks={
     len: pw.length>=8,
@@ -366,11 +381,11 @@ const SignUpScreen=({onSignUp,onBack})=>{
   const pwValid=Object.values(pwChecks).every(Boolean);
   const emailValid=EMAIL_RE.test(email.trim());
   const pwMatch=pw.length>0&&pw===confirmPw;
-  const canSubmit=name.trim()&&emailValid&&pwValid&&pwMatch&&!loading;
+  const canSubmit=firstName.trim()&&lastName.trim()&&emailValid&&pwValid&&pwMatch&&!loading;
 
   const handle=async()=>{
     if(!canSubmit) return; setL(true); setErr("");
-    try{ const ok=await onSignUp(name.trim(),email.trim(),pw,phone.trim()||null); if(!ok) setDone(true); }
+    try{ const ok=await onSignUp(firstName.trim(),lastName.trim(),email.trim(),pw,phone.trim()||null); if(!ok) setDone(true); }
     catch(e){ setErr(friendlyAuthError(e.message)); }
     setL(false);
   };
@@ -393,7 +408,16 @@ const SignUpScreen=({onSignUp,onBack})=>{
         </div>
       </div>
       <div style={{width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:12}}>
-        <input style={inp} placeholder="Full name" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <div style={{display:"flex",gap:8}}>
+          <input style={{...inp,flex:1}} placeholder="First name" value={firstName} onChange={e=>setFirstName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+          <input style={{...inp,flex:1}} placeholder="Last name" value={lastName} onChange={e=>setLastName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        </div>
+        {previewUsername&&(
+          <div style={{background:C.surface,border:`1px solid ${C.cyan}33`,borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{color:C.muted,fontSize:12}}>Username:</span>
+            <span style={{color:C.cyan,fontSize:13,fontWeight:700,fontFamily:"'Oswald',sans-serif"}}>{previewUsername}</span>
+          </div>
+        )}
         <div>
           <input style={inp} placeholder="Email address" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
           {email.length>0&&!emailValid&&<div style={{color:C.pink,fontSize:12,marginTop:5}}>Enter a valid email address.</div>}
@@ -468,7 +492,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
 
   const bookingItems=myUpcomingBooks
     .filter(b=>b.schedule_slots)
-    .map(b=>({id:`bk_${b.id}`,session_date:b.book_date,start_time_min:b.schedule_slots.start_time_min,status:"booked",_fromBooking:true}))
+    .map(b=>({id:`bk_${b.id}`,_bookingId:b.id,session_date:b.book_date,start_time_min:b.schedule_slots.start_time_min,status:"booked",_fromBooking:true}))
     .filter(b=>{const [yr,mo,dy]=b.session_date.split('-').map(Number);return new Date(yr,mo-1,dy,Math.floor(b.start_time_min/60),b.start_time_min%60,0)>now;});
   const usedDates=new Set(upcoming.map(s=>s.session_date));
   const allUpcoming=[...upcoming,...bookingItems.filter(b=>!usedDates.has(b.session_date))].sort((a,b)=>{
@@ -507,6 +531,19 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
     const totalSec=Math.floor((sessionDT({session_date:dateStr,start_time_min:startMin})-now.getTime())/1000);
     if(totalSec<=0) return null;
     return {h:Math.floor(totalSec/3600),m:Math.floor((totalSec%3600)/60),s:totalSec%60};
+  };
+
+  const cancelAndReschedule=async(s)=>{
+    if(!window.confirm("Cancel this booking and go to schedule to rebook?")) return;
+    try{
+      if(s._fromBooking&&s._bookingId){
+        await dbPatch("bookings",`id=eq.${s._bookingId}`,{status:"cancelled"},token);
+      } else {
+        await dbPatch("sessions",`id=eq.${s.id}`,{status:"cancelled"},token);
+        if(pkg) await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:Math.max((pkg.sessions_used||0)-1,0)},token);
+      }
+      onNav("schedule");
+    }catch(e){ alert("Error: "+e.message); }
   };
 
   const heroItem=allUpcoming[0]||null;
@@ -575,6 +612,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
           <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:20,padding:"18px 20px",boxSizing:"border-box"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>{heroIsToday?"Today":new Date(heroItem.session_date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"})}</span>
+              {pkg?.workout_templates?.name&&<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>{sessLabel(pkg.workout_templates.name)}</span>}
               {heroDayNum&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Day {heroDayNum}</span>}
             </div>
 
@@ -631,8 +669,8 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
           {middleUpcoming.map((s,i)=>{
             const dn=dayNumForIndex(i+1);
             return(
-              <button key={s.id||i} onClick={s._fromBooking?undefined:()=>onOpenSession(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:s._fromBooking?"default":"pointer",marginBottom:8,textAlign:"left"}}>
-                <div>
+              <div key={s.id||i} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,boxSizing:"border-box"}}>
+                <div style={{flex:1,cursor:s._fromBooking?undefined:"pointer"}} onClick={s._fromBooking?undefined:()=>onOpenSession(s)}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                     {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,flexShrink:0}}>Day {dn}</span>}
                     <StatusBadge status={statusMap[s.id]}/>
@@ -640,8 +678,11 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
                   <div style={{color:C.white,fontSize:14,fontWeight:700}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>in {cdShort(s)}</div>
                 </div>
-                {!s._fromBooking&&<span style={{color:C.cyan,fontSize:14,fontWeight:700,flexShrink:0,marginLeft:8}}>›</span>}
-              </button>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0,marginLeft:10}}>
+                  {!s._fromBooking&&<span style={{color:C.cyan,fontSize:14,fontWeight:700}}>›</span>}
+                  <button onClick={()=>cancelAndReschedule(s)} style={{background:"none",border:`1px solid ${C.pink}55`,borderRadius:8,padding:"4px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Change</button>
+                </div>
+              </div>
             );
           })}
         </div>
@@ -681,11 +722,6 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
       {/* View Schedule link */}
       {pkg&&(
         <div style={{padding:"14px 20px 0",display:"flex",flexDirection:"column",gap:8}}>
-          {heroItem&&left>0&&!weekFull&&(
-            <button onClick={()=>onNav("schedule")} style={{width:"100%",background:"none",border:`2px solid ${C.cyan}`,borderRadius:12,padding:"13px 18px",color:C.cyan,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-              📅 Book Day {nextBookDayNum}
-            </button>
-          )}
           <button onClick={()=>onNav("schedule")} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",fontFamily:"inherit"}}>
             <div style={{color:C.white,fontSize:14,fontWeight:700}}>📅 View Full Schedule</div>
             <span style={{color:C.cyan,fontSize:14,fontWeight:700}}>›</span>
@@ -1283,10 +1319,9 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
     catch(e){ alert("Error: "+e.message); }
   };
   const removePR=async(id)=>{ try{ await deletePR(id,token); setPRs(p=>p.filter(x=>x.id!==id)); }catch(e){} };
-  const saveName=async()=>{
-    if(!newName.trim()) return; setSavingN(true);
-    const initials=newName.trim().split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
-    try{ await updateProfile(userId,{name:newName.trim(),initials,phone:phone.trim()||null},token); setEditing(false); }catch(e){ alert("Error: "+e.message); }
+  const savePhone=async()=>{
+    if(savingName) return; setSavingN(true);
+    try{ await updateProfile(userId,{phone:phone.trim()||null},token); setEditing(false); }catch(e){ alert("Error: "+e.message); }
     setSavingN(false);
   };
   const inp=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1}}/>);
@@ -1311,11 +1346,11 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
         <input id="ua-avatar-upload" type="file" accept="image/*" style={{display:"none"}} onChange={handleAvatarChange}/>
         {editing?(
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,width:"100%",maxWidth:260}}>
-            <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Full name" autoFocus style={{background:C.surface2,border:`1px solid ${C.cyan}66`,borderRadius:10,padding:"10px 14px",color:C.white,fontSize:16,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"center"}}/>
-            <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Phone (optional)" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"center"}}/>
+            <div style={{color:C.muted,fontSize:11,fontWeight:600,letterSpacing:1,textTransform:"uppercase"}}>Phone Number</div>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Phone (optional)" autoFocus style={{background:C.surface2,border:`1px solid ${C.cyan}66`,borderRadius:10,padding:"10px 14px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",textAlign:"center"}}/>
             <div style={{display:"flex",gap:8,width:"100%"}}>
-              <GBtn label={savingName?"Saving...":"Save"} onClick={saveName} disabled={savingName} sm style={{flex:1}}/>
-              <GBtn label="Cancel" onClick={()=>{setEditing(false);setNewName(profile?.name||"");setPhone(profile?.phone||"");}} sm ghost color={C.muted} style={{flex:1}}/>
+              <GBtn label={savingName?"Saving...":"Save"} onClick={savePhone} disabled={savingName} sm style={{flex:1}}/>
+              <GBtn label="Cancel" onClick={()=>{setEditing(false);setPhone(profile?.phone||"");}} sm ghost color={C.muted} style={{flex:1}}/>
             </div>
           </div>
         ):(
@@ -1326,6 +1361,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:4}}>{profile?.email}</div>
             {phone&&<div style={{color:C.muted,fontSize:13,marginTop:2}}>📞 {phone}</div>}
+            {(()=>{const latinize=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z]/g,'');const parts=(profile?.name||"").trim().split(" ");const un=parts.length>=2?`${latinize(parts[0])}.${latinize(parts.slice(1).join(" "))}`:latinize(parts[0]||"");return un?<div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:3,fontFamily:"'Oswald',sans-serif"}}>@{un}</div>:null;})()}
             {profile?.created_at&&<div style={{color:C.muted,fontSize:12,marginTop:4}}>Member since {fmtMemberSince(profile.created_at)}</div>}
           </div>
         )}
@@ -1418,6 +1454,27 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
       </div>
       {showHistorySheet&&<HistorySheet sessions={sessions} spw={spw} label={sessLabel(pkg?.workout_templates?.name)} onClose={()=>setShowHistorySheet(false)}/>}
 
+      <div style={{padding:"0 20px 16px"}}>
+        <SL>App Theme</SL>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {[
+            {key:"cyber",label:"Cyber",a:"#00C9E1",b:"#E8197A"},
+            {key:"electric",label:"Electric",a:"#4361EE",b:"#F72585"},
+            {key:"emerald",label:"Emerald",a:"#10B981",b:"#F43F5E"},
+            {key:"violet",label:"Violet",a:"#8B5CF6",b:"#EC4899"},
+            {key:"gold",label:"Gold",a:"#F59E0B",b:"#EF4444"},
+          ].map(t=>{
+            const active=(localStorage.getItem(THEME_KEY)||"cyber")===t.key;
+            return(
+              <button key={t.key} onClick={()=>{localStorage.setItem(THEME_KEY,t.key);window.location.reload();}}
+                style={{background:active?`linear-gradient(135deg,${t.a}33,${t.b}33)`:"rgba(255,255,255,0.04)",border:`2px solid ${active?t.a:C.border}`,borderRadius:12,padding:"10px 14px",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:5,minWidth:60}}>
+                <div style={{width:28,height:14,borderRadius:7,background:`linear-gradient(90deg,${t.a},${t.b})`}}/>
+                <div style={{color:active?t.a:C.muted,fontSize:10,fontWeight:700}}>{t.label}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div style={{padding:"0 20px 8px"}}>
         <button onClick={onLogout} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.pink,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Log Out</button>
       </div>
@@ -1484,16 +1541,19 @@ export default function App(){
     try{ await markNotificationRead(id,auth.token); }catch(e){}
   };
 
-  const handleSignUp=async(name,email,pw,phone=null)=>{
+  const handleSignUp=async(firstName,lastName,email,pw,phone=null)=>{
+    const latinize=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z]/g,'');
     const data=await authSignUp(email,pw);
     if(data?.error) throw new Error(data.error_description||data.error);
     const {access_token,expires_at,user}=data||{};
     if(!access_token) return false;
-    const initials=name.trim().split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
+    const fullName=`${firstName.trim()} ${lastName.trim()}`;
+    const initials=`${latinize(firstName.trim())[0]||''}${latinize(lastName.trim())[0]||''}`.toUpperCase();
+    const username=`${latinize(firstName.trim())}.${latinize(lastName.trim())}`;
     // A DB trigger auto-creates the profiles row (with a placeholder name) when the
     // auth.users row is created, so this must PATCH the existing row, not INSERT —
     // clients have no INSERT policy on profiles, only UPDATE-own-row.
-    await updateProfile(user.id,{name:name.trim(),initials,...(phone&&{phone})},access_token).catch(()=>{});
+    await updateProfile(user.id,{name:fullName,initials,username,...(phone&&{phone})},access_token).catch(()=>{});
     localStorage.setItem("ua_client_auth",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
     await loadData(access_token,user.id);
     return true;

@@ -720,6 +720,13 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 
   const handleRenew=async()=>{
     try{
+      // Check for existing upcoming bookings so trainer knows
+      const pendingBooks=await getClientBooks(client.id,token).catch(()=>[]);
+      const futureBooks=(pendingBooks||[]).filter(b=>b.book_date>=todayISO());
+      if(futureBooks.length>0){
+        const ok=window.confirm(`⚠️ This client has ${futureBooks.length} upcoming booking${futureBooks.length>1?"s":""} from the current package. These bookings will remain — the old package will be deactivated and sessions_used will reset to 0 for the new package. Continue?`);
+        if(!ok) return;
+      }
       await deactivatePkgs(client.id,token);
       const end=new Date(); end.setDate(end.getDate()+35);
       const res=await createPkg({client_id:client.id,sessions_total:parseInt(newPkgTotal),sessions_used:0,sessions_per_week:parseInt(newSpw),weeks:5,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null},token);
@@ -727,7 +734,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
       setPkg(created); setShowPkg(false);
       onClientUpdated({...client,_pkg:created});
-      await postNotification({client_id:client.id,type:"package_renewed",message:`Your package was renewed: ${newPkgTotal} sessions · ${newSpw}x/week.`},token).catch(()=>{});
+      const progName=programs.find(p=>p.id===newPkgProgramId)?.name;
+      await postNotification({client_id:client.id,type:"package_renewed",message:`🎯 ${progName?progName+" p":"P"}ackage assigned: ${newPkgTotal} sessions · ${newSpw}x/week. Let's get to work!`},token).catch(()=>{});
     }catch(e){ alert("Error: "+e.message); }
   };
 
@@ -773,6 +781,14 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const updPkg={...pkg,paid:newPaid};
       setPkg(updPkg);
       onClientUpdated({...client,_pkg:updPkg});
+    }catch(e){ alert("Error: "+e.message); }
+  };
+
+  const handleSendPaymentReminder=async()=>{
+    if(!pkg) return;
+    try{
+      await postNotification({client_id:client.id,type:"payment_reminder",message:`💳 Payment reminder from your trainer: Please confirm payment for your ${pkg.workout_templates?.name||""}${pkg.workout_templates?.name?" ":""}${pkg.sessions_total}-session package.`},token);
+      alert("Payment reminder sent!");
     }catch(e){ alert("Error: "+e.message); }
   };
 
@@ -839,7 +855,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 
       <div style={{padding:"22px 20px 0",display:"flex",alignItems:"center",gap:12}}>
         <button onClick={onBack} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 12px",color:C.muted,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>← Back</button>
-        <div style={{flex:1}}/><Logo size={36}/>
+        <div style={{flex:1}}/><Logo size={48}/>
       </div>
 
       {/* Client info */}
@@ -928,7 +944,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             <div style={{height:5,background:"rgba(0,0,0,0.25)",borderRadius:3,marginTop:12}}>
               <div style={{width:`${(pkg.sessions_used/pkg.sessions_total)*100}%`,height:"100%",borderRadius:3,background:"white"}}/>
             </div>
-            <button onClick={handleTogglePaid} style={{marginTop:12,background:pkg.paid?"rgba(0,0,0,0.25)":"rgba(0,0,0,0.4)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>{pkg.paid?"✓ Paid":"⚠ Unpaid — tap to mark paid"}</button>
+            <div style={{display:"flex",gap:8,marginTop:12}}>
+              <button onClick={handleTogglePaid} style={{flex:1,background:pkg.paid?"rgba(0,0,0,0.25)":"rgba(0,0,0,0.4)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{pkg.paid?"✓ Paid":"⚠ Unpaid"}</button>
+              <button onClick={handleSendPaymentReminder} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>💳 Payment Reminder</button>
+            </div>
           </div>
         ):<Card><Empty msg="No active package"/></Card>}
       </div>
@@ -1185,7 +1204,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       )}
       <div style={{padding:"22px 20px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Schedule</div><div style={{color:C.muted,fontSize:13,marginTop:2}}>Manage slots · Max {GYM_CAP} per slot</div></div>
-        <Logo size={40}/>
+        <Logo size={48}/>
       </div>
 
       {/* Pending custom time requests */}
@@ -1350,16 +1369,21 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
 const LIB_KEY=id=>`ua_ex_lib_${id}`;
 const loadLib=id=>{try{return JSON.parse(localStorage.getItem(LIB_KEY(id))||"[]");}catch{return [];}};
 const saveLib=(id,list)=>localStorage.setItem(LIB_KEY(id),JSON.stringify(list));
-const allExercises=customLib=>[...new Set([...EXERCISE_LIST,...customLib])].sort((a,b)=>a.localeCompare(b));
+const allExercises=(customLib,hiddenSet=new Set())=>[...new Set([...EXERCISE_LIST,...customLib])].filter(e=>!hiddenSet.has(e)).sort((a,b)=>a.localeCompare(b));
+const HIDE_KEY=id=>`ua_ex_hide_${id}`;
+const loadHidden=id=>{try{return new Set(JSON.parse(localStorage.getItem(HIDE_KEY(id))||"[]"));}catch{return new Set();}};
+const saveHidden=(id,set)=>localStorage.setItem(HIDE_KEY(id),JSON.stringify([...set]));
 
 // ── Library Sheet ──
 const LibrarySheet=({trainerId,onClose})=>{
   const [custom,setCustom]=useState(()=>loadLib(trainerId));
+  const [hidden,setHidden]=useState(()=>loadHidden(trainerId));
   const [search,setSearch]=useState("");
   const [newName,setNewName]=useState("");
   const save=list=>{saveLib(trainerId,list);setCustom(list);};
+  const saveH=h=>{saveHidden(trainerId,h);setHidden(new Set(h));};
   const add=()=>{const n=newName.trim();if(!n||custom.includes(n))return;save([...custom,n].sort((a,b)=>a.localeCompare(b)));setNewName("");};
-  const all=allExercises(custom);
+  const all=allExercises(custom,new Set()); // show all in library manager
   const filtered=search?all.filter(e=>e.toLowerCase().includes(search.toLowerCase())):all;
   const isCustom=n=>custom.includes(n);
   return(
@@ -1379,15 +1403,24 @@ const LibrarySheet=({trainerId,onClose})=>{
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search exercises…" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",marginBottom:10}}/>
         {/* List */}
         <div style={{overflowY:"auto",flex:1}}>
-          {filtered.map(name=>(
-            <div key={name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 4px",borderBottom:`1px solid ${C.border}`}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{color:C.white,fontSize:13}}>{name}</div>
-                {isCustom(name)&&<span style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:10,padding:"1px 7px",color:C.pink,fontSize:10,fontWeight:700}}>custom</span>}
+          {filtered.map(name=>{
+            const isHidden=hidden.has(name);
+            return(
+              <div key={name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 4px",borderBottom:`1px solid ${C.border}`,opacity:isHidden?0.45:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{color:C.white,fontSize:13,textDecoration:isHidden?"line-through":"none"}}>{name}</div>
+                  {isCustom(name)&&<span style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:10,padding:"1px 7px",color:C.pink,fontSize:10,fontWeight:700}}>custom</span>}
+                  {isHidden&&!isCustom(name)&&<span style={{background:C.muted+"22",borderRadius:10,padding:"1px 7px",color:C.muted,fontSize:10,fontWeight:700}}>hidden</span>}
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  {isCustom(name)
+                    ?<button onClick={()=>save(custom.filter(e=>e!==name))} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,padding:"2px 6px"}}>✕</button>
+                    :<button onClick={()=>{const nh=new Set(hidden);isHidden?nh.delete(name):nh.add(name);saveH(nh);}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",color:isHidden?C.cyan:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700}}>{isHidden?"Show":"Hide"}</button>
+                  }
+                </div>
               </div>
-              {isCustom(name)&&<button onClick={()=>save(custom.filter(e=>e!==name))} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,padding:"2px 6px"}}>✕</button>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1403,7 +1436,8 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
   const [pickedName,setPickedName]=useState("");
   const [det,setDet]=useState({sets:"3",reps:"10",weight:"",unit:"kg"});
   const lib=useMemo(()=>loadLib(trainerId),[trainerId]);
-  const all=useMemo(()=>allExercises(lib),[lib]);
+  const hidden=useMemo(()=>loadHidden(trainerId),[trainerId]);
+  const all=useMemo(()=>allExercises(lib,hidden),[lib,hidden]);
   const filtered=pickSearch?all.filter(e=>e.toLowerCase().includes(pickSearch.toLowerCase())):all;
 
   const persist=async(newExs)=>{
@@ -1577,7 +1611,7 @@ const ProgramsScreen=({trainerId,token})=>{
         </div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <button onClick={()=>setShowLib(true)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 14px",color:C.cyan,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.3}}>Library</button>
-          <Logo size={40}/>
+          <Logo size={48}/>
         </div>
       </div>
 
