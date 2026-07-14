@@ -675,7 +675,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
       <div style={{padding:"22px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
           <div style={{color:C.muted,fontSize:13}}>Good {greeting},</div>
-          <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>{profile?.name?.split(" ")[0]||"Athlete"}</div>
+          <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>{(()=>{const n=profile?.name||"";if(!n)return"Athlete";if(n.includes("@")){const loc=n.split("@")[0].split(".")[0];return loc.charAt(0).toUpperCase()+loc.slice(1);}return n.split(" ")[0];})()}</div>
           <div style={{color:C.cyan,fontSize:14,fontWeight:700,marginTop:4}}>{dateStr}</div>
         </div>
         <Logo size={64}/>

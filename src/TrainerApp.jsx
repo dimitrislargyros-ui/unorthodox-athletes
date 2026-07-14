@@ -1498,6 +1498,32 @@ const toDayPlan=(raw=[],numDays=3)=>{
 };
 
 // ── Program Editor Modal ──
+// exercise types
+const EX_TYPES=[
+  {id:"weighted",label:"🏋️ Weighted",desc:"kg / lbs"},
+  {id:"cardio",label:"🚴 Cardio",desc:"m / km / cal"},
+  {id:"reps",label:"💪 Reps Only",desc:"no load"},
+  {id:"timed",label:"⏱️ Timed",desc:"min / sec"},
+];
+const CARDIO_UNITS=["m","km","cal","min","sec"];
+
+// parse stored exercise back to det fields
+const exToDet=(ex)=>{
+  const w=ex.weight||"";
+  // detect type from stored weight string
+  if(!w||w==="") return {type:"reps",sets:ex.sets||"3",reps:ex.reps||"10",vol:"",unit:"m"};
+  if(w==="BW") return {type:"reps",sets:ex.sets||"3",reps:ex.reps||"10",vol:"",unit:"m"};
+  // cardio units
+  for(const u of CARDIO_UNITS){
+    if(w.endsWith(u)){ return {type:"cardio",sets:ex.sets||"3",reps:"",vol:w.slice(0,w.length-u.length),unit:u}; }
+  }
+  // timed special (stored as e.g. "20min")
+  // weighted
+  const numMatch=w.match(/^([\d.]+)(kg|lbs)$/);
+  if(numMatch) return {type:"weighted",sets:ex.sets||"3",reps:ex.reps||"10",vol:numMatch[1],unit:numMatch[2]};
+  return {type:"weighted",sets:ex.sets||"3",reps:ex.reps||"10",vol:w.replace(/[a-z]+$/i,""),unit:"kg"};
+};
+
 const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
   const [days,setDays]=useState(()=>toDayPlan(prog.exercises||[],numDays));
   const [activeDay,setActiveDay]=useState(1);
@@ -1505,7 +1531,8 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
   const [step,setStep]=useState("list"); // "list" | "pick" | "detail"
   const [pickSearch,setPickSearch]=useState("");
   const [pickedName,setPickedName]=useState("");
-  const [det,setDet]=useState({sets:"3",reps:"10",weight:"",unit:"kg"});
+  const [editIdx,setEditIdx]=useState(null); // null=new, number=editing existing
+  const [det,setDet]=useState({type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg"});
   const lib=useMemo(()=>loadLib(trainerId),[trainerId]);
   const hidden=useMemo(()=>loadHidden(trainerId),[trainerId]);
   const all=useMemo(()=>allExercises(lib,hidden),[lib,hidden]);
@@ -1525,21 +1552,54 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
   };
   const move=(idx,dir)=>{const n=[...exs];const to=idx+dir;if(to<0||to>=n.length)return;[n[idx],n[to]]=[n[to],n[idx]];persist(n);};
   const remove=(idx)=>persist(exs.filter((_,i)=>i!==idx));
-  const confirmAdd=()=>{
-    if(!pickedName)return;
-    const w=det.unit==="BW"?"BW":(det.weight?`${det.weight}${det.unit}`:"");
-    persist([...exs,{name:pickedName,sets:det.sets,reps:det.reps,weight:w}]);
-    setPickedName("");setDet({sets:"3",reps:"10",weight:"",unit:"kg"});setPickSearch("");setStep("list");
+
+  const startEdit=(idx)=>{
+    const ex=exs[idx];
+    setPickedName(ex.name);
+    setEditIdx(idx);
+    setDet(exToDet(ex));
+    setStep("detail");
+  };
+  const startAdd=()=>{
+    setPickedName("");setEditIdx(null);setDet({type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg"});setPickSearch("");setStep("pick");
+  };
+  const resetDetail=()=>{setPickedName("");setEditIdx(null);setDet({type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg"});setPickSearch("");setStep("list");};
+
+  const buildExercise=()=>{
+    let weight="";
+    if(det.type==="weighted") weight=det.vol?`${det.vol}${det.unit}`:"";
+    else if(det.type==="cardio"||det.type==="timed") weight=det.vol?`${det.vol}${det.unit}`:"";
+    else weight=""; // reps only
+    return {name:pickedName,sets:det.sets,reps:det.type==="cardio"||det.type==="timed"?"":det.reps,weight};
   };
 
-  const si=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{flex:1,minWidth:0,background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit"}}/>);
+  const confirmSave=()=>{
+    if(!pickedName)return;
+    const ex=buildExercise();
+    if(editIdx!==null){
+      const n=[...exs]; n[editIdx]=ex; persist(n);
+    } else {
+      persist([...exs,ex]);
+    }
+    resetDetail();
+  };
+
+  const si=(val,set,ph,w="100%")=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{width:w,boxSizing:"border-box",background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit"}}/>);
+
+  const exLabel=(ex)=>{
+    const parts=[];
+    if(ex.sets) parts.push(`${ex.sets} sets`);
+    if(ex.reps) parts.push(`${ex.reps} reps`);
+    if(ex.weight) parts.push(ex.weight);
+    return parts.join(" · ");
+  };
 
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:350,display:"flex",flexDirection:"column"}}>
       <div style={{flex:1,display:"flex",flexDirection:"column",background:C.surface,marginTop:44,borderRadius:"20px 20px 0 0",overflow:"hidden"}}>
         {/* Header */}
         <div style={{padding:"14px 20px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-          <button onClick={step!=="list"?()=>setStep("list"):onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 13px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>
+          <button onClick={step!=="list"?resetDetail:onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 13px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>
             {step!=="list"?"← Back":"✕ Close"}
           </button>
           <div style={{flex:1}}>
@@ -1573,11 +1633,10 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
                     <div style={{color:C.muted,fontSize:12,fontWeight:800,minWidth:22,textAlign:"center"}}>{i+1}</div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{color:C.white,fontSize:14,fontWeight:700}}>{ex.name}</div>
-                      <div style={{color:C.pink,fontSize:12,fontWeight:700,marginTop:2}}>
-                        {ex.sets&&ex.reps?`${ex.sets} sets × ${ex.reps} reps`:ex.sets?`${ex.sets} sets`:ex.reps?`${ex.reps} reps`:""}
-                        {ex.weight?` · ${ex.weight}`:""}
-                      </div>
+                      <div style={{color:C.pink,fontSize:12,fontWeight:700,marginTop:2}}>{exLabel(ex)}</div>
                     </div>
+                    {/* edit button */}
+                    <button onClick={()=>startEdit(i)} disabled={saving} title="Edit" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,color:C.cyan,cursor:"pointer",fontSize:13,padding:"5px 9px",lineHeight:1,flexShrink:0}}>✏️</button>
                     <div style={{display:"flex",flexDirection:"column",gap:2}}>
                       <button onClick={()=>move(i,-1)} disabled={i===0||saving} style={{background:"none",border:"none",color:i===0?C.border:C.muted,cursor:i===0?"default":"pointer",fontSize:12,padding:"2px 5px",lineHeight:1}}>▲</button>
                       <button onClick={()=>move(i,1)} disabled={i===exs.length-1||saving} style={{background:"none",border:"none",color:i===exs.length-1?C.border:C.muted,cursor:i===exs.length-1?"default":"pointer",fontSize:12,padding:"2px 5px",lineHeight:1}}>▼</button>
@@ -1588,7 +1647,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
             }
           </div>
           <div style={{flexShrink:0,padding:"12px 20px 28px",borderTop:`1px solid ${C.border}`}}>
-            <GBtn label={saving?"Saving…":"+ Add Exercise"} onClick={()=>setStep("pick")} style={{width:"100%"}} disabled={saving}/>
+            <GBtn label={saving?"Saving…":"+ Add Exercise"} onClick={startAdd} style={{width:"100%"}} disabled={saving}/>
           </div>
         </>)}
 
@@ -1607,34 +1666,78 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
           </div>
         </>)}
 
-        {/* ── Step: enter sets/reps/weight ── */}
+        {/* ── Step: enter details (add or edit) ── */}
         {step==="detail"&&(
-          <div style={{flex:1,padding:"20px",display:"flex",flexDirection:"column",gap:14}}>
-            <div style={{background:`${C.cyan}15`,borderRadius:12,padding:"12px 16px",border:`1px solid ${C.cyan}44`}}>
-              <div style={{color:C.cyan,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:3}}>Adding to Day {activeDay}</div>
+          <div style={{flex:1,overflowY:"auto",padding:"20px",display:"flex",flexDirection:"column",gap:14}}>
+            {/* exercise name badge */}
+            <div style={{background:editIdx!==null?`${C.amber}15`:`${C.cyan}15`,borderRadius:12,padding:"12px 16px",border:`1px solid ${editIdx!==null?C.amber:C.cyan}44`}}>
+              <div style={{color:editIdx!==null?C.amber:C.cyan,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:3}}>
+                {editIdx!==null?"Editing":"Adding to"} Day {activeDay}
+              </div>
               <div style={{color:C.white,fontSize:17,fontWeight:800}}>{pickedName}</div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <div><div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Sets</div>{si(det.sets,v=>setDet(p=>({...p,sets:v})),"e.g. 3")}</div>
-              <div><div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Reps</div>{si(det.reps,v=>setDet(p=>({...p,reps:v})),"e.g. 10")}</div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10}}>
-              <div>
-                <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Weight</div>
-                {det.unit==="BW"
-                  ? <div style={{background:"rgba(255,255,255,0.04)",borderRadius:8,padding:"9px 12px",color:C.muted,fontSize:13}}>Bodyweight</div>
-                  : si(det.weight,v=>setDet(p=>({...p,weight:v})),"e.g. 80")
-                }
-              </div>
-              <div>
-                <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Unit</div>
-                <select value={det.unit} onChange={e=>setDet(p=>({...p,unit:e.target.value}))} style={{background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontFamily:"inherit",outline:"none",fontSize:13,height:"100%"}}>
-                  <option value="kg">kg</option><option value="lbs">lbs</option><option value="BW">BW</option>
-                </select>
+
+            {/* ── Exercise Type selector ── */}
+            <div>
+              <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:8}}>Exercise Type</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                {EX_TYPES.map(t=>{
+                  const active=det.type===t.id;
+                  return(
+                    <button key={t.id} onClick={()=>setDet(p=>({...p,type:t.id,unit:t.id==="cardio"||t.id==="timed"?"m":"kg"}))}
+                      style={{background:active?`${C.cyan}18`:"rgba(255,255,255,0.04)",border:`1px solid ${active?C.cyan:C.border}`,borderRadius:10,padding:"9px 8px",cursor:"pointer",fontFamily:"inherit",textAlign:"left",transition:"all 0.12s"}}>
+                      <div style={{color:active?C.white:C.muted,fontSize:12,fontWeight:700}}>{t.label}</div>
+                      <div style={{color:active?C.cyan:C.border,fontSize:10,marginTop:2}}>{t.desc}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            <div style={{marginTop:"auto"}}>
-              <GBtn label="Add to Program" onClick={confirmAdd} style={{width:"100%"}}/>
+
+            {/* ── Sets ── */}
+            <div>
+              <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Sets / Rounds</div>
+              {si(det.sets,v=>setDet(p=>({...p,sets:v})),"e.g. 3")}
+            </div>
+
+            {/* ── Reps (weighted + reps-only) ── */}
+            {(det.type==="weighted"||det.type==="reps")&&(
+              <div>
+                <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>Reps</div>
+                {si(det.reps,v=>setDet(p=>({...p,reps:v})),"e.g. 10")}
+              </div>
+            )}
+
+            {/* ── Volume + Unit (weighted / cardio / timed) ── */}
+            {det.type!=="reps"&&(
+              <div>
+                <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:6}}>
+                  {det.type==="weighted"?"Weight (optional)":det.type==="cardio"?"Distance / Calories":"Duration"}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8}}>
+                  <div>
+                    {det.type==="weighted"&&det.unit==="BW"
+                      ? <div style={{background:"rgba(255,255,255,0.04)",borderRadius:8,padding:"9px 12px",color:C.muted,fontSize:13}}>Bodyweight</div>
+                      : si(det.vol,v=>setDet(p=>({...p,vol:v})),det.type==="weighted"?"e.g. 80":det.type==="cardio"?"e.g. 500":"e.g. 20")
+                    }
+                  </div>
+                  <div>
+                    <select value={det.unit} onChange={e=>setDet(p=>({...p,unit:e.target.value}))}
+                      style={{background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontFamily:"inherit",outline:"none",fontSize:13,height:"100%",minWidth:60}}>
+                      {det.type==="weighted"
+                        ?<><option value="kg">kg</option><option value="lbs">lbs</option><option value="BW">BW</option></>
+                        :det.type==="cardio"
+                          ?<><option value="m">m</option><option value="km">km</option><option value="cal">cal</option><option value="min">min</option></>
+                          :<><option value="min">min</option><option value="sec">sec</option></>
+                      }
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{marginTop:"auto",paddingBottom:12}}>
+              <GBtn label={editIdx!==null?"💾 Save Changes":"Add to Program"} onClick={confirmSave} style={{width:"100%"}}/>
             </div>
           </div>
         )}
@@ -1784,6 +1887,16 @@ export default function App(){
   const [screen,setScreen]=useState("today");
   const [selClient,setSel]=useState(null);
   const [scheduleBadge,setScheduleBadge]=useState(0);
+
+  // Poll pending custom-time requests at app level every 60s so badge updates
+  // regardless of which screen the trainer is on.
+  useEffect(()=>{
+    if(!auth.token) return;
+    const poll=()=>getPendingRequests(auth.token).then(r=>setScheduleBadge(r?.length||0)).catch(()=>{});
+    poll();
+    const t=setInterval(poll,60000);
+    return ()=>clearInterval(t);
+  },[auth.token]);
 
   useEffect(()=>{
     const init=async()=>{
