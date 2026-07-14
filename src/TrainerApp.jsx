@@ -1081,6 +1081,9 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const [pickM,setPickM]=useState(0);
   const [pendingReqs,setPendingReqs]=useState([]);
   const [reqsLoaded,setReqsLoaded]=useState(false);
+  const [reqWarn,setReqWarn]=useState({}); // reqId → warning message for overlap
+  const [toast,setToast]=useState(null);  // {msg,ok} for inline feedback
+  const showToast=(msg,ok=false)=>{setToast({msg,ok});setTimeout(()=>setToast(null),3500);};
   const weekDates=Array.from({length:7},(_,i)=>{
     const iso=addDays(WDATES_BASE[0].iso,weekOffset*7+i);
     const d=new Date(iso+"T12:00:00");
@@ -1144,55 +1147,57 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   };
 
   const handleRemove=async(slot)=>{
-    try{ await removeSlot(slot.id,token); setSlots(p=>p.filter(s=>s.id!==slot.id)); setConf(null); }
-    catch(e){ alert("Error: "+e.message); }
+    try{ await removeSlot(slot.id,token); setSlots(p=>p.filter(s=>s.id!==slot.id)); setConf(null); showToast("Slot removed.",true); }
+    catch(e){ showToast("Error: "+e.message); }
   };
 
-  const handleApproveRequest=async(r)=>{
+  const handleApproveRequest=async(r,force=false)=>{
     try{
       const dow=dowOf(r.requested_date);
       let slot=await findActiveSlot(trainerId,dow,r.requested_time_min,token);
       if(!slot){
-        // A custom time that doesn't land on an existing slot must not overlap
-        // one either — otherwise gym capacity at the overlapped time wouldn't
-        // reflect this booking at all (two unrelated slot rows, same room).
         const daySlots=await getSlots(dow,token).catch(()=>[]);
         const reqStart=r.requested_time_min, reqEnd=reqStart+SESS_MIN;
         const overlapping=(daySlots||[]).find(s=>reqStart<s.start_time_min+SESS_MIN&&s.start_time_min<reqEnd);
-        if(overlapping){
-          alert(`${toTime(reqStart)} overlaps the existing ${toTime(overlapping.start_time_min)} slot. Approve them into that slot instead, or reject and ask for a fully free time.`);
+        if(overlapping&&!force){
+          // Show inline warning instead of blocking alert — trainer can still approve
+          setReqWarn(p=>({...p,[r.id]:`⚠️ ${toTime(reqStart)} overlaps ${toTime(overlapping.start_time_min)} slot. Approve anyway?`}));
           return;
         }
         const created=await addSlot({trainer_id:trainerId,day_of_week:dow,start_time_min:r.requested_time_min},token);
         slot=Array.isArray(created)?created[0]:created;
       }
       const cnt=await getSlotBookCount(slot.id,r.requested_date,token);
-      if(cnt>=GYM_CAP){ alert(`That slot is already full (${GYM_CAP}/${GYM_CAP}) on ${fmtDate(r.requested_date)}. Reject the request or free up a spot first.`); return; }
+      if(cnt>=GYM_CAP){ showToast(`Slot full (${GYM_CAP}/${GYM_CAP}) — free up a spot first.`); return; }
+      setReqWarn(p=>{const n={...p};delete n[r.id];return n;});
       await createBooking({slot_id:slot.id,client_id:r.client_id,book_date:r.requested_date,status:"booked"},token);
       await resolveRequest(r.id,"approved",token).catch(()=>{});
       await postNotification({client_id:r.client_id,type:"slot_request_approved",message:`Your custom time request for ${fmtDate(r.requested_date)} at ${toTime(r.requested_time_min)} was approved — it's on your schedule!`},token).catch(()=>{});
       const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length);
+      showToast("✓ Request approved!",true);
       if(r.requested_date===selDay.iso&&dow===selDay.dow) reloadDay();
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showToast("Error: "+e.message); }
   };
 
   const handleRejectRequest=async(r)=>{
     try{
+      setReqWarn(p=>{const n={...p};delete n[r.id];return n;});
       await resolveRequest(r.id,"rejected",token).catch(()=>{});
       await postNotification({client_id:r.client_id,type:"slot_request_rejected",message:`Your custom time request for ${fmtDate(r.requested_date)} at ${toTime(r.requested_time_min)} was declined. Talk to your trainer for alternatives.`},token).catch(()=>{});
       const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length);
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showToast("Error: "+e.message); }
   };
 
   const handleCancelBooking=async(b,slot)=>{
-    if(!window.confirm(`Cancel ${b.profiles?.name||"this client"}'s booking?`)) return;
-    if(!window.confirm("Are you sure? This cannot be undone.")) return;
-    try{
-      await cancelBookingRow(b.id,token);
-      setBookingsMap(p=>({...p,[slot.id]:(p[slot.id]||[]).filter(x=>x.id!==b.id)}));
-      await postNotification({client_id:b.client_id,type:"session_cancelled",message:`Your session on ${fmtDate(b.book_date)} at ${toTime(slot.start_time_min)} was cancelled by your trainer.`},token).catch(()=>{});
-      await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
-    }catch(e){ alert("Error: "+e.message); }
+    setConf({msg:`Cancel ${b.profiles?.name||"this client"}'s booking on ${fmtDate(b.book_date)}?`,onOk:async()=>{
+      try{
+        await cancelBookingRow(b.id,token);
+        setBookingsMap(p=>({...p,[slot.id]:(p[slot.id]||[]).filter(x=>x.id!==b.id)}));
+        await postNotification({client_id:b.client_id,type:"session_cancelled",message:`Your session on ${fmtDate(b.book_date)} at ${toTime(slot.start_time_min)} was cancelled by your trainer.`},token).catch(()=>{});
+        await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
+        showToast("Booking cancelled.",true);
+      }catch(e){ showToast("Error: "+e.message); }
+    }});
   };
 
   const handleCreatePeriod=async()=>{
@@ -1275,15 +1280,26 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
           <div style={{background:C.surface,border:`1px solid ${C.pink}44`,borderRadius:12,padding:"13px 16px"}}>
             <div style={{color:C.pink,fontSize:12,fontWeight:700,marginBottom:8}}>📬 Custom Time Requests ({pendingReqs.length})</div>
             {pendingReqs.map((r,i)=>(
-              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<pendingReqs.length-1?`1px solid ${C.border}`:"none"}}>
-                <div>
-                  <div style={{color:C.white,fontSize:13,fontWeight:600}}>{r.profiles?.name||"Unknown"}</div>
-                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{r.requested_date} · {toTime(r.requested_time_min)}</div>
+              <div key={i} style={{padding:"8px 0",borderBottom:i<pendingReqs.length-1?`1px solid ${C.border}`:"none"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{color:C.white,fontSize:13,fontWeight:600}}>{r.profiles?.name||"Unknown"}</div>
+                    <div style={{color:C.muted,fontSize:12,marginTop:2}}>{r.requested_date} · {toTime(r.requested_time_min)}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>handleApproveRequest(r)} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 10px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓</button>
+                    <button onClick={()=>handleRejectRequest(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                  </div>
                 </div>
-                <div style={{display:"flex",gap:6}}>
-                  <button onClick={()=>handleApproveRequest(r)} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 10px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓</button>
-                  <button onClick={()=>handleRejectRequest(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
-                </div>
+                {reqWarn[r.id]&&(
+                  <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"8px 10px"}}>
+                    <div style={{color:C.amber,fontSize:11,fontWeight:600,marginBottom:6}}>{reqWarn[r.id]}</div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={()=>handleApproveRequest(r,true)} style={{background:C.amber+"33",border:`1px solid ${C.amber}66`,borderRadius:6,padding:"4px 10px",color:C.amber,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Approve anyway</button>
+                      <button onClick={()=>setReqWarn(p=>{const n={...p};delete n[r.id];return n;})} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.muted,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -1423,6 +1439,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
           );
         })}
       </div>
+      {toast&&<div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",background:toast.ok?C.green:C.pink,color:"#fff",padding:"10px 22px",borderRadius:12,zIndex:500,fontWeight:700,fontSize:13,whiteSpace:"nowrap",boxShadow:"0 4px 20px rgba(0,0,0,0.4)"}}>{toast.msg}</div>}
     </div>
   );
 };
