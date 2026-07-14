@@ -145,6 +145,9 @@ const localISO = (d=new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).
 const todayISO = () => localISO();
 const todayDow = () => { const d=new Date().getDay(); return d===0?6:d-1; };
 const calcDayNum = (sessionsUsedBefore, sessionsPerWeek=3) => (sessionsUsedBefore % sessionsPerWeek) + 1;
+const GR_DAYS=["Κυρ","Δευ","Τρί","Τετ","Πέμ","Παρ","Σάβ"];
+const weekDayShort=dateStr=>GR_DAYS[new Date(dateStr+"T12:00:00").getDay()];
+const sessLabel=tmplName=>tmplName?tmplName+" Training":"Personal Training";
 
 const computeDayNum = (session, allSessions, spw=3) => {
   const sorted=[...allSessions]
@@ -271,7 +274,7 @@ const SessionSheet=({session,token,onClose})=>{
 };
 
 // ── Notification Modal ──
-const HistorySheet=({sessions,spw,onClose})=>{
+const HistorySheet=({sessions,spw,onClose,label="Personal Training"})=>{
   const completed=sessions.filter(s=>s.status==="completed");
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
@@ -287,10 +290,10 @@ const HistorySheet=({sessions,spw,onClose})=>{
             return(
               <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
+                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>{label}</div>
                   {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                 </div>
-                <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
+                <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
               </div>
             );
           })
@@ -550,7 +553,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
           <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>{profile?.name?.split(" ")[0]||"Athlete"}</div>
           <div style={{color:C.cyan,fontSize:14,fontWeight:700,marginTop:4}}>{dateStr}</div>
         </div>
-        <Logo size={52}/>
+        <Logo size={64}/>
       </div>
 
       {/* No-package warning */}
@@ -634,7 +637,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
                     {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,flexShrink:0}}>Day {dn}</span>}
                     <StatusBadge status={statusMap[s.id]}/>
                   </div>
-                  <div style={{color:C.white,fontSize:14,fontWeight:700}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
+                  <div style={{color:C.white,fontSize:14,fontWeight:700}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>in {cdShort(s)}</div>
                 </div>
                 {!s._fromBooking&&<span style={{color:C.cyan,fontSize:14,fontWeight:700,flexShrink:0,marginLeft:8}}>›</span>}
@@ -704,10 +707,10 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
                       <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💪</div>
                       <div>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
+                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>{sessLabel(pkg?.workout_templates?.name)}</div>
                           {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                         </div>
-                        <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
+                        <div style={{color:C.muted,fontSize:12}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
                       </div>
                     </div>
                     <StatusBadge status="completed"/>
@@ -910,11 +913,13 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
         setWaitlistRank(idx>=0?idx+1:null);
       }).catch(()=>{});
     },[onWaitlist?.id]);
+    const bookedSess=booked?sessions.find(s=>s.session_date===selDay.iso&&(s.status==="booked"||s.status==="completed")):null;
+    const bookedDayNum=bookedSess?computeDayNum(bookedSess,sessions,spw):null;
     return(
       <Card glow={booked?C.cyan:null} style={{marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
           <div>
-            <div style={{color:C.white,fontSize:15,fontWeight:800}}>Personal Training</div>
+            <div style={{color:C.white,fontSize:15,fontWeight:800}}>{sessLabel(pkg?.workout_templates?.name)}</div>
             <div style={{color:C.muted,fontSize:13,marginTop:2}}>{toSlot(slot.start_time_min)}</div>
           </div>
           {booked
@@ -928,8 +933,12 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
                 :<GBtn label="Book" onClick={()=>handleBook(slot)} sm/>
           }
         </div>
-        <div style={{color:booked?C.cyan:full?C.pink:C.green,fontSize:12,fontWeight:700}}>
-          {booked?"Booked ✓":full?"Full":onWaitlist&&waitlistRank?`You are #${waitlistRank} on the waitlist`:"Available"}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{color:booked?C.cyan:full?C.pink:C.green,fontSize:12,fontWeight:700}}>
+            {booked?"Booked ✓":full?"Full":onWaitlist&&waitlistRank?`You are #${waitlistRank} on the waitlist`:"Available"}
+          </div>
+          {booked&&bookedDayNum&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:"#fff",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:20}}>Day {bookedDayNum}</span>}
+          {booked&&<span style={{color:C.muted,fontSize:11,fontWeight:600}}>{weekDayShort(selDay.iso)}</span>}
         </div>
       </Card>
     );
@@ -1011,11 +1020,11 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
                       <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💪</div>
                       <div>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
+                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>{sessLabel(pkg?.workout_templates?.name)}</div>
                           {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                           <StatusBadge status="completed"/>
                         </div>
-                        <div style={{color:C.muted,fontSize:12}}>{toTime(s.start_time_min)}</div>
+                        <div style={{color:C.muted,fontSize:12}}>{weekDayShort(s.session_date)} · {toTime(s.start_time_min)}</div>
                       </div>
                     </div>
                     <span style={{color:C.cyan,fontSize:12,fontWeight:700}}>Notes →</span>
@@ -1394,10 +1403,10 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
               return(
                 <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>Personal Training</div>
+                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>{sessLabel(pkg?.workout_templates?.name)}</div>
                     {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                   </div>
-                  <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
+                  <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
                 </div>
               );
             })}
@@ -1407,7 +1416,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
           </>);
         })()}
       </div>
-      {showHistorySheet&&<HistorySheet sessions={sessions} spw={spw} onClose={()=>setShowHistorySheet(false)}/>}
+      {showHistorySheet&&<HistorySheet sessions={sessions} spw={spw} label={sessLabel(pkg?.workout_templates?.name)} onClose={()=>setShowHistorySheet(false)}/>}
 
       <div style={{padding:"0 20px 8px"}}>
         <button onClick={onLogout} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.pink,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Log Out</button>
