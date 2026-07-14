@@ -445,7 +445,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
 };
 
 // ── Home ──
-const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
+const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUpdate})=>{
   const [now,setNow]=useState(new Date());
   const [todaySlots,setTodaySlots]=useState([]);
   const [myTodayBook,setMyBook]=useState(null);
@@ -540,7 +540,13 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         await dbPatch("bookings",`id=eq.${s._bookingId}`,{status:"cancelled"},token);
       } else {
         await dbPatch("sessions",`id=eq.${s.id}`,{status:"cancelled"},token);
-        if(pkg) await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:Math.max((pkg.sessions_used||0)-1,0)},token);
+      }
+      // Always decrement sessions_used — the original booking/log incremented it,
+      // and the new booking in ScheduleScreen will increment it again.
+      if(pkg){
+        const newUsed=Math.max((pkg.sessions_used||0)-1,0);
+        await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
+        onPkgUpdate?.({...pkg,sessions_used:newUsed});
       }
       onNav("schedule");
     }catch(e){ alert("Error: "+e.message); }
@@ -564,9 +570,10 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
   },[heroIsToday,heroItem?.start_time_min]);
 
   const heroCd=heroItem&&!inTraining?countdownHMS(heroItem.start_time_min,heroItem.session_date):null;
-  // sessions_used already counts every item in allUpcoming (booking increments it immediately),
-  // so the cycle position of each upcoming item has to back out how many are already counted.
-  const dayNumForIndex=(i)=>{ if(!pkg) return null; const base=(pkg.sessions_used||0)-allUpcoming.length; return (((base+i)%spw)+spw)%spw+1; };
+  // Day numbering: count completed sessions (truth from DB) + position in upcoming.
+  // Using sessions_used was fragile — any cancel/reschedule mismatch would shift all labels.
+  const numCompleted=sessions.filter(s=>s.status==="completed").length;
+  const dayNumForIndex=(i)=>{ if(!pkg) return null; return ((numCompleted+i)%spw)+1; };
   const heroDayNum=heroItem?dayNumForIndex(0):null;
   const nextBookDayNum=dayNumForIndex(allUpcoming.length);
 
@@ -1591,7 +1598,7 @@ export default function App(){
 
   const renderScreen=()=>{
     switch(screen){
-      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId}/>;
+      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))}/>;
       case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
