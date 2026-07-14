@@ -1341,6 +1341,8 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
 };
 
 // ── Programs (named workout templates) ──
+const PROG_PRESETS=["Agility","Conditioning","Strength","Cardio","Mobility","Flexibility","HIIT","Olympic Lifting"];
+
 const ProgramsScreen=({trainerId,token})=>{
   const [programs,setPrograms]=useState([]);
   const [loading,setLoad]=useState(true);
@@ -1348,19 +1350,21 @@ const ProgramsScreen=({trainerId,token})=>{
   const [showNew,setShowNew]=useState(false);
   const [newName,setNewName]=useState("");
   const [creating,setCreating]=useState(false);
-  const [newEx,setNewEx]=useState({name:"",sets:"",reps:"",weight:""});
+  const [newEx,setNewEx]=useState({name:"",sets:"3",reps:"10",weight:"",unit:"kg"});
   const [showAddEx,setShowAddEx]=useState(null);
   const [savingId,setSavingId]=useState(null);
+  const [editEx,setEditEx]=useState(null); // {progId, idx}
 
   useEffect(()=>{
     getTemplates(trainerId,token).then(r=>setPrograms(r||[])).catch(()=>{}).finally(()=>setLoad(false));
   },[]);
 
-  const handleCreate=async()=>{
-    if(!newName.trim()) return;
+  const handleCreate=async(nameOverride)=>{
+    const name=nameOverride||newName.trim();
+    if(!name) return;
     setCreating(true);
     try{
-      const res=await createTemplate({trainer_id:trainerId,name:newName.trim(),exercises:[]},token);
+      const res=await createTemplate({trainer_id:trainerId,name,exercises:[]},token);
       const created=Array.isArray(res)?res[0]:res;
       if(created){ setPrograms(p=>[...p,created].sort((a,b)=>a.name.localeCompare(b.name))); setExpanded(created.id); }
       setNewName(""); setShowNew(false);
@@ -1385,13 +1389,22 @@ const ProgramsScreen=({trainerId,token})=>{
 
   const handleAddExercise=(prog)=>{
     if(!newEx.name) return;
-    persistExercises(prog,[...(prog.exercises||[]),{...newEx}]);
-    setNewEx({name:"",sets:"",reps:"",weight:""});
+    const ex={name:newEx.name,sets:newEx.sets,reps:newEx.reps,weight:newEx.weight?`${newEx.weight}${newEx.unit}`:newEx.unit==="BW"?"BW":""};
+    persistExercises(prog,[...(prog.exercises||[]),ex]);
+    setNewEx({name:"",sets:"3",reps:"10",weight:"",unit:"kg"});
     setShowAddEx(null);
   };
 
   const handleRemoveExercise=(prog,idx)=>{
     persistExercises(prog,(prog.exercises||[]).filter((_,i)=>i!==idx));
+  };
+
+  const handleMove=(prog,idx,dir)=>{
+    const exs=[...(prog.exercises||[])];
+    const to=idx+dir;
+    if(to<0||to>=exs.length) return;
+    [exs[idx],exs[to]]=[exs[to],exs[idx]];
+    persistExercises(prog,exs);
   };
 
   const handleRename=(prog)=>{
@@ -1402,7 +1415,17 @@ const ProgramsScreen=({trainerId,token})=>{
       .catch(e=>alert("Error: "+e.message));
   };
 
-  const inp=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1}}/>);
+  const inp=(val,set,ph,type="text")=>(<input type={type} value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1,minWidth:0}}/>);
+
+  const unitSel=(val,set)=>(
+    <select value={val} onChange={e=>set(e.target.value)} style={{background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 8px",color:C.white,fontFamily:"inherit",outline:"none",fontSize:13}}>
+      <option value="kg">kg</option><option value="lbs">lbs</option><option value="BW">BW</option>
+    </select>
+  );
+
+  // presets available = those not yet created
+  const existingNames=new Set(programs.map(p=>p.name.toLowerCase()));
+  const availablePresets=PROG_PRESETS.filter(n=>!existingNames.has(n.toLowerCase()));
 
   return(
     <div style={{paddingBottom:80}}>
@@ -1410,58 +1433,104 @@ const ProgramsScreen=({trainerId,token})=>{
         <div><div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Programs</div><div style={{color:C.muted,fontSize:13,marginTop:2}}>Reusable workout programs</div></div>
         <Logo size={40}/>
       </div>
+
       <div style={{padding:"0 20px 16px"}}>
-        <GBtn label={showNew?"▲ Cancel":"+ New Program"} onClick={()=>setShowNew(p=>!p)} ghost={showNew} style={{width:"100%"}}/>
+        {/* Quick-create preset chips */}
+        {availablePresets.length>0&&(
+          <div style={{marginBottom:12}}>
+            <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>Quick create</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+              {availablePresets.map(n=>(
+                <button key={n} onClick={()=>handleCreate(n)} style={{background:"rgba(255,255,255,0.05)",border:`1px dashed ${C.pink}66`,borderRadius:20,padding:"7px 14px",color:C.pink,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.5}}>+ {n}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Custom name create */}
+        <GBtn label={showNew?"▲ Cancel":"+ Custom Program"} onClick={()=>setShowNew(p=>!p)} ghost={showNew} style={{width:"100%"}}/>
         {showNew&&(
           <Card style={{marginTop:10}}>
-            <div style={{display:"flex",gap:8}}>{inp(newName,setNewName,"Program name (e.g. Agility Train)")}</div>
-            <GBtn label={creating?"Creating...":"Create"} onClick={handleCreate} disabled={creating||!newName.trim()} sm style={{width:"100%",marginTop:10}}/>
+            <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Program name…" onKeyDown={e=>e.key==="Enter"&&handleCreate()} style={{background:"rgba(255,255,255,0.07)",border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box",marginBottom:10}}/>
+            <GBtn label={creating?"Creating...":"Create"} onClick={()=>handleCreate()} disabled={creating||!newName.trim()} sm style={{width:"100%"}}/>
           </Card>
         )}
       </div>
+
       <div style={{padding:"0 20px"}}>
-        {loading?<Spinner/>:programs.length===0?<Empty msg="No programs yet — create one above"/>:
+        {loading?<Spinner/>:programs.length===0?<Empty msg="No programs yet — use Quick Create or Custom above"/>:
           programs.map(prog=>{
             const isExpanded=expanded===prog.id;
             const exs=prog.exercises||[];
+            const isSaving=savingId===prog.id;
             return(
               <Card key={prog.id} style={{marginBottom:10}}>
+                {/* Header */}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{flex:1,cursor:"pointer"}} onClick={()=>setExpanded(isExpanded?null:prog.id)}>
+                  <div style={{flex:1,cursor:"pointer",minWidth:0}} onClick={()=>setExpanded(isExpanded?null:prog.id)}>
                     <div style={{color:C.white,fontSize:15,fontWeight:700}}>{prog.name}</div>
-                    <div style={{color:C.muted,fontSize:12,marginTop:2}}>{exs.length} exercise{exs.length!==1?"s":""}</div>
+                    <div style={{color:C.muted,fontSize:12,marginTop:2}}>{exs.length} exercise{exs.length!==1?"s":""}{isSaving?" · saving…":""}</div>
                   </div>
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
-                    <button onClick={()=>handleRename(prog)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Rename</button>
-                    <button onClick={()=>handleDelete(prog)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
-                    <button onClick={()=>setExpanded(isExpanded?null:prog.id)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.muted,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{isExpanded?"▲":"▾"}</button>
+                    <button onClick={()=>handleRename(prog)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Rename</button>
+                    <button onClick={()=>handleDelete(prog)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+                    <button onClick={()=>setExpanded(isExpanded?null:prog.id)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,width:28,height:28,color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center"}}>{isExpanded?"▲":"▾"}</button>
                   </div>
                 </div>
+
+                {/* Expanded: exercise list */}
                 {isExpanded&&(
                   <div style={{marginTop:14}}>
-                    <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:12}}>
-                      {exs.length===0?<Empty msg="No exercises yet"/>:exs.map((ex,i)=>(
-                        <div key={i} style={{background:C.surface2,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                          <div><div style={{color:C.white,fontSize:14,fontWeight:600}}>{ex.name}</div><div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:2}}>{ex.sets}×{ex.reps} · {ex.weight}</div></div>
-                          <button onClick={()=>handleRemoveExercise(prog,i)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16,padding:"4px"}}>✕</button>
+                    {exs.length===0
+                      ? <Empty msg="No exercises yet — add one below"/>
+                      : <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
+                          {exs.map((ex,i)=>(
+                            <div key={i} style={{background:"rgba(255,255,255,0.05)",borderRadius:10,padding:"11px 12px",display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.border}`}}>
+                              {/* Order number */}
+                              <div style={{color:C.muted,fontSize:11,fontWeight:800,minWidth:18,textAlign:"center"}}>{i+1}</div>
+                              {/* Info */}
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{color:C.white,fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ex.name}</div>
+                                <div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:2}}>
+                                  {ex.sets&&ex.reps?`${ex.sets} sets × ${ex.reps} reps`:ex.sets?`${ex.sets} sets`:ex.reps?`${ex.reps} reps`:""}
+                                  {ex.weight?` · ${ex.weight}`:""}
+                                </div>
+                              </div>
+                              {/* Reorder */}
+                              <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                                <button onClick={()=>handleMove(prog,i,-1)} disabled={i===0||isSaving} style={{background:"none",border:"none",color:i===0?C.border:C.muted,cursor:i===0?"default":"pointer",fontSize:11,padding:"1px 4px",lineHeight:1}}>▲</button>
+                                <button onClick={()=>handleMove(prog,i,1)} disabled={i===exs.length-1||isSaving} style={{background:"none",border:"none",color:i===exs.length-1?C.border:C.muted,cursor:i===exs.length-1?"default":"pointer",fontSize:11,padding:"1px 4px",lineHeight:1}}>▼</button>
+                              </div>
+                              {/* Remove */}
+                              <button onClick={()=>handleRemoveExercise(prog,i)} disabled={isSaving} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16,padding:"4px",flexShrink:0}}>✕</button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                    }
+
+                    {/* Add exercise form */}
                     {showAddEx===prog.id?(
-                      <div style={{background:C.surface2,borderRadius:10,padding:"12px",marginBottom:10}}>
-                        <div style={{display:"flex",gap:6,marginBottom:8}}><ExercisePicker value={newEx.name} onChange={v=>setNewEx(p=>({...p,name:v}))} placeholder="Exercise name"/></div>
-                        <div style={{display:"flex",gap:6,marginBottom:8}}>
-                          {inp(newEx.sets,v=>setNewEx(p=>({...p,sets:v})),"Sets")}
-                          {inp(newEx.reps,v=>setNewEx(p=>({...p,reps:v})),"Reps")}
-                          {inp(newEx.weight,v=>setNewEx(p=>({...p,weight:v})),"Weight")}
+                      <div style={{background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px",border:`1px solid ${C.border}`}}>
+                        <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>New Exercise</div>
+                        <div style={{marginBottom:8}}>
+                          <ExercisePicker value={newEx.name} onChange={v=>setNewEx(p=>({...p,name:v}))} placeholder="Exercise name"/>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:6,marginBottom:10}}>
+                          {inp(newEx.sets,v=>setNewEx(p=>({...p,sets:v})),"Sets","text")}
+                          {inp(newEx.reps,v=>setNewEx(p=>({...p,reps:v})),"Reps","text")}
+                          {newEx.unit!=="BW"
+                            ? inp(newEx.weight,v=>setNewEx(p=>({...p,weight:v})),"Weight","text")
+                            : <div style={{background:"rgba(255,255,255,0.04)",borderRadius:8,padding:"9px 10px",color:C.muted,fontSize:12,display:"flex",alignItems:"center"}}>Bodyweight</div>
+                          }
+                          {unitSel(newEx.unit,v=>setNewEx(p=>({...p,unit:v})))}
                         </div>
                         <div style={{display:"flex",gap:8}}>
-                          <GBtn label="Add" onClick={()=>handleAddExercise(prog)} disabled={!newEx.name} sm style={{flex:1}}/>
-                          <GBtn label="Cancel" onClick={()=>{setShowAddEx(null);setNewEx({name:"",sets:"",reps:"",weight:""});}} ghost sm style={{flex:1}}/>
+                          <GBtn label="Add Exercise" onClick={()=>handleAddExercise(prog)} disabled={!newEx.name||isSaving} sm style={{flex:1}}/>
+                          <GBtn label="Cancel" onClick={()=>{setShowAddEx(null);setNewEx({name:"",sets:"3",reps:"10",weight:"",unit:"kg"});}} ghost sm style={{flex:1}}/>
                         </div>
                       </div>
                     ):(
-                      <GBtn label={savingId===prog.id?"Saving...":"+ Add Exercise"} onClick={()=>setShowAddEx(prog.id)} sm ghost style={{width:"100%"}} disabled={savingId===prog.id}/>
+                      <GBtn label={isSaving?"Saving…":"+ Add Exercise"} onClick={()=>setShowAddEx(prog.id)} sm ghost style={{width:"100%"}} disabled={isSaving}/>
                     )}
                   </div>
                 )}
