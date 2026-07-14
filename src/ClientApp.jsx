@@ -892,8 +892,8 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
       alert("You've used all sessions in your package. Contact your trainer to renew.");
       return;
     }
-    // Week-full check (current week only)
-    if(isCurrentWeek&&currentWeekFull){
+    // Week-full check (applies to ALL viewed weeks)
+    if(!!pkg&&weekBookDates.size>=spw){
       setWeekMsgVisible(true); setTimeout(()=>setWeekMsgVisible(false),3000); return;
     }
     const cnt=counts[slot.id]||0;

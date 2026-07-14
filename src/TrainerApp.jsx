@@ -877,6 +877,56 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         <button onClick={handleOpenReport} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 16px",color:C.cyan,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📊 Monthly Report</button>
       </div>
 
+      {/* Client Stats */}
+      {!loading&&sessions.length>0&&(()=>{
+        const completed=sessions.filter(s=>s.status==="completed");
+        const nowDate=new Date();
+        const thisMonthKey=`${nowDate.getFullYear()}-${String(nowDate.getMonth()+1).padStart(2,"0")}`;
+        const thisMonthCount=completed.filter(s=>s.session_date.startsWith(thisMonthKey)).length;
+        // Streak: consecutive weeks backwards that have ≥1 completed session
+        const wkStart=(iso)=>{const d=new Date(iso+"T12:00:00");const dow=d.getDay()===0?6:d.getDay()-1;return new Date(d.getTime()-dow*86400000).toISOString().slice(0,10);};
+        let streak=0;
+        for(let w=0;w<52;w++){
+          const ref=new Date(nowDate.getTime()-w*7*86400000);
+          const ws=wkStart(ref.toISOString().slice(0,10));
+          const we=new Date(new Date(ws+"T12:00:00").getTime()+6*86400000).toISOString().slice(0,10);
+          if(!completed.some(s=>s.session_date>=ws&&s.session_date<=we)) break;
+          streak++;
+        }
+        // 6-month bar chart data
+        const months=Array.from({length:6},(_,i)=>{
+          const d=new Date(nowDate.getFullYear(),nowDate.getMonth()-5+i,1);
+          const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+          return{key,label:d.toLocaleString("default",{month:"short"}),count:completed.filter(s=>s.session_date.startsWith(key)).length};
+        });
+        const maxBar=Math.max(...months.map(m=>m.count),1);
+        return(
+          <div style={{padding:"14px 20px 0"}}>
+            <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>Client Stats</div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              {[{v:completed.length,l:"Total Done",c:C.cyan},{v:thisMonthCount,l:"This Month",c:C.pink},{v:streak>0?`${streak}w`:"—",l:"Streak",c:C.green}].map(s=>(
+                <div key={s.l} style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 8px",textAlign:"center"}}>
+                  <div style={{color:s.c,fontSize:22,fontWeight:900}}>{s.v}</div>
+                  <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:3}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px"}}>
+              <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:12}}>Sessions / Month</div>
+              <div style={{display:"flex",alignItems:"flex-end",gap:6,height:70}}>
+                {months.map(m=>(
+                  <div key={m.key} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                    <div style={{color:C.muted,fontSize:9,fontWeight:600,minHeight:12}}>{m.count||""}</div>
+                    <div style={{width:"100%",borderRadius:"4px 4px 0 0",background:m.key===thisMonthKey?`linear-gradient(135deg,${C.cyan},${C.pink})`:`${C.cyan}44`,height:`${Math.max((m.count/maxBar)*46,4)}px`,transition:"height 0.3s"}}/>
+                    <div style={{color:C.muted,fontSize:9}}>{m.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Package */}
       <div style={{padding:"14px 20px 0"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -1661,8 +1711,8 @@ const ProgramsScreen=({trainerId,token})=>{
                     </div>
                   </div>
                   <div style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}}>
+                    <button onClick={(e)=>{e.stopPropagation();setEditProg(prog);}} style={{background:`${C.cyan}22`,border:`1px solid ${C.cyan}55`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Edit</button>
                     <button onClick={(e)=>handleDelete(prog,e)} style={{background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
-                    <span style={{color:C.muted,fontSize:16}}>›</span>
                   </div>
                 </div>
               </Card>
