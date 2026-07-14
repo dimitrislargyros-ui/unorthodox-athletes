@@ -248,11 +248,6 @@ const SessionSheet=({session,token,onClose})=>{
             </div>
         }
 
-        <SL>Trainer Notes</SL>
-        <div style={{background:C.surface2,borderRadius:10,padding:"12px 14px",color:noteObj?.trainer_note?C.white:C.muted,fontSize:14,lineHeight:1.5,marginBottom:20,border:`1px solid ${C.cyan}22`}}>
-          {noteObj?.trainer_note||"Trainer hasn't added notes yet."}
-        </div>
-
         <SL>Your Notes</SL>
         <textarea value={clientNote} onChange={e=>setClientNote(e.target.value)}
           placeholder="How did it go? Anything to remember..."
@@ -333,7 +328,7 @@ const LoginScreen=({onLogin,onSignUp})=>{
   return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 28px"}}>
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,marginBottom:44}}>
-        <Logo size={110}/>
+        <Logo size={130}/>
         <div style={{textAlign:"center"}}>
           <div style={{color:C.white,fontSize:26,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1,fontFamily:"'Oswald',sans-serif"}}>UNORTHODOX</div>
           <div style={{fontSize:26,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1,background:`linear-gradient(90deg,${C.cyan},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",fontFamily:"'Oswald',sans-serif"}}>ATHLETES</div>
@@ -388,7 +383,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
   return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 28px"}}>
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,marginBottom:32}}>
-        <Logo size={88}/>
+        <Logo size={100}/>
         <div style={{textAlign:"center"}}>
           <div style={{color:C.white,fontSize:22,fontWeight:900,letterSpacing:2,textTransform:"uppercase",fontFamily:"'Oswald',sans-serif"}}>Create Account</div>
           <div style={{color:C.muted,fontSize:13,marginTop:6}}>Join Unorthodox Athletes</div>
@@ -555,7 +550,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
           <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>{profile?.name?.split(" ")[0]||"Athlete"}</div>
           <div style={{color:C.cyan,fontSize:14,fontWeight:700,marginTop:4}}>{dateStr}</div>
         </div>
-        <Logo size={44}/>
+        <Logo size={52}/>
       </div>
 
       {/* No-package warning */}
@@ -649,15 +644,24 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
         </div>
       )}
 
+      {/* Secondary Book CTA — shown when hero exists and still have days to book */}
+      {heroItem&&pkg&&left>0&&!weekFull&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:"none",border:`2px solid ${C.cyan}`,borderRadius:14,padding:"14px 18px",color:C.cyan,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <span>📅</span> Book Day {nextBookDayNum} →
+          </button>
+        </div>
+      )}
+
       {/* Package */}
       {pkg&&(
         <div style={{padding:"14px 20px 0"}}>
           <Card>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
               <div>
+                {pkg.workout_templates?.name&&<div style={{color:C.cyan,fontSize:13,fontWeight:800,letterSpacing:1,fontFamily:"'Oswald',sans-serif",textTransform:"uppercase",marginBottom:2}}>{pkg.workout_templates.name}</div>}
                 <div style={{color:C.white,fontSize:14,fontWeight:700}}>{pkg.sessions_total}-Session Pack · {spw}x/week</div>
                 <div style={{color:C.muted,fontSize:12,marginTop:3}}>Expires {fmtDate(pkg.end_date)}</div>
-                {pkg.package_notes&&<div style={{color:C.cyan,fontSize:12,marginTop:3}}>📋 {pkg.package_notes}</div>}
                 {pkg.has_injury&&<div style={{color:C.amber,fontSize:12,marginTop:3}}>⚠️ {pkg.injury_notes}</div>}
               </div>
               <div style={{textAlign:"right"}}>
@@ -674,7 +678,12 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
 
       {/* View Schedule link */}
       {pkg&&(
-        <div style={{padding:"14px 20px 0"}}>
+        <div style={{padding:"14px 20px 0",display:"flex",flexDirection:"column",gap:8}}>
+          {heroItem&&left>0&&!weekFull&&(
+            <button onClick={()=>onNav("schedule")} style={{width:"100%",background:"none",border:`2px solid ${C.cyan}`,borderRadius:12,padding:"13px 18px",color:C.cyan,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              📅 Book Day {nextBookDayNum}
+            </button>
+          )}
           <button onClick={()=>onNav("schedule")} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",fontFamily:"inherit"}}>
             <div style={{color:C.white,fontSize:14,fontWeight:700}}>📅 View Full Schedule</div>
             <span style={{color:C.cyan,fontSize:14,fontWeight:700}}>›</span>
@@ -1184,11 +1193,10 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
           <div style={{background:left<=2?C.pink:C.cyan,borderRadius:16,padding:"20px"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div>
-                <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.8}}>{pkg.sessions_total}-Session Pack</div>
-                <div style={{color:C.bg,fontSize:20,fontWeight:900,marginTop:3}}>{spw}x per week · {pkg.weeks} weeks</div>
+                {pkg.workout_templates?.name&&<div style={{color:C.bg,fontSize:20,fontWeight:900,fontFamily:"'Oswald',sans-serif",letterSpacing:1}}>{pkg.workout_templates.name}</div>}
+                <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.8,marginTop:pkg.workout_templates?.name?4:0}}>{pkg.sessions_total}-Session Pack</div>
+                <div style={{color:C.bg,fontSize:14,fontWeight:700,marginTop:3}}>{spw}x per week · {pkg.weeks} weeks</div>
                 <div style={{color:C.bg,fontSize:12,opacity:0.8,marginTop:4}}>{fmtDate(pkg.start_date)} → {fmtDate(pkg.end_date)}</div>
-                {pkg.workout_templates?.name&&<div style={{color:C.bg,fontSize:11,fontWeight:700,marginTop:4}}>🏋️ {pkg.workout_templates.name}</div>}
-                {pkg.package_notes&&<div style={{color:C.bg,fontSize:11,opacity:0.8,marginTop:4}}>📋 {pkg.package_notes}</div>}
                 {pkg.has_injury&&<div style={{color:"rgba(0,0,0,0.7)",fontSize:11,marginTop:4}}>⚠️ {pkg.injury_notes}</div>}
               </div>
               <div style={{textAlign:"right"}}>
@@ -1205,16 +1213,38 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
       )}
 
       {/* Stats */}
-      <div style={{padding:"0 20px 16px"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-          {[{l:"Total",v:sessions.filter(s=>s.status==="completed").length},{l:"This Month",v:sessions.filter(s=>s.status==="completed"&&s.session_date?.slice(0,7)===todayISO().slice(0,7)).length},{l:"PRs",v:prs.length}].map(s=>(
-            <div key={s.l} style={{background:C.surface,borderRadius:12,padding:"14px 10px",textAlign:"center",border:`1px solid ${C.border}`}}>
-              <div style={{color:C.cyan,fontSize:22,fontWeight:900}}>{s.v}</div>
-              <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:3}}>{s.l}</div>
+      {(()=>{
+        const nowD=new Date();
+        const thisMonthStr=`${nowD.getFullYear()}-${String(nowD.getMonth()+1).padStart(2,'0')}`;
+        const lastMonthD=new Date(nowD.getFullYear(),nowD.getMonth()-1,1);
+        const lastMonthStr=`${lastMonthD.getFullYear()}-${String(lastMonthD.getMonth()+1).padStart(2,'0')}`;
+        const mondayOfWeek=(()=>{const d=new Date(nowD);const day=d.getDay();const diff=day===0?-6:1-day;d.setDate(d.getDate()+diff);return d.toISOString().slice(0,10);})();
+        const sundayOfWeek=(()=>{const d=new Date(mondayOfWeek);d.setDate(d.getDate()+6);return d.toISOString().slice(0,10);})();
+        const completed=sessions.filter(s=>s.status==="completed");
+        const thisWeekCount=completed.filter(s=>s.session_date>=mondayOfWeek&&s.session_date<=sundayOfWeek).length;
+        const sessionsLeft=pkg?(pkg.sessions_total-pkg.sessions_used):0;
+        const stats=[
+          {l:"Total",v:completed.length},
+          {l:"This Month",v:completed.filter(s=>s.session_date?.slice(0,7)===thisMonthStr).length},
+          {l:"Last Month",v:completed.filter(s=>s.session_date?.slice(0,7)===lastMonthStr).length},
+          {l:"PRs",v:prs.length},
+          {l:"This Week",v:thisWeekCount},
+          {l:"Remaining",v:sessionsLeft},
+        ];
+        return(
+          <div style={{padding:"0 20px 16px"}}>
+            <SL>My Stats</SL>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              {stats.map(s=>(
+                <div key={s.l} style={{background:C.surface,borderRadius:12,padding:"14px 10px",textAlign:"center",border:`1px solid ${C.border}`}}>
+                  <div style={{color:C.cyan,fontSize:22,fontWeight:900}}>{s.v}</div>
+                  <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:3}}>{s.l}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
+        );
+      })()}
 
       {/* PRs */}
       <div style={{padding:"0 20px 16px"}}>
