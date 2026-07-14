@@ -159,11 +159,16 @@ const GR_DAYS=["Κυρ","Δευ","Τρί","Τετ","Πέμ","Παρ","Σάβ"];
 const weekDayShort=dateStr=>GR_DAYS[new Date(dateStr+"T12:00:00").getDay()];
 const sessLabel=tmplName=>tmplName?tmplName+" Training":"Personal Training";
 
+// Returns the ISO date of the Monday of the week containing isoDate
+const weekMon=(isoDate)=>{const d=new Date(isoDate+"T12:00:00");const dow=d.getDay()===0?6:d.getDay()-1;const m=new Date(d.getTime()-dow*86400000);return localISO(m);};
+
+// Day numbering is weekly-scoped: Day 1/2/3 resets every Monday
 const computeDayNum = (session, allSessions, spw=3) => {
-  const sorted=[...allSessions]
-    .filter(s=>s.status==="completed"||s.status==="booked")
+  const wk=weekMon(session.session_date);
+  const weekSess=[...allSessions]
+    .filter(s=>(s.status==="completed"||s.status==="booked")&&weekMon(s.session_date)===wk)
     .sort((a,b)=>a.session_date.localeCompare(b.session_date)||(a.start_time_min-b.start_time_min));
-  const idx=sorted.findIndex(x=>x.id===session.id);
+  const idx=weekSess.findIndex(x=>x.id===session.id);
   return idx>=0?(idx%spw)+1:(session.day_num||null);
 };
 
@@ -570,10 +575,17 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
   },[heroIsToday,heroItem?.start_time_min]);
 
   const heroCd=heroItem&&!inTraining?countdownHMS(heroItem.start_time_min,heroItem.session_date):null;
-  // Day numbering: count completed sessions (truth from DB) + position in upcoming.
-  // Using sessions_used was fragile — any cancel/reschedule mismatch would shift all labels.
-  const numCompleted=sessions.filter(s=>s.status==="completed").length;
-  const dayNumForIndex=(i)=>{ if(!pkg) return null; return ((numCompleted+i)%spw)+1; };
+  // Day numbering: weekly-scoped — Day 1/2/3 resets every Monday
+  const donePerWk={};sessions.filter(s=>s.status==="completed").forEach(s=>{const wk=weekMon(s.session_date);donePerWk[wk]=(donePerWk[wk]||0)+1;});
+  const dayNumForIndex=(i)=>{
+    if(!pkg) return null;
+    const sess=allUpcoming[i];
+    if(!sess) return (weekCount%spw)+1; // "next booking" CTA: next available slot this week
+    const wk=weekMon(sess.session_date);
+    const done=donePerWk[wk]||0;
+    const before=allUpcoming.slice(0,i).filter(u=>weekMon(u.session_date)===wk).length;
+    return (done+before)%spw+1;
+  };
   const heroDayNum=heroItem?dayNumForIndex(0):null;
   const nextBookDayNum=dayNumForIndex(allUpcoming.length);
 
