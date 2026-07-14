@@ -77,7 +77,7 @@ const dbDelete   = (tbl,q,tk)   => sb(`/rest/v1/${tbl}?${q}`,"DELETE",null,tk,"r
 
 // ── Data helpers ──
 const getProfile  = (uid,tk) => dbGet("profiles",`id=eq.${uid}&select=*`,tk).then(r=>r?.[0]);
-const getPackage  = (uid,tk) => dbGet("packages",`client_id=eq.${uid}&is_active=eq.true&order=created_at.desc&limit=1&select=*,workout_templates(id,name)`,tk).then(r=>r?.[0]);
+const getPackage  = (uid,tk) => dbGet("packages",`client_id=eq.${uid}&is_active=eq.true&order=created_at.desc&limit=1&select=*,workout_templates(id,name,exercises)`,tk).then(r=>r?.[0]);
 const getSessions = (uid,tk) => dbGet("sessions",`client_id=eq.${uid}&order=session_date.desc&select=*,session_notes(*),exercises(*)`,tk);
 const getPRs      = (uid,tk) => dbGet("personal_records",`client_id=eq.${uid}&order=record_date.desc`,tk);
 const getSlots    = (dow,tk) => dbGet("schedule_slots",`day_of_week=eq.${dow}&is_active=eq.true&order=start_time_min.asc`,tk);
@@ -344,6 +344,53 @@ const NotificationModal=({notification,onDismiss})=>{
   );
 };
 
+// ── Program day helpers ──
+// Normalise workout_templates.exercises into [{day,exercises:[]},...] format.
+// Old flat format [{name,sets,...}] is treated as Day 1.
+const toDayPlan=(raw=[],numDays=3)=>{
+  if(!raw||raw.length===0) return Array.from({length:numDays},(_,i)=>({day:i+1,exercises:[]}));
+  if(raw[0]?.day!==undefined)
+    return Array.from({length:numDays},(_,i)=>raw.find(d=>d.day===i+1)||{day:i+1,exercises:[]});
+  return [{day:1,exercises:raw},...Array.from({length:numDays-1},(_,i)=>({day:i+2,exercises:[]}))];
+};
+const getDayExercises=(templateExercises,dayNum,numDays=3)=>{
+  const plan=toDayPlan(templateExercises,numDays);
+  return plan.find(d=>d.day===dayNum)?.exercises||[];
+};
+
+// ── WOD Sheet (client: view program for their day) ──
+const WODSheet=({programName,dayNum,exercises,onClose})=>(
+  <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"78vh",overflowY:"auto",boxSizing:"border-box"}}>
+      <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+        <div>
+          <div style={{color:C.cyan,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Day {dayNum} · WOD</div>
+          <div style={{color:C.white,fontSize:19,fontWeight:900,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5}}>{sessLabel(programName)}</div>
+        </div>
+        <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+      </div>
+      {exercises.length===0
+        ? <div style={{textAlign:"center",padding:"28px 0",color:C.muted,fontSize:14}}>No program set for Day {dayNum} yet</div>
+        : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {exercises.map((ex,i)=>(
+              <div key={i} style={{background:C.surface2,borderRadius:12,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${C.border}`}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{color:C.muted,fontSize:12,fontWeight:800,minWidth:18}}>{i+1}.</span>
+                    <div style={{color:C.white,fontSize:14,fontWeight:700}}>{ex.name}</div>
+                  </div>
+                  {(ex.sets||ex.reps)&&<div style={{color:C.muted,fontSize:12,marginTop:3,paddingLeft:26}}>{[ex.sets&&`${ex.sets} sets`,ex.reps&&`${ex.reps} reps`].filter(Boolean).join(" × ")}</div>}
+                </div>
+                {ex.weight&&<div style={{color:C.cyan,fontSize:14,fontWeight:800,flexShrink:0}}>{ex.weight}</div>}
+              </div>
+            ))}
+          </div>
+      }
+    </div>
+  </div>
+);
+
 // ── Login ──
 const LoginScreen=({onLogin,onSignUp})=>{
   const [email,setE]=useState(""); const [pw,setPw]=useState("");
@@ -469,6 +516,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
   const [myUpcomingBooks,setMyUpcomingBooks]=useState([]);
   const [myWeekBooks,setMyWeekBooks]=useState([]);
   const [todaySlotCount,setTodaySlotCount]=useState(null);
+  const [wodDay,setWodDay]=useState(null); // day number to show WOD for, or null
 
   useEffect(()=>{
     const dow=todayDow(); const today=todayISO();
@@ -614,6 +662,15 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
 
   return(
     <div style={{paddingBottom:80}}>
+      {/* WOD Sheet */}
+      {wodDay&&pkg?.workout_templates&&(
+        <WODSheet
+          programName={pkg.workout_templates.name}
+          dayNum={wodDay}
+          exercises={getDayExercises(pkg.workout_templates.exercises,wodDay,spw)}
+          onClose={()=>setWodDay(null)}
+        />
+      )}
       {/* Date + greeting header */}
       <div style={{padding:"22px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
@@ -671,6 +728,12 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
                 ):<div style={{color:C.bg,fontSize:16,fontWeight:900}}>🔥 Now</div>}
               </div>
             )}
+            {/* Check WOD button — shown when program has day plans */}
+            {heroDayNum&&pkg?.workout_templates&&(
+              <button onClick={()=>setWodDay(heroDayNum)} style={{marginTop:12,width:"100%",background:"rgba(0,0,0,0.25)",border:"1px solid rgba(255,255,255,0.25)",borderRadius:10,padding:"9px 14px",color:C.white,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.5,display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+                <span>📋</span> Check WOD — Day {heroDayNum}
+              </button>
+            )}
           </div>
         </div>
       ):pkg&&weekFull?(
@@ -710,7 +773,9 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>in {cdShort(s)}</div>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0,marginLeft:10}}>
-                  {!s._fromBooking&&<span style={{color:C.cyan,fontSize:14,fontWeight:700}}>›</span>}
+                  {dn&&pkg?.workout_templates&&(
+                    <button onClick={()=>setWodDay(dn)} style={{background:`${C.cyan}18`,border:`1px solid ${C.cyan}55`,borderRadius:8,padding:"4px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>📋 WOD</button>
+                  )}
                   <button onClick={()=>cancelAndReschedule(s)} style={{background:"none",border:`1px solid ${C.pink}55`,borderRadius:8,padding:"4px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Change</button>
                 </div>
               </div>

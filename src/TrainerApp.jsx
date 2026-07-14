@@ -1489,9 +1489,18 @@ const LibrarySheet=({trainerId,onClose})=>{
   );
 };
 
+// ── Program day helpers (also used by clients) ──
+const toDayPlan=(raw=[],numDays=3)=>{
+  if(!raw||raw.length===0) return Array.from({length:numDays},(_,i)=>({day:i+1,exercises:[]}));
+  if(raw[0]?.day!==undefined)
+    return Array.from({length:numDays},(_,i)=>raw.find(d=>d.day===i+1)||{day:i+1,exercises:[]});
+  return [{day:1,exercises:raw},...Array.from({length:numDays-1},(_,i)=>({day:i+2,exercises:[]}))];
+};
+
 // ── Program Editor Modal ──
-const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
-  const [exs,setExs]=useState(prog.exercises||[]);
+const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
+  const [days,setDays]=useState(()=>toDayPlan(prog.exercises||[],numDays));
+  const [activeDay,setActiveDay]=useState(1);
   const [saving,setSaving]=useState(false);
   const [step,setStep]=useState("list"); // "list" | "pick" | "detail"
   const [pickSearch,setPickSearch]=useState("");
@@ -1502,12 +1511,15 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
   const all=useMemo(()=>allExercises(lib,hidden),[lib,hidden]);
   const filtered=pickSearch?all.filter(e=>e.toLowerCase().includes(pickSearch.toLowerCase())):all;
 
-  const persist=async(newExs)=>{
+  const exs=days.find(d=>d.day===activeDay)?.exercises||[];
+
+  const persist=async(newExsForDay)=>{
+    const newDays=days.map(d=>d.day===activeDay?{...d,exercises:newExsForDay}:d);
     setSaving(true);
     try{
-      await updateTemplate(prog.id,{exercises:newExs},token);
-      setExs(newExs);
-      onUpdate({...prog,exercises:newExs});
+      await updateTemplate(prog.id,{exercises:newDays},token);
+      setDays(newDays);
+      onUpdate({...prog,exercises:newDays});
     }catch(e){alert("Error: "+e.message);}
     setSaving(false);
   };
@@ -1526,7 +1538,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:350,display:"flex",flexDirection:"column"}}>
       <div style={{flex:1,display:"flex",flexDirection:"column",background:C.surface,marginTop:44,borderRadius:"20px 20px 0 0",overflow:"hidden"}}>
         {/* Header */}
-        <div style={{padding:"16px 20px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+        <div style={{padding:"14px 20px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
           <button onClick={step!=="list"?()=>setStep("list"):onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 13px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>
             {step!=="list"?"← Back":"✕ Close"}
           </button>
@@ -1536,11 +1548,26 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
           </div>
         </div>
 
+        {/* ── Day Tabs ── */}
+        <div style={{display:"flex",gap:6,padding:"10px 16px",flexShrink:0,borderBottom:`1px solid ${C.border}`,background:C.bg}}>
+          {Array.from({length:numDays},(_,i)=>i+1).map(d=>{
+            const cnt=days.find(x=>x.day===d)?.exercises?.length||0;
+            const active=activeDay===d;
+            return(
+              <button key={d} onClick={()=>{setActiveDay(d);setStep("list");}}
+                style={{flex:1,padding:"8px 4px",borderRadius:10,border:`1px solid ${active?C.cyan:C.border}`,background:active?`${C.cyan}22`:"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
+                <div style={{color:active?C.cyan:C.muted,fontSize:13,fontWeight:800}}>Day {d}</div>
+                <div style={{color:active?C.cyan+"99":C.border,fontSize:10,fontWeight:600,marginTop:2}}>{cnt} ex</div>
+              </button>
+            );
+          })}
+        </div>
+
         {/* ── Step: exercise list ── */}
         {step==="list"&&(<>
           <div style={{flex:1,overflowY:"auto",padding:"14px 20px"}}>
             {exs.length===0
-              ? <Empty msg="No exercises yet"/>
+              ? <Empty msg={`No exercises for Day ${activeDay} yet`}/>
               : exs.map((ex,i)=>(
                   <div key={i} style={{background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:8,border:`1px solid ${C.border}`}}>
                     <div style={{color:C.muted,fontSize:12,fontWeight:800,minWidth:22,textAlign:"center"}}>{i+1}</div>
@@ -1583,8 +1610,8 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
         {/* ── Step: enter sets/reps/weight ── */}
         {step==="detail"&&(
           <div style={{flex:1,padding:"20px",display:"flex",flexDirection:"column",gap:14}}>
-            <div style={{background:"rgba(255,255,255,0.05)",borderRadius:12,padding:"14px 16px",border:`1px solid ${C.border}`}}>
-              <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Exercise</div>
+            <div style={{background:`${C.cyan}15`,borderRadius:12,padding:"12px 16px",border:`1px solid ${C.cyan}44`}}>
+              <div style={{color:C.cyan,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:3}}>Adding to Day {activeDay}</div>
               <div style={{color:C.white,fontSize:17,fontWeight:800}}>{pickedName}</div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
