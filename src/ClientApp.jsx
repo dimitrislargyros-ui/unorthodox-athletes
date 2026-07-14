@@ -555,10 +555,17 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
       return ta-tb;
     });
 
-  const bookingItems=myUpcomingBooks
-    .filter(b=>b.schedule_slots)
-    .map(b=>({id:`bk_${b.id}`,_bookingId:b.id,session_date:b.book_date,start_time_min:b.schedule_slots.start_time_min,status:"booked",_fromBooking:true}))
-    .filter(b=>{const [yr,mo,dy]=b.session_date.split('-').map(Number);return new Date(yr,mo-1,dy,Math.floor(b.start_time_min/60),b.start_time_min%60,0)>now;});
+  const bookingItems=(()=>{
+    const all=myUpcomingBooks
+      .filter(b=>b.schedule_slots)
+      .map(b=>({id:`bk_${b.id}`,_bookingId:b.id,session_date:b.book_date,start_time_min:b.schedule_slots.start_time_min,status:"booked",_fromBooking:true}))
+      .filter(b=>{const [yr,mo,dy]=b.session_date.split('-').map(Number);return new Date(yr,mo-1,dy,Math.floor(b.start_time_min/60),b.start_time_min%60,0)>now;});
+    // Deduplicate by date — custom-time sessions create one booking per overlapping slot;
+    // keep only the earliest start time per date so the client sees one entry
+    const byDate=new Map();
+    all.forEach(b=>{if(!byDate.has(b.session_date)||b.start_time_min<byDate.get(b.session_date).start_time_min) byDate.set(b.session_date,b);});
+    return [...byDate.values()];
+  })();
   const usedDates=new Set(upcoming.map(s=>s.session_date));
   const allUpcoming=[...upcoming,...bookingItems.filter(b=>!usedDates.has(b.session_date))].sort((a,b)=>{
     const ta=new Date(a.session_date+"T00:00:00").getTime()+a.start_time_min*60000;

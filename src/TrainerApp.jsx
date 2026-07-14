@@ -1151,25 +1151,43 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
     catch(e){ showToast("Error: "+e.message); }
   };
 
-  const handleApproveRequest=async(r,force=false)=>{
+  const handleApproveRequest=async(r)=>{
     try{
       const dow=dowOf(r.requested_date);
-      let slot=await findActiveSlot(trainerId,dow,r.requested_time_min,token);
-      if(!slot){
-        const daySlots=await getSlots(dow,token).catch(()=>[]);
-        const reqStart=r.requested_time_min, reqEnd=reqStart+SESS_MIN;
-        const overlapping=(daySlots||[]).find(s=>reqStart<s.start_time_min+SESS_MIN&&s.start_time_min<reqEnd);
-        if(overlapping&&!force){
-          // Show inline warning instead of blocking alert — trainer can still approve
-          setReqWarn(p=>({...p,[r.id]:`⚠️ ${toTime(reqStart)} overlaps ${toTime(overlapping.start_time_min)} slot. Approve anyway?`}));
-          return;
-        }
-        const created=await addSlot({trainer_id:trainerId,day_of_week:dow,start_time_min:r.requested_time_min},token);
-        slot=Array.isArray(created)?created[0]:created;
+      const reqStart=r.requested_time_min;
+      const reqEnd=reqStart+SESS_MIN;
+
+      // Load all active slots for this DOW
+      const daySlots=await getSlots(dow,token).catch(()=>[]);
+
+      // Standard slots that overlap with the custom session window
+      // (custom time people physically occupy those slots too)
+      const overlapSlots=(daySlots||[]).filter(s=>
+        s.start_time_min!==reqStart && // not the exact custom slot itself
+        reqStart<s.start_time_min+SESS_MIN &&
+        s.start_time_min<reqEnd
+      );
+
+      // Capacity check: none of the overlapping standard slots can be full
+      if(overlapSlots.length>0){
+        const counts=await Promise.all(overlapSlots.map(s=>getSlotBookCount(s.id,r.requested_date,token)));
+        const fullSlot=overlapSlots.find((_,i)=>counts[i]>=GYM_CAP);
+        if(fullSlot){ showToast(`Can't approve — ${toTime(fullSlot.start_time_min)} slot is already full (${GYM_CAP}/${GYM_CAP}).`); return; }
       }
-      const cnt=await getSlotBookCount(slot.id,r.requested_date,token);
-      if(cnt>=GYM_CAP){ showToast(`Slot full (${GYM_CAP}/${GYM_CAP}) — free up a spot first.`); return; }
+
+      // Find or create the custom slot at the requested time
+      let slot=daySlots.find(s=>s.start_time_min===reqStart)||null;
+      if(!slot){
+        const created=await addSlot({trainer_id:trainerId,day_of_week:dow,start_time_min:reqStart},token);
+        slot=Array.isArray(created)?created[0]:created;
+      } else {
+        const cnt=await getSlotBookCount(slot.id,r.requested_date,token);
+        if(cnt>=GYM_CAP){ showToast(`Slot full (${GYM_CAP}/${GYM_CAP}) — free up a spot first.`); return; }
+      }
+
       setReqWarn(p=>{const n={...p};delete n[r.id];return n;});
+      // One booking at the custom time — the effective count in overlapping slots
+      // is computed dynamically in the UI from all bookings in overlapping slots
       await createBooking({slot_id:slot.id,client_id:r.client_id,book_date:r.requested_date,status:"booked"},token);
       await resolveRequest(r.id,"approved",token).catch(()=>{});
       await postNotification({client_id:r.client_id,type:"slot_request_approved",message:`Your custom time request for ${fmtDate(r.requested_date)} at ${toTime(r.requested_time_min)} was approved — it's on your schedule!`},token).catch(()=>{});
@@ -1295,7 +1313,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
                   <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"8px 10px"}}>
                     <div style={{color:C.amber,fontSize:11,fontWeight:600,marginBottom:6}}>{reqWarn[r.id]}</div>
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>handleApproveRequest(r,true)} style={{background:C.amber+"33",border:`1px solid ${C.amber}66`,borderRadius:6,padding:"4px 10px",color:C.amber,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Approve anyway</button>
+                      <button onClick={()=>handleApproveRequest(r)} style={{background:C.amber+"33",border:`1px solid ${C.amber}66`,borderRadius:6,padding:"4px 10px",color:C.amber,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Approve anyway</button>
                       <button onClick={()=>setReqWarn(p=>{const n={...p};delete n[r.id];return n;})} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",color:C.muted,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
                     </div>
                   </div>
@@ -1322,15 +1340,24 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         <div style={{padding:"0 20px"}}>
           {loading?<Spinner/>:slots.length===0?<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"24px",textAlign:"center",marginBottom:10,color:C.muted,fontSize:14}}>No slots for this day</div>:
             slots.map((slot,i)=>{
+              const slotStart=slot.start_time_min;
+              const slotEnd=slotStart+SESS_MIN;
               const slotBks=bookingsMap[slot.id]||[];
-              const cnt=slotBks.length; const pct=Math.min((cnt/GYM_CAP)*100,100);
+              // Include clients from OTHER slots whose custom session overlaps this slot's window
+              const seenIds=new Set(slotBks.map(b=>b.client_id));
+              const overlapBks=slots
+                .filter(s=>s.id!==slot.id&&s.start_time_min<slotEnd&&s.start_time_min+SESS_MIN>slotStart)
+                .flatMap(s=>(bookingsMap[s.id]||[]).map(b=>({...b,_customTime:s.start_time_min,_customSlotId:s.id})))
+                .filter(b=>!seenIds.has(b.client_id)); // dedup — don't count same person twice
+              const cnt=slotBks.length+overlapBks.length;
+              const pct=Math.min((cnt/GYM_CAP)*100,100);
               const barCol=pct>=100?C.pink:pct>=75?C.amber:C.cyan;
               return(<Card key={i} style={{marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-                  <div><div style={{color:C.white,fontSize:15,fontWeight:800}}>{toSlot(slot.start_time_min)}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{cnt}/{GYM_CAP} booked</div></div>
+                  <div><div style={{color:C.white,fontSize:15,fontWeight:800}}>{toSlot(slot.start_time_min)}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{cnt}/{GYM_CAP} booked{overlapBks.length>0&&<span style={{color:C.amber,fontSize:10,marginLeft:5}}>+{overlapBks.length} custom</span>}</div></div>
                   <button onClick={()=>setConf(slot)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.pink,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Remove</button>
                 </div>
-                {slotBks.length>0&&(
+                {(slotBks.length>0||overlapBks.length>0)&&(
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
                     {slotBks.map((b,j)=>{
                       const cp=b.profiles;
@@ -1341,6 +1368,17 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
                           <span style={{color:full?C.white:C.muted,fontSize:12,fontWeight:600}}>{cp?.name||"Unknown"}</span>
                         </div>
                         <button onClick={()=>handleCancelBooking(b,slot)} style={{background:"none",border:"none",color:C.pink,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"0 2px",lineHeight:1}}>✕</button>
+                      </div>);
+                    })}
+                    {overlapBks.map((b,j)=>{
+                      const cp=b.profiles;
+                      const full=clients.find(c=>c.id===cp?.id);
+                      return(<div key={`ov_${j}`} style={{background:C.amber+"18",border:`1px solid ${C.amber}44`,borderRadius:20,padding:"5px 6px 5px 12px",display:"flex",alignItems:"center",gap:6}}>
+                        <div onClick={()=>full&&onViewClient?.(full)} style={{display:"flex",alignItems:"center",gap:6,cursor:full?"pointer":"default"}}>
+                          <Avatar initials={cp?.initials} size={20} avatarUrl={cp?.avatar_url}/>
+                          <span style={{color:C.amber,fontSize:12,fontWeight:600}}>{cp?.name||"Unknown"}</span>
+                          <span style={{color:C.amber,fontSize:10,opacity:.8}}>{toTime(b._customTime)}→</span>
+                        </div>
                       </div>);
                     })}
                   </div>
