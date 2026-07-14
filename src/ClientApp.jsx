@@ -938,7 +938,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
             {booked?"Booked ✓":full?"Full":onWaitlist&&waitlistRank?`You are #${waitlistRank} on the waitlist`:"Available"}
           </div>
           {booked&&bookedDayNum&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:"#fff",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:20}}>Day {bookedDayNum}</span>}
-          {booked&&<span style={{color:C.muted,fontSize:11,fontWeight:600}}>{weekDayShort(selDay.iso)}</span>}
         </div>
       </Card>
     );
