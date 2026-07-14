@@ -1105,6 +1105,143 @@ const AnnouncementsScreen=({token,priorSeenAt})=>{
   );
 };
 
+// ── Stats Panel ──
+const StatsPanel=({sessions,prs,pkg})=>{
+  const nowD=new Date();
+  const [selYear,setSelYear]=useState(nowD.getFullYear());
+  const [selMonth,setSelMonth]=useState(nowD.getMonth());
+  const completed=sessions.filter(s=>s.status==="completed");
+  const left=pkg?(pkg.sessions_total-pkg.sessions_used):0;
+
+  // Summary
+  const thisMonthStr=`${nowD.getFullYear()}-${String(nowD.getMonth()+1).padStart(2,'0')}`;
+  const lastMonthD=new Date(nowD.getFullYear(),nowD.getMonth()-1,1);
+  const lastMonthStr=`${lastMonthD.getFullYear()}-${String(lastMonthD.getMonth()+1).padStart(2,'0')}`;
+  const mondayOfWeek=(()=>{const d=new Date(nowD);const day=d.getDay();const diff=day===0?-6:1-day;d.setDate(d.getDate()+diff);return d.toISOString().slice(0,10);})();
+  const sundayOfWeek=(()=>{const d=new Date(mondayOfWeek);d.setDate(d.getDate()+6);return d.toISOString().slice(0,10);})();
+  const thisWeekCount=completed.filter(s=>s.session_date>=mondayOfWeek&&s.session_date<=sundayOfWeek).length;
+  const summaryStats=[
+    {l:"Σύνολο",v:completed.length,color:C.cyan},
+    {l:"Αυτό τον μήνα",v:completed.filter(s=>s.session_date?.slice(0,7)===thisMonthStr).length,color:C.cyan},
+    {l:"Περ. μήνα",v:completed.filter(s=>s.session_date?.slice(0,7)===lastMonthStr).length,color:C.cyan},
+    {l:"PRs",v:prs.length,color:C.pink},
+    {l:"Αυτή τη βδομάδα",v:thisWeekCount,color:C.cyan},
+    {l:"Απομένουν",v:left,color:left<=2?C.pink:C.green},
+  ];
+
+  // Weekly streak
+  const getWeekStart=dateStr=>{const d=new Date(dateStr);const day=d.getDay();const diff=day===0?-6:1-day;d.setDate(d.getDate()+diff);return d.toISOString().slice(0,10);};
+  const weeksWithSession=new Set(completed.map(s=>getWeekStart(s.session_date)));
+  let streak=0;
+  const wkCur=new Date(nowD);
+  for(let i=0;i<104;i++){const wk=getWeekStart(wkCur.toISOString().slice(0,10));if(weeksWithSession.has(wk)){streak++;wkCur.setDate(wkCur.getDate()-7);}else break;}
+  const sortedWeeks=[...weeksWithSession].sort();
+  let bestStreak=0,curStreak=0,prevWk=null;
+  for(const wk of sortedWeeks){if(!prevWk){curStreak=1;}else{const p=new Date(prevWk);p.setDate(p.getDate()+7);curStreak=p.toISOString().slice(0,10)===wk?curStreak+1:1;}if(curStreak>bestStreak)bestStreak=curStreak;prevWk=wk;}
+
+  // Yearly bar chart
+  const MSHORT=["Ιαν","Φεβ","Μαρ","Απρ","Μάι","Ιουν","Ιουλ","Αυγ","Σεπ","Οκτ","Νοε","Δεκ"];
+  const MFULL=["Ιανουάριος","Φεβρουάριος","Μάρτιος","Απρίλιος","Μάιος","Ιούνιος","Ιούλιος","Αύγουστος","Σεπτέμβριος","Οκτώβριος","Νοέμβριος","Δεκέμβριος"];
+  const monthCounts=MSHORT.map((_,i)=>{const m=`${selYear}-${String(i+1).padStart(2,'0')}`;return completed.filter(s=>s.session_date?.slice(0,7)===m).length;});
+  const maxCount=Math.max(...monthCounts,1);
+  const yearTotal=monthCounts.reduce((a,b)=>a+b,0);
+  const canNextYear=selYear<nowD.getFullYear();
+  const canNextMonth=selYear<nowD.getFullYear()||(selYear===nowD.getFullYear()&&selMonth<nowD.getMonth());
+
+  // Month detail
+  const selMonthStr=`${selYear}-${String(selMonth+1).padStart(2,'0')}`;
+  const selMonthSess=completed.filter(s=>s.session_date?.slice(0,7)===selMonthStr).sort((a,b)=>a.session_date.localeCompare(b.session_date));
+
+  const navPrevMonth=()=>{let m=selMonth-1,y=selYear;if(m<0){m=11;y--;}setSelMonth(m);setSelYear(y);};
+  const navNextMonth=()=>{if(!canNextMonth)return;let m=selMonth+1,y=selYear;if(m>11){m=0;y++;}setSelMonth(m);setSelYear(y);};
+
+  return(
+    <div style={{padding:"0 20px 16px"}}>
+      <SL>Στατιστικά</SL>
+
+      {/* 6 summary tiles */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+        {summaryStats.map(s=>(
+          <div key={s.l} style={{background:C.surface,borderRadius:12,padding:"13px 6px",textAlign:"center",border:`1px solid ${C.border}`}}>
+            <div style={{color:s.color,fontSize:22,fontWeight:900}}>{s.v}</div>
+            <div style={{color:C.muted,fontSize:9,fontWeight:700,letterSpacing:0.3,marginTop:3,textTransform:"uppercase",lineHeight:1.2}}>{s.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Streak badges */}
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <div style={{flex:1,background:C.surface,borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
+          <div style={{fontSize:24}}>🔥</div>
+          <div>
+            <div style={{color:C.white,fontSize:20,fontWeight:900,lineHeight:1}}>{streak}<span style={{fontSize:12,fontWeight:600,color:C.muted,marginLeft:3}}>εβδ.</span></div>
+            <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>Τρέχον σερί</div>
+          </div>
+        </div>
+        <div style={{flex:1,background:C.surface,borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
+          <div style={{fontSize:24}}>🏆</div>
+          <div>
+            <div style={{color:C.white,fontSize:20,fontWeight:900,lineHeight:1}}>{bestStreak}<span style={{fontSize:12,fontWeight:600,color:C.muted,marginLeft:3}}>εβδ.</span></div>
+            <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>Καλύτερο σερί</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Yearly bar chart */}
+      <div style={{background:C.surface,borderRadius:14,padding:"16px",border:`1px solid ${C.border}`,marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div>
+            <div style={{color:C.white,fontSize:15,fontWeight:800}}>{selYear}</div>
+            <div style={{color:C.muted,fontSize:11}}>{yearTotal} συνεδρίες</div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>setSelYear(y=>y-1)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+            <button onClick={()=>{if(canNextYear)setSelYear(y=>y+1);}} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,color:canNextYear?C.muted:"#333",cursor:canNextYear?"pointer":"default",fontFamily:"inherit",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:3,height:72}}>
+          {monthCounts.map((cnt,i)=>{
+            const barH=cnt===0?3:Math.max(8,Math.round((cnt/maxCount)*66));
+            const isSel=i===selMonth&&selYear===selYear;
+            return(
+              <div key={i} onClick={()=>setSelMonth(i)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer"}}>
+                {cnt>0&&<div style={{color:isSel?C.cyan:C.muted,fontSize:7,fontWeight:800,transition:"color 0.2s"}}>{cnt}</div>}
+                <div style={{width:"100%",height:barH,borderRadius:4,background:isSel?`linear-gradient(180deg,${C.cyan},${C.pink})`:(cnt>0?C.cyan+"40":C.surface2),transition:"all 0.25s",marginTop:"auto"}}/>
+                <div style={{color:isSel?C.cyan:C.muted,fontSize:6.5,fontWeight:700,letterSpacing:0.2,transition:"color 0.2s"}}>{MSHORT[i]}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Month drill-down */}
+      <div style={{background:C.surface,borderRadius:14,padding:"16px",border:`1px solid ${C.cyan}33`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div>
+            <div style={{color:C.white,fontSize:15,fontWeight:800}}>{MFULL[selMonth]} {selYear}</div>
+            <div style={{color:C.cyan,fontSize:12,fontWeight:700}}>{selMonthSess.length} συνεδρί{selMonthSess.length===1?"α":"ες"}</div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={navPrevMonth} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+            <button onClick={navNextMonth} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,color:canNextMonth?C.muted:"#333",cursor:canNextMonth?"pointer":"default",fontFamily:"inherit",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+          </div>
+        </div>
+        {selMonthSess.length===0
+          ? <div style={{color:C.muted,fontSize:13,textAlign:"center",padding:"16px 0"}}>Καμία συνεδρία αυτόν τον μήνα</div>
+          : <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+              {selMonthSess.map((s,i)=>(
+                <div key={i} style={{background:C.cyan+"14",border:`1px solid ${C.cyan}30`,borderRadius:10,padding:"8px 12px",minWidth:80}}>
+                  <div style={{color:C.white,fontSize:12,fontWeight:700}}>{fmtDate(s.session_date)}</div>
+                  <div style={{color:C.muted,fontSize:10,marginTop:2}}>{toTime(s.start_time_min)}</div>
+                </div>
+              ))}
+            </div>
+        }
+      </div>
+    </div>
+  );
+};
+
 // ── Profile ──
 const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onAvatarChange})=>{
   const [prs,setPRs]=useState(initPRs||[]);
@@ -1210,39 +1347,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
         </div>
       )}
 
-      {/* Stats */}
-      {(()=>{
-        const nowD=new Date();
-        const thisMonthStr=`${nowD.getFullYear()}-${String(nowD.getMonth()+1).padStart(2,'0')}`;
-        const lastMonthD=new Date(nowD.getFullYear(),nowD.getMonth()-1,1);
-        const lastMonthStr=`${lastMonthD.getFullYear()}-${String(lastMonthD.getMonth()+1).padStart(2,'0')}`;
-        const mondayOfWeek=(()=>{const d=new Date(nowD);const day=d.getDay();const diff=day===0?-6:1-day;d.setDate(d.getDate()+diff);return d.toISOString().slice(0,10);})();
-        const sundayOfWeek=(()=>{const d=new Date(mondayOfWeek);d.setDate(d.getDate()+6);return d.toISOString().slice(0,10);})();
-        const completed=sessions.filter(s=>s.status==="completed");
-        const thisWeekCount=completed.filter(s=>s.session_date>=mondayOfWeek&&s.session_date<=sundayOfWeek).length;
-        const sessionsLeft=pkg?(pkg.sessions_total-pkg.sessions_used):0;
-        const stats=[
-          {l:"Total",v:completed.length},
-          {l:"This Month",v:completed.filter(s=>s.session_date?.slice(0,7)===thisMonthStr).length},
-          {l:"Last Month",v:completed.filter(s=>s.session_date?.slice(0,7)===lastMonthStr).length},
-          {l:"PRs",v:prs.length},
-          {l:"This Week",v:thisWeekCount},
-          {l:"Remaining",v:sessionsLeft},
-        ];
-        return(
-          <div style={{padding:"0 20px 16px"}}>
-            <SL>My Stats</SL>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-              {stats.map(s=>(
-                <div key={s.l} style={{background:C.surface,borderRadius:12,padding:"14px 10px",textAlign:"center",border:`1px solid ${C.border}`}}>
-                  <div style={{color:C.cyan,fontSize:22,fontWeight:900}}>{s.v}</div>
-                  <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:3}}>{s.l}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
+      <StatsPanel sessions={sessions} prs={prs} pkg={pkg}/>
 
       {/* PRs */}
       <div style={{padding:"0 20px 16px"}}>
