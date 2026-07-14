@@ -675,7 +675,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
       <div style={{padding:"22px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
           <div style={{color:C.muted,fontSize:13}}>Good {greeting},</div>
-          <div style={{color:C.white,fontSize:20,fontWeight:800,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5}}>{profile?.username||(()=>{const n=profile?.name||"";if(n.includes("@"))return n.split("@")[0];return n.split(" ")[0]||"athlete";})()}</div>
+          <div style={{color:C.white,fontSize:20,fontWeight:800,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5}}>{(()=>{if(profile?.username)return profile.username;const lz=s=>{const G={'α':'a','β':'v','γ':'g','δ':'d','ε':'e','ζ':'z','η':'i','θ':'th','ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p','ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'f','χ':'ch','ψ':'ps','ω':'o','ά':'a','έ':'e','ή':'i','ί':'i','ό':'o','ύ':'y','ώ':'o','ϊ':'i','ΐ':'i','ϋ':'y','ΰ':'y'};let r='';for(const c of s.toLowerCase()){r+=G[c]||(c.normalize('NFD').replace(/[̀-ͯ]/g,'')||c);}return r.replace(/[^a-z]/g,'');};const n=(profile?.name||"").trim();if(!n)return"athlete";const parts=n.split(" ").filter(Boolean);if(parts.length>=2)return`${lz(parts[0])}.${lz(parts.slice(1).join(""))}`;return lz(parts[0])||"athlete";})()}</div>
           <div style={{color:C.cyan,fontSize:14,fontWeight:700,marginTop:4}}>{dateStr}</div>
         </div>
         <Logo size={64}/>
