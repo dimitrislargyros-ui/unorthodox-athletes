@@ -1,6 +1,27 @@
 import { useState, useEffect } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 
+// ── Premium Design System (injected once) ──
+;(()=>{
+  if(document.getElementById("ua-premium-styles")) return;
+  const link=document.createElement("link");
+  link.rel="stylesheet";
+  link.href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&display=swap";
+  if(!document.head.querySelector('[href*="Oswald"]')) document.head.appendChild(link);
+  const style=document.createElement("style");
+  style.id="ua-premium-styles";
+  style.textContent=`
+    @keyframes ua-spin{to{transform:rotate(360deg)}}
+    .ua-btn-grad{transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s ease}
+    .ua-btn-grad:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,201,225,.35)}
+    .ua-btn-grad:not(:disabled):active{transform:translateY(0) scale(.97)}
+    .ua-btn-ghost{transition:background .18s ease,border-color .18s ease}
+    .ua-btn-ghost:not(:disabled):hover{background:rgba(0,201,225,.15)!important}
+    .ua-card-glass{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  `;
+  document.head.appendChild(style);
+})();
+
 const LOGO_SRC = '/logo.png';
 
 // ── Colors ──
@@ -143,14 +164,14 @@ const HOURS=[5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21];
 
 // ── Shared components ──
 const Logo=({size=48})=>(<img src={LOGO_SRC} alt="UA" style={{width:size,height:size,borderRadius:"50%",objectFit:"contain",background:"#000",flexShrink:0}}/>);
-const SL=({children,style={}})=>(<div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.8,textTransform:"uppercase",marginBottom:10,...style}}>{children}</div>);
-const Card=({children,style={},glow})=>(<div style={{background:C.surface,borderRadius:14,padding:"16px",border:`1px solid ${glow?glow+"55":C.border}`,...style}}>{children}</div>);
+const SL=({children,style={}})=>(<div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.8,textTransform:"uppercase",marginBottom:10,fontFamily:"'Oswald',sans-serif",...style}}>{children}</div>);
+const Card=({children,style={},glow})=>(<div className="ua-card-glass" style={{background:"rgba(22,22,22,0.72)",borderRadius:14,padding:"16px",border:`1px solid ${glow?glow+"55":C.border}`,...style}}>{children}</div>);
 const GBtn=({label,onClick,style={},sm,ghost,color,disabled})=>{
   const base={borderRadius:sm?8:12,cursor:disabled?"not-allowed":"pointer",padding:sm?"8px 14px":"15px",fontWeight:800,fontSize:sm?13:15,fontFamily:"inherit",opacity:disabled?.5:1,...style};
-  if(ghost) return <button onClick={onClick} disabled={disabled} style={{...base,background:(color||C.cyan)+"20",border:`1px solid ${color||C.cyan}55`,color:color||C.cyan}}>{label}</button>;
-  return <button onClick={onClick} disabled={disabled} style={{...base,background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",color:C.white}}>{label}</button>;
+  if(ghost) return <button onClick={onClick} disabled={disabled} className="ua-btn-ghost" style={{...base,background:(color||C.cyan)+"20",border:`1px solid ${color||C.cyan}55`,color:color||C.cyan}}>{label}</button>;
+  return <button onClick={onClick} disabled={disabled} className="ua-btn-grad" style={{...base,background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",color:C.white}}>{label}</button>;
 };
-const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.cyan,animation:"spin 0.8s linear infinite"}}/><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>);
+const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.cyan,animation:"ua-spin 0.8s linear infinite"}}/></div>);
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
 const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
 const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"},missed:{c:C.muted,l:"Not logged"}};
@@ -173,7 +194,7 @@ const computeStatusMap=(items,now)=>{
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
 };
-const BottomNav=({active,onNav,avatarUrl,initials,annBadge})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"home",l:"Home",i:"⊞"},{id:"schedule",l:"Schedule",i:"◫"},{id:"announcements",l:"Announcements",i:"◎"},{id:"profile",l:"Profile",i:"◯"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.cyan:C.muted,padding:"0 8px"}}>{t.id==="profile"?(avatarUrl?<img src={avatarUrl} style={{width:22,height:22,borderRadius:"50%",objectFit:"cover",border:`2px solid ${active==="profile"?C.cyan:"transparent"}`}} alt="av"/>:<div style={{width:22,height:22,borderRadius:"50%",background:active==="profile"?C.cyan+"33":C.surface2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:active==="profile"?C.cyan:C.muted}}>{initials||"◯"}</div>):<div style={{position:"relative",display:"inline-flex"}}><span style={{fontSize:18}}>{t.i}</span>{t.id==="announcements"&&annBadge&&<span style={{position:"absolute",top:-2,right:-4,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div>}<span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
+const BottomNav=({active,onNav,avatarUrl,initials,annBadge})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:"rgba(10,10,10,0.85)",backdropFilter:"blur(20px) saturate(180%)",WebkitBackdropFilter:"blur(20px) saturate(180%)",borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"home",l:"Home",i:"⊞"},{id:"schedule",l:"Schedule",i:"◫"},{id:"announcements",l:"Announcements",i:"◎"},{id:"profile",l:"Profile",i:"◯"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.cyan:C.muted,padding:"0 8px"}}>{t.id==="profile"?(avatarUrl?<img src={avatarUrl} style={{width:22,height:22,borderRadius:"50%",objectFit:"cover",border:`2px solid ${active==="profile"?C.cyan:"transparent"}`}} alt="av"/>:<div style={{width:22,height:22,borderRadius:"50%",background:active==="profile"?C.cyan+"33":C.surface2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:active==="profile"?C.cyan:C.muted}}>{initials||"◯"}</div>):<div style={{position:"relative",display:"inline-flex"}}><span style={{fontSize:18}}>{t.i}</span>{t.id==="announcements"&&annBadge&&<span style={{position:"absolute",top:-2,right:-4,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div>}<span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
 
 // ── Session Sheet ──
 const SessionSheet=({session,token,onClose})=>{
@@ -314,9 +335,9 @@ const LoginScreen=({onLogin,onSignUp})=>{
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,marginBottom:44}}>
         <Logo size={110}/>
         <div style={{textAlign:"center"}}>
-          <div style={{color:C.white,fontSize:26,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1}}>UNORTHODOX</div>
-          <div style={{fontSize:26,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1,background:`linear-gradient(90deg,${C.cyan},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>ATHLETES</div>
-          <div style={{color:C.muted,fontSize:11,letterSpacing:3,marginTop:8,textTransform:"uppercase"}}>Think · Perform · Develop</div>
+          <div style={{color:C.white,fontSize:26,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1,fontFamily:"'Oswald',sans-serif"}}>UNORTHODOX</div>
+          <div style={{fontSize:26,fontWeight:900,letterSpacing:3,textTransform:"uppercase",lineHeight:1,background:`linear-gradient(90deg,${C.cyan},${C.pink})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",fontFamily:"'Oswald',sans-serif"}}>ATHLETES</div>
+          <div style={{color:C.muted,fontSize:11,letterSpacing:3,marginTop:8,textTransform:"uppercase",fontFamily:"'Oswald',sans-serif"}}>Think · Perform · Develop</div>
         </div>
       </div>
       <div style={{width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:12}}>
@@ -369,7 +390,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,marginBottom:32}}>
         <Logo size={88}/>
         <div style={{textAlign:"center"}}>
-          <div style={{color:C.white,fontSize:22,fontWeight:900,letterSpacing:2,textTransform:"uppercase"}}>Create Account</div>
+          <div style={{color:C.white,fontSize:22,fontWeight:900,letterSpacing:2,textTransform:"uppercase",fontFamily:"'Oswald',sans-serif"}}>Create Account</div>
           <div style={{color:C.muted,fontSize:13,marginTop:6}}>Join Unorthodox Athletes</div>
         </div>
       </div>
@@ -531,7 +552,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
       <div style={{padding:"22px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
           <div style={{color:C.muted,fontSize:13}}>Good {greeting},</div>
-          <div style={{color:C.white,fontSize:22,fontWeight:800}}>{profile?.name?.split(" ")[0]||"Athlete"}</div>
+          <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>{profile?.name?.split(" ")[0]||"Athlete"}</div>
           <div style={{color:C.cyan,fontSize:14,fontWeight:700,marginTop:4}}>{dateStr}</div>
         </div>
         <Logo size={44}/>
@@ -933,7 +954,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
       {activeSession&&<SessionSheet session={{...activeSession,_pkg_spw:spw}} token={token} onClose={()=>setAS(null)}/>}
 
       <div style={{padding:"22px 20px 12px"}}>
-        <div style={{color:C.white,fontSize:22,fontWeight:800}}>Book a Session</div>
+        <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Book a Session</div>
         <div style={{color:C.muted,fontSize:13,marginTop:2}}>Personal training · 90 min · Max {GYM_CAP} in gym</div>
         {pkg?.workout_templates?.name&&<div style={{color:C.cyan,fontSize:13,fontWeight:700,marginTop:6}}>🏋️ Program: {pkg.workout_templates.name}</div>}
       </div>
@@ -1043,7 +1064,7 @@ const AnnouncementsScreen=({token,priorSeenAt})=>{
   return(
     <div style={{paddingBottom:80}}>
       <div style={{padding:"22px 20px 12px"}}>
-        <div style={{color:C.white,fontSize:22,fontWeight:800}}>Announcements</div>
+        <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Announcements</div>
         <div style={{color:C.muted,fontSize:13,marginTop:2}}>Updates from your trainer</div>
       </div>
       <div style={{padding:"0 20px"}}>
@@ -1118,7 +1139,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
 
   return(
     <div style={{paddingBottom:80}}>
-      <div style={{padding:"22px 20px 0"}}><div style={{color:C.white,fontSize:22,fontWeight:800}}>My Profile</div></div>
+      <div style={{padding:"22px 20px 0"}}><div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>My Profile</div></div>
 
       {/* Avatar + name */}
       <div style={{padding:"20px",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
