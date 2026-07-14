@@ -369,7 +369,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
   const [email,setE]=useState(""); const [pw,setPw]=useState(""); const [confirmPw,setConfirmPw]=useState(""); const [phone,setPhone]=useState("");
   const [loading,setL]=useState(false); const [err,setErr]=useState(""); const [done,setDone]=useState(false);
 
-  const latinize=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z]/g,'');
+  const latinize=s=>{const G={'α':'a','β':'v','γ':'g','δ':'d','ε':'e','ζ':'z','η':'i','θ':'th','ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p','ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'f','χ':'ch','ψ':'ps','ω':'o','ά':'a','έ':'e','ή':'i','ί':'i','ό':'o','ύ':'y','ώ':'o','ϊ':'i','ΐ':'i','ϋ':'y','ΰ':'y'};let r='';for(const c of s.toLowerCase()){r+=G[c]||(c.normalize('NFD').replace(/[̀-ͯ]/g,'')||c);}return r.replace(/[^a-z]/g,'');};
   const previewUsername=firstName.trim()&&lastName.trim()?`${latinize(firstName.trim())}.${latinize(lastName.trim())}`:"";
 
   const pwChecks={
@@ -1361,7 +1361,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:4}}>{profile?.email}</div>
             {phone&&<div style={{color:C.muted,fontSize:13,marginTop:2}}>📞 {phone}</div>}
-            {(()=>{const latinize=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z]/g,'');const parts=(profile?.name||"").trim().split(" ");const un=parts.length>=2?`${latinize(parts[0])}.${latinize(parts.slice(1).join(" "))}`:latinize(parts[0]||"");return un?<div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:3,fontFamily:"'Oswald',sans-serif"}}>@{un}</div>:null;})()}
+            {(()=>{const latinize=s=>{const G={'α':'a','β':'v','γ':'g','δ':'d','ε':'e','ζ':'z','η':'i','θ':'th','ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p','ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'f','χ':'ch','ψ':'ps','ω':'o','ά':'a','έ':'e','ή':'i','ί':'i','ό':'o','ύ':'y','ώ':'o','ϊ':'i','ΐ':'i','ϋ':'y','ΰ':'y'};let r='';for(const c of s.toLowerCase()){r+=G[c]||(c.normalize('NFD').replace(/[̀-ͯ]/g,'')||c);}return r.replace(/[^a-z]/g,'');};const parts=(profile?.name||"").trim().split(" ");const un=parts.length>=2?`${latinize(parts[0])}.${latinize(parts.slice(1).join(" "))}`:latinize(parts[0]||"");return un?<div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:3,fontFamily:"'Oswald',sans-serif"}}>@{un}</div>:null;})()}
             {profile?.created_at&&<div style={{color:C.muted,fontSize:12,marginTop:4}}>Member since {fmtMemberSince(profile.created_at)}</div>}
           </div>
         )}
@@ -1542,7 +1542,7 @@ export default function App(){
   };
 
   const handleSignUp=async(firstName,lastName,email,pw,phone=null)=>{
-    const latinize=s=>s.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z]/g,'');
+    const latinize=s=>{const G={'α':'a','β':'v','γ':'g','δ':'d','ε':'e','ζ':'z','η':'i','θ':'th','ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p','ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'f','χ':'ch','ψ':'ps','ω':'o','ά':'a','έ':'e','ή':'i','ί':'i','ό':'o','ύ':'y','ώ':'o','ϊ':'i','ΐ':'i','ϋ':'y','ΰ':'y'};let r='';for(const c of s.toLowerCase()){r+=G[c]||(c.normalize('NFD').replace(/[̀-ͯ]/g,'')||c);}return r.replace(/[^a-z]/g,'');};
     const data=await authSignUp(email,pw);
     if(data?.error) throw new Error(data.error_description||data.error);
     const {access_token,expires_at,user}=data||{};
