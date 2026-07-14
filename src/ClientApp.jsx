@@ -662,7 +662,6 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId})=>{
                 {pkg.workout_templates?.name&&<div style={{color:C.cyan,fontSize:13,fontWeight:800,letterSpacing:1,fontFamily:"'Oswald',sans-serif",textTransform:"uppercase",marginBottom:2}}>{pkg.workout_templates.name}</div>}
                 <div style={{color:C.white,fontSize:14,fontWeight:700}}>{pkg.sessions_total}-Session Pack · {spw}x/week</div>
                 <div style={{color:C.muted,fontSize:12,marginTop:3}}>Expires {fmtDate(pkg.end_date)}</div>
-                {pkg.has_injury&&<div style={{color:C.amber,fontSize:12,marginTop:3}}>⚠️ {pkg.injury_notes}</div>}
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{color:left<=2?C.pink:C.cyan,fontSize:26,fontWeight:900,lineHeight:1}}>{left}</div>
@@ -1197,7 +1196,6 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
                 <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.8,marginTop:pkg.workout_templates?.name?4:0}}>{pkg.sessions_total}-Session Pack</div>
                 <div style={{color:C.bg,fontSize:14,fontWeight:700,marginTop:3}}>{spw}x per week · {pkg.weeks} weeks</div>
                 <div style={{color:C.bg,fontSize:12,opacity:0.8,marginTop:4}}>{fmtDate(pkg.start_date)} → {fmtDate(pkg.end_date)}</div>
-                {pkg.has_injury&&<div style={{color:"rgba(0,0,0,0.7)",fontSize:11,marginTop:4}}>⚠️ {pkg.injury_notes}</div>}
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{color:C.bg,fontSize:11,opacity:0.8}}>Remaining</div>
