@@ -13,6 +13,7 @@ import { EXERCISE_LIST } from "./exerciseList.js";
   style.id="ua-premium-styles";
   style.textContent=`
     @keyframes ua-spin{to{transform:rotate(360deg)}}
+    @keyframes ua-logo-pulse{0%,100%{opacity:1}50%{opacity:.75}}
     .ua-btn-grad{transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s ease}
     .ua-btn-grad:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,201,225,.35)}
     .ua-btn-grad:not(:disabled):active{transform:translateY(0) scale(.97)}
@@ -168,7 +169,18 @@ const GBtn=({label,onClick,style={},sm,ghost,color,disabled})=>{
   return <button onClick={onClick} disabled={disabled} className="ua-btn-grad" style={{...base,background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",color:C.white}}>{label}</button>;
 };
 const Avatar=({initials,size=44,avatarUrl})=>(avatarUrl?<img src={avatarUrl} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",flexShrink:0}} alt="av"/>:<div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.cyan}55,${C.pink}55)`,display:"flex",alignItems:"center",justifyContent:"center",color:C.white,fontWeight:800,fontSize:size*0.3,flexShrink:0}}>{initials||"?"}</div>);
-const Spinner=()=>(<div style={{display:"flex",justifyContent:"center",padding:"32px"}}><div style={{width:26,height:26,borderRadius:"50%",border:`3px solid ${C.border}`,borderTopColor:C.pink,animation:"ua-spin 0.8s linear infinite"}}/></div>);
+const Spinner=({size=44,fullscreen=false})=>{
+  const ring=size+10;
+  const inner=(
+    <div style={{position:"relative",width:ring,height:ring,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{position:"absolute",inset:0,borderRadius:"50%",background:`conic-gradient(from 0deg,${C.cyan},${C.pink},transparent 60%,${C.cyan})`,animation:"ua-spin 1.4s linear infinite"}}/>
+      <div style={{position:"absolute",inset:3,borderRadius:"50%",background:C.bg}}/>
+      <img src={LOGO_SRC} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",position:"relative",zIndex:1,display:"block",animation:"ua-logo-pulse 2s ease-in-out infinite"}}/>
+    </div>
+  );
+  if(fullscreen) return(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100dvh",background:C.bg}}>{inner}</div>);
+  return(<div style={{display:"flex",justifyContent:"center",padding:"28px"}}>{inner}</div>);
+};
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
 const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
 const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"},missed:{c:C.muted,l:"Not logged"}};
@@ -1790,7 +1802,7 @@ export default function App(){
   const handleNav=(s)=>{ setScreen(s); setSel(null); };
   const handleClientUpdated=(updated)=>{ setClients(p=>p.map(c=>c.id===updated.id?updated:c)); setSel(updated); };
 
-  if(auth.loading) return(<div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div>);
+  if(auth.loading) return(<div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif"}}><Spinner size={88} fullscreen/></div>);
 
   if(!auth.token) return(<div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}><LoginScreen onLogin={handleLogin}/></div>);
 
