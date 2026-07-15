@@ -145,7 +145,8 @@ const todayDow= ()    => { const d=new Date().getDay(); return d===0?6:d-1; };
 
 // Day num: (count of all client sessions up to date) % spw + 1
 const calcDayNum = async (clientId, date, tk, spw=3) => {
-  const all = await dbGet("sessions", `client_id=eq.${clientId}&session_date=lte.${date}`, tk).catch(()=>[]);
+  // Only count non-cancelled sessions so cancelled sessions don't skew the day rotation
+  const all = await dbGet("sessions", `client_id=eq.${clientId}&session_date=lte.${date}&status=neq.cancelled`, tk).catch(()=>[]);
   return ((all?.length||0) % spw) + 1;
 };
 
@@ -805,8 +806,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     const doRenew=async()=>{
       try{
         await deactivatePkgs(client.id,token);
-        const end=new Date(); end.setDate(end.getDate()+35);
-        const res=await createPkg({client_id:client.id,sessions_total:parseInt(newPkgTotal),sessions_used:0,sessions_per_week:parseInt(newSpw),weeks:5,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null},token);
+        const total=parseInt(newPkgTotal),spwNum=parseInt(newSpw)||3;
+        const weeks=Math.ceil(total/spwNum);
+        const end=new Date(); end.setDate(end.getDate()+weeks*7);
+        const res=await createPkg({client_id:client.id,sessions_total:total,sessions_used:0,sessions_per_week:spwNum,weeks,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null},token);
         const created=Array.isArray(res)?res[0]:res;
         created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
         setPkg(created); setShowPkg(false);
@@ -909,7 +912,18 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     ...sessions.map(s=>({...s,_type:s.status})),
     ...bookOnlyItems,
   ].sort((a,b)=>a.session_date.localeCompare(b.session_date)||(a.start_time_min-b.start_time_min));
-  timeline.forEach((item,i)=>{ item._sessionNum=i+1; item._dayNum=(i%spw)+1; });
+  // Day number cycles only through non-cancelled items so cancellations don't shift the rotation
+  let _dayCount=0;
+  timeline.forEach((item)=>{
+    if(item.status!=="cancelled"){
+      item._dayNum=(_dayCount%spw)+1;
+      item._sessionNum=_dayCount+1;
+      _dayCount++;
+    } else {
+      item._dayNum=null;
+      item._sessionNum=null;
+    }
+  });
   const statusMap=computeStatusMap(timeline.filter(s=>s.session_date).map(s=>({...s,_key:s.id})),new Date());
 
   const handleCancelSession=(item)=>{
@@ -2096,7 +2110,14 @@ export default function App(){
     try{
       const [profile,allClients,pkgs]=await Promise.all([getProfile(userId,token),getClients(token),getAllPkgs(token)]);
       if(profile?.role!=="trainer"){ localStorage.removeItem("ua_trainer_auth"); setAuth({loading:false,token:null,userId:null,profile:null}); return; }
-      const enriched=(allClients||[]).map(c=>({...c,_pkg:pkgs?.find(p=>p.client_id===c.id)||null}));
+      // Auto-deactivate packages whose end_date has passed
+      const today=todayISO();
+      const expiredPkgs=(pkgs||[]).filter(p=>p.end_date&&p.end_date<today);
+      if(expiredPkgs.length>0){
+        await Promise.allSettled(expiredPkgs.map(p=>dbPatch("packages",`id=eq.${p.id}`,{is_active:false},token)));
+      }
+      const activePkgIds=new Set(expiredPkgs.map(p=>p.id));
+      const enriched=(allClients||[]).map(c=>({...c,_pkg:(pkgs||[]).find(p=>p.client_id===c.id&&!activePkgIds.has(p.id))||null}));
       setClients(enriched);
       setAuth({loading:false,token,userId,profile});
     }catch(e){ setAuth(p=>({...p,loading:false})); }
