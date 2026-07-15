@@ -182,6 +182,45 @@ const Spinner=({size=44,fullscreen=false})=>{
   return(<div style={{display:"flex",justifyContent:"center",padding:"28px"}}>{inner}</div>);
 };
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
+
+const UaToast=({toast})=>toast?(<div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",background:toast.ok?C.green:C.pink,color:"#fff",padding:"10px 22px",borderRadius:12,zIndex:600,fontWeight:700,fontSize:13,whiteSpace:"nowrap",boxShadow:"0 4px 20px rgba(0,0,0,0.4)",pointerEvents:"none"}}>{toast.msg}</div>):null;
+
+const UaConfirm=({dialog,setDialog})=>{
+  if(!dialog) return null;
+  const close=()=>setDialog(null);
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+      <div style={{background:C.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${C.border}`}}>
+        <div style={{color:C.white,fontSize:15,fontWeight:700,marginBottom:4,lineHeight:1.4}}>{dialog.title||""}</div>
+        <div style={{color:C.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>{dialog.msg}</div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>{close();dialog.onOk?.();}} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:C.pink+"20",border:`1px solid ${C.pink}55`,color:C.pink}}>{dialog.okLabel||"Confirm"}</button>
+          <button onClick={close} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",color:"#fff"}}>{dialog.cancelLabel||"Cancel"}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const UaPrompt=({prompt,setPrompt})=>{
+  const [val,setVal]=useState(prompt?.defaultVal||"");
+  if(!prompt) return null;
+  const close=()=>setPrompt(null);
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+      <div style={{background:C.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${C.border}`}}>
+        <div style={{color:C.white,fontSize:15,fontWeight:700,marginBottom:12}}>{prompt.msg}</div>
+        <input autoFocus value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&val.trim()&&(close(),prompt.onOk(val.trim()))}
+          placeholder={prompt.placeholder||""}
+          style={{width:"100%",background:C.surface2,border:`1px solid ${C.cyan}55`,borderRadius:8,padding:"11px 12px",color:"#fff",fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:14}}/>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>val.trim()&&(close(),prompt.onOk(val.trim()))} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",color:"#fff"}}>OK</button>
+          <button onClick={close} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:C.muted+"20",border:`1px solid ${C.muted}55`,color:C.muted}}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+};
 const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
 const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"},missed:{c:C.muted,l:"Not logged"}};
 const StatusBadge=({status})=>{
@@ -217,29 +256,35 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
   const [templates,setTemplates]=useState([]);
   const [showTemplates,setShowTemplates]=useState(false);
   const [savingTemplate,setSavingTemplate]=useState(false);
+  const [tplPrompt,setTplPrompt]=useState(null);
+  const [tplConfirm,setTplConfirm]=useState(null);
+  const [localToast,setLocalToast]=useState(null);
+  const showLocalToast=(msg,ok=false)=>{setLocalToast({msg,ok});setTimeout(()=>setLocalToast(null),3500);};
   const dn=session.day_num;
 
   useEffect(()=>{ getTemplates(trainerId,token).then(r=>setTemplates(r||[])).catch(()=>{}); },[]);
 
   const addEx=()=>{ if(!newEx.name) return; setExs(p=>[...p,{...newEx}]); setNewEx({name:"",sets:"",reps:"",weight:""}); setShowAdd(false); };
 
-  const handleSaveTemplate=async()=>{
+  const handleSaveTemplate=()=>{
     if(exs.length===0) return;
-    const name=window.prompt("Template name:");
-    if(!name||!name.trim()) return;
-    setSavingTemplate(true);
-    try{
-      const res=await createTemplate({trainer_id:trainerId,name:name.trim(),exercises:exs},token);
-      const created=Array.isArray(res)?res[0]:res;
-      if(created) setTemplates(p=>[...p,created].sort((a,b)=>a.name.localeCompare(b.name)));
-    }catch(e){ alert("Error: "+e.message); }
-    setSavingTemplate(false);
+    setTplPrompt({msg:"Template name:",placeholder:"e.g. Push Day",onOk:async(name)=>{
+      setSavingTemplate(true);
+      try{
+        const res=await createTemplate({trainer_id:trainerId,name:name.trim(),exercises:exs},token);
+        const created=Array.isArray(res)?res[0]:res;
+        if(created) setTemplates(p=>[...p,created].sort((a,b)=>a.name.localeCompare(b.name)));
+      }catch(e){ showLocalToast("Error: "+e.message); }
+      setSavingTemplate(false);
+    }});
   };
 
   const handleLoadTemplate=(tpl)=>{
-    if(exs.length>0&&!window.confirm(`Replace current exercise list with "${tpl.name}"?`)) return;
-    setExs(tpl.exercises||[]);
-    setShowTemplates(false);
+    if(exs.length>0){
+      setTplConfirm({msg:`Replace current exercise list with "${tpl.name}"?`,okLabel:"Replace",onOk:()=>{setExs(tpl.exercises||[]);setShowTemplates(false);}});
+    }else{
+      setExs(tpl.exercises||[]);setShowTemplates(false);
+    }
   };
   const save=async()=>{
     if(saving||saved) return;
@@ -250,7 +295,7 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
       setSaved(true);
       onSaved({...session,session_notes:[{trainer_note:tNote,client_note:note?.client_note||""}],exercises:exs});
       setTimeout(()=>{ setSaved(false); onClose(); },1200);
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showLocalToast("Error: "+e.message); }
     setSaving(false);
   };
   const inp=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1}}/>);
@@ -320,6 +365,9 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
         </div>
         <GBtn label={saving?"Saving...":saved?"✓ Saved!":"Save Session"} onClick={save} disabled={saving} style={{width:"100%"}}/>
       </div>
+      <UaToast toast={localToast}/>
+      <UaPrompt prompt={tplPrompt} setPrompt={setTplPrompt}/>
+      <UaConfirm dialog={tplConfirm} setDialog={setTplConfirm}/>
     </div>
   );
 };
@@ -366,6 +414,9 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
   const [annTitle,setAnnTitle]=useState("");
   const [annBody,setAnnBody]=useState("");
   const [annPosting,setAnnPosting]=useState(false);
+  const [annConfirm,setAnnConfirm]=useState(null);
+  const [annToast,setAnnToast]=useState(null);
+  const showAnnToast=(msg,ok=false)=>{setAnnToast({msg,ok});setTimeout(()=>setAnnToast(null),3500);};
   const [dismissedSetup,setDismissedSetup]=useState(()=>new Set(JSON.parse(localStorage.getItem("ua_dismissed_setup")||"[]")));
 
   useEffect(()=>{
@@ -417,14 +468,15 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
       const created=Array.isArray(r)?r[0]:r;
       if(created) setAnn(p=>[created,...p]);
       setAnnTitle(""); setAnnBody(""); setShowAnnForm(false);
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showAnnToast("Error: "+e.message); }
     setAnnPosting(false);
   };
 
-  const handleDeleteAnn=async(a)=>{
-    if(!window.confirm("Delete this announcement?")) return;
-    try{ await deleteAnnouncement(a.id,token); setAnn(p=>p.filter(x=>x.id!==a.id)); }
-    catch(e){ alert("Error: "+e.message); }
+  const handleDeleteAnn=(a)=>{
+    setAnnConfirm({msg:"Delete this announcement?",okLabel:"Delete",onOk:async()=>{
+      try{ await deleteAnnouncement(a.id,token); setAnn(p=>p.filter(x=>x.id!==a.id)); }
+      catch(e){ showAnnToast("Error: "+e.message); }
+    }});
   };
 
   return(
@@ -552,6 +604,8 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
           ))
         }
       </div>
+      <UaToast toast={annToast}/>
+      <UaConfirm dialog={annConfirm} setDialog={setAnnConfirm}/>
     </div>
   );
 };
@@ -603,10 +657,13 @@ const ClientsScreen=({clients,onViewClient})=>{
 // ── Monthly Report ──
 const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
   const now=new Date();
-  const monthStr=localISO(now).slice(0,7);
-  const monthLabel=now.toLocaleDateString("en-US",{month:"long",year:"numeric"});
+  const [offset,setOffset]=useState(0); // 0 = current month, -1 = last month, etc.
+  const target=new Date(now.getFullYear(),now.getMonth()+offset,1);
+  const monthStr=`${target.getFullYear()}-${String(target.getMonth()+1).padStart(2,"0")}`;
+  const monthLabel=target.toLocaleDateString("en-US",{month:"long",year:"numeric"});
+  const isCurrentMonth=offset===0;
   const monthItems=timeline.filter(t=>t._type!=="booking"&&statusMap[t.id]==="completed"&&t.session_date?.slice(0,7)===monthStr);
-  const weeksElapsed=Math.max(1,Math.ceil(now.getDate()/7));
+  const weeksElapsed=isCurrentMonth?Math.max(1,Math.ceil(now.getDate()/7)):4;
   const perWeekAvg=(monthItems.length/weeksElapsed).toFixed(1);
   const dayBreakdown={};
   monthItems.forEach(t=>{ dayBreakdown[t._dayNum]=(dayBreakdown[t._dayNum]||0)+1; });
@@ -628,9 +685,18 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
           <div>
             <div style={{color:C.white,fontSize:18,fontWeight:800}}>Monthly Report</div>
-            <div style={{color:C.muted,fontSize:13,marginTop:2}}>{client.name} · {monthLabel}</div>
+            <div style={{color:C.muted,fontSize:13,marginTop:2}}>{client.name}</div>
           </div>
           <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+        </div>
+        {/* Month navigation */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.surface2,borderRadius:12,padding:"10px 14px",marginBottom:16}}>
+          <button onClick={()=>setOffset(o=>o-1)} style={{background:"none",border:"none",color:C.cyan,fontSize:20,cursor:"pointer",padding:"0 6px",lineHeight:1}}>‹</button>
+          <div style={{textAlign:"center"}}>
+            <div style={{color:C.white,fontSize:14,fontWeight:700}}>{monthLabel}</div>
+            {isCurrentMonth&&<div style={{color:C.cyan,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginTop:2}}>Current Month</div>}
+          </div>
+          <button onClick={()=>setOffset(o=>Math.min(o+1,0))} style={{background:"none",border:"none",color:offset===0?C.muted:C.cyan,fontSize:20,cursor:offset===0?"default":"pointer",padding:"0 6px",lineHeight:1}}>›</button>
         </div>
         <Row label="Sessions completed this month" value={monthItems.length}/>
         <Row label="Sessions per week (avg)" value={perWeekAvg}/>
@@ -691,6 +757,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [logging,setLogging]=useState(false);
   const [logSlots,setLogSlots]=useState([]);
   const [logDayNum,setLogDayNum]=useState(null);
+  const [cancelDlg,setCancelDlg]=useState(null);
+  const [uaToast,setUaToast]=useState(null);
+  const [renewDlg,setRenewDlg]=useState(null);
+  const [progPrompt,setProgPrompt]=useState(null);
+  const showUaToast=(msg,ok=false)=>{setUaToast({msg,ok});setTimeout(()=>setUaToast(null),3500);};
   const spw=pkg?.sessions_per_week||3;
   const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
   const ratings=sessions.map(s=>firstNote(s.session_notes)?.rating).filter(r=>r!=null);
@@ -713,14 +784,14 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     </div>
   );
 
-  const handleCreateProgramInline=async(setter)=>{
-    const name=window.prompt("New program name:");
-    if(!name||!name.trim()) return;
-    try{
-      const res=await createTemplate({trainer_id:trainerId,name:name.trim(),exercises:[]},token);
-      const created=Array.isArray(res)?res[0]:res;
-      if(created){ setPrograms(p=>[...p,created].sort((a,b)=>a.name.localeCompare(b.name))); setter(created.id); }
-    }catch(e){ alert("Error: "+e.message); }
+  const handleCreateProgramInline=(setter)=>{
+    setProgPrompt({msg:"New program name:",placeholder:"e.g. Strength A",onOk:async(name)=>{
+      try{
+        const res=await createTemplate({trainer_id:trainerId,name:name.trim(),exercises:[]},token);
+        const created=Array.isArray(res)?res[0]:res;
+        if(created){ setPrograms(p=>[...p,created].sort((a,b)=>a.name.localeCompare(b.name))); setter(created.id); }
+      }catch(e){ showUaToast("Error: "+e.message); }
+    }});
   };
 
   useEffect(()=>{
@@ -731,28 +802,32 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   },[logDate,showLog]);
 
   const handleRenew=async()=>{
+    const doRenew=async()=>{
+      try{
+        await deactivatePkgs(client.id,token);
+        const end=new Date(); end.setDate(end.getDate()+35);
+        const res=await createPkg({client_id:client.id,sessions_total:parseInt(newPkgTotal),sessions_used:0,sessions_per_week:parseInt(newSpw),weeks:5,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null},token);
+        const created=Array.isArray(res)?res[0]:res;
+        created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
+        setPkg(created); setShowPkg(false);
+        onClientUpdated({...client,_pkg:created});
+        const progName=programs.find(p=>p.id===newPkgProgramId)?.name;
+        await postNotification({client_id:client.id,type:"package_renewed",message:`🎯 ${progName?progName+" p":"P"}ackage assigned: ${newPkgTotal} sessions · ${newSpw}x/week. Let's get to work!`},token).catch(()=>{});
+      }catch(e){ showUaToast("Error: "+e.message); }
+    };
     try{
-      // Check for existing upcoming bookings so trainer knows
       const pendingBooks=await getClientBooks(client.id,token).catch(()=>[]);
       const futureBooks=(pendingBooks||[]).filter(b=>b.book_date>=todayISO());
       if(futureBooks.length>0){
-        const ok=window.confirm(`⚠️ This client has ${futureBooks.length} upcoming booking${futureBooks.length>1?"s":""} from the current package. These bookings will remain — the old package will be deactivated and sessions_used will reset to 0 for the new package. Continue?`);
-        if(!ok) return;
+        setRenewDlg({msg:`⚠️ This client has ${futureBooks.length} upcoming booking${futureBooks.length>1?"s":""} from the current package. These bookings will remain — the old package will be deactivated and sessions_used will reset to 0 for the new package. Continue?`,okLabel:"Continue",onOk:doRenew});
+      }else{
+        await doRenew();
       }
-      await deactivatePkgs(client.id,token);
-      const end=new Date(); end.setDate(end.getDate()+35);
-      const res=await createPkg({client_id:client.id,sessions_total:parseInt(newPkgTotal),sessions_used:0,sessions_per_week:parseInt(newSpw),weeks:5,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null},token);
-      const created=Array.isArray(res)?res[0]:res;
-      created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
-      setPkg(created); setShowPkg(false);
-      onClientUpdated({...client,_pkg:created});
-      const progName=programs.find(p=>p.id===newPkgProgramId)?.name;
-      await postNotification({client_id:client.id,type:"package_renewed",message:`🎯 ${progName?progName+" p":"P"}ackage assigned: ${newPkgTotal} sessions · ${newSpw}x/week. Let's get to work!`},token).catch(()=>{});
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showUaToast("Error: "+e.message); }
   };
 
   const handleLog=async()=>{
-    if(!pkg){ alert("This client has no active package. Assign one first."); return; }
+    if(!pkg){ showUaToast("This client has no active package. Assign one first."); return; }
     setLogging(true);
     try{
       const h=Math.floor(logTime/60),m=logTime%60;
@@ -776,7 +851,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       setSessions(p=>[full,...p]);
       if(status==="completed") setAS(full);
       setShowLog(false);
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showUaToast("Error: "+e.message); }
     setLogging(false);
   };
 
@@ -793,15 +868,15 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const updPkg={...pkg,paid:newPaid};
       setPkg(updPkg);
       onClientUpdated({...client,_pkg:updPkg});
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showUaToast("Error: "+e.message); }
   };
 
   const handleSendPaymentReminder=async()=>{
     if(!pkg) return;
     try{
       await postNotification({client_id:client.id,type:"payment_reminder",message:`💳 Payment reminder from your trainer: Please confirm payment for your ${pkg.workout_templates?.name||""}${pkg.workout_templates?.name?" ":""}${pkg.sessions_total}-session package.`},token);
-      alert("Payment reminder sent!");
-    }catch(e){ alert("Error: "+e.message); }
+      showUaToast("Payment reminder sent!",true);
+    }catch(e){ showUaToast("Error: "+e.message); }
   };
 
   const handleOpenEditNotes=()=>{
@@ -822,7 +897,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       setPkg(updPkg);
       onClientUpdated({...client,_pkg:updPkg});
       setShowEditNotes(false);
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showUaToast("Error: "+e.message); }
     setSavingNotes(false);
   };
 
@@ -837,27 +912,32 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   timeline.forEach((item,i)=>{ item._sessionNum=i+1; item._dayNum=(i%spw)+1; });
   const statusMap=computeStatusMap(timeline.filter(s=>s.session_date).map(s=>({...s,_key:s.id})),new Date());
 
-  const handleCancelSession=async(item)=>{
-    if(!window.confirm("Cancel this session?")) return;
-    if(!window.confirm("Are you sure? This cannot be undone.")) return;
-    try{
-      if(item._type==="booking"){
-        await cancelBookingRow(item._bookingId,token);
-        setClientBooks(p=>p.filter(b=>b.id!==item._bookingId));
-      }else{
-        await cancelSessionRow(item.id,token);
-        setSessions(p=>p.map(s=>s.id===item.id?{...s,status:"cancelled"}:s));
-        if(pkg){
-          const newUsed=Math.max((pkg.sessions_used||0)-1,0);
-          await decrementPkgUsed(pkg.id,pkg.sessions_used,token);
-          const updPkg={...pkg,sessions_used:newUsed};
-          setPkg(updPkg);
-          onClientUpdated({...client,_pkg:updPkg});
-        }
+  const handleCancelSession=(item)=>{
+    setCancelDlg({
+      title:"Cancel Session",
+      msg:`Cancel the session on ${fmtDate(item.session_date)} at ${toTime(item.start_time_min)}? This cannot be undone.`,
+      okLabel:"Cancel Session",
+      onOk:async()=>{
+        try{
+          if(item._type==="booking"){
+            await cancelBookingRow(item._bookingId,token);
+            setClientBooks(p=>p.filter(b=>b.id!==item._bookingId));
+          }else{
+            await cancelSessionRow(item.id,token);
+            setSessions(p=>p.map(s=>s.id===item.id?{...s,status:"cancelled"}:s));
+            if(pkg){
+              const newUsed=Math.max((pkg.sessions_used||0)-1,0);
+              await decrementPkgUsed(pkg.id,pkg.sessions_used,token);
+              const updPkg={...pkg,sessions_used:newUsed};
+              setPkg(updPkg);
+              onClientUpdated({...client,_pkg:updPkg});
+            }
+          }
+          await postNotification({client_id:client.id,type:"session_cancelled",message:`Your session on ${fmtDate(item.session_date)} at ${toTime(item.start_time_min)} was cancelled by your trainer.`},token).catch(()=>{});
+          await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
+        }catch(e){ showUaToast("Error: "+e.message); }
       }
-      await postNotification({client_id:client.id,type:"session_cancelled",message:`Your session on ${fmtDate(item.session_date)} at ${toTime(item.start_time_min)} was cancelled by your trainer.`},token).catch(()=>{});
-      await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
-    }catch(e){ alert("Error: "+e.message); }
+    });
   };
 
   return(
@@ -1065,6 +1145,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           );})
         }
       </div>
+      <UaToast toast={uaToast}/>
+      <UaConfirm dialog={cancelDlg} setDialog={setCancelDlg}/>
+      <UaConfirm dialog={renewDlg} setDialog={setRenewDlg}/>
+      <UaPrompt prompt={progPrompt} setPrompt={setProgPrompt}/>
     </div>
   );
 };
@@ -1143,7 +1227,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         await postAnnouncement({title:"New Slot Added",body:`New time slot: ${WDAYS[selDay.dow]} ${toTime(selectedStart)}`},token).catch(()=>{});
       }
       setPickH(null); setPickM(0);
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showToast("Error: "+e.message); }
   };
 
   const handleRemove=async(slot)=>{
@@ -1224,18 +1308,19 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       const res=await createPeriod({trainer_id:trainerId,name:periodName.trim(),start_date:periodStart,end_date:periodEnd},token);
       const created=Array.isArray(res)?res[0]:res;
       if(created){ setPeriods(p=>[created,...p]); setPeriodName(""); setShowNewPeriod(false); }
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showToast("Error: "+e.message); }
   };
 
-  const handleDeletePeriod=async(id)=>{
-    if(!window.confirm("Delete this schedule period? Existing bookings are not affected.")) return;
-    try{
-      await dbDelete("period_slots",`period_id=eq.${id}`,token);
-      await deletePeriodRow(id,token);
-      setPeriods(p=>p.filter(x=>x.id!==id));
-      setPeriodSlotsMap(p=>{ const n={...p}; delete n[id]; return n; });
-      if(expandedPeriod===id) setExpandedPeriod(null);
-    }catch(e){ alert("Error: "+e.message); }
+  const handleDeletePeriod=(id)=>{
+    setConf({msg:"Delete this schedule period? Existing bookings are not affected.",okLabel:"Delete",onOk:async()=>{
+      try{
+        await dbDelete("period_slots",`period_id=eq.${id}`,token);
+        await deletePeriodRow(id,token);
+        setPeriods(p=>p.filter(x=>x.id!==id));
+        setPeriodSlotsMap(p=>{ const n={...p}; delete n[id]; return n; });
+        if(expandedPeriod===id) setExpandedPeriod(null);
+      }catch(e){ showToast("Error: "+e.message); }
+    }});
   };
 
   const toggleExpandPeriod=(period)=>{
@@ -1250,13 +1335,13 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
     const existing=(periodSlotsMap[period.id]||[]).find(ps=>ps.day_of_week===periodDayIdx&&ps.start_time_min===slot.start_time_min);
     if(existing){
       try{ await removePeriodSlotRow(existing.id,token); setPeriodSlotsMap(p=>({...p,[period.id]:p[period.id].filter(x=>x.id!==existing.id)})); }
-      catch(e){ alert("Error: "+e.message); }
+      catch(e){ showToast("Error: "+e.message); }
     }else{
       try{
         const res=await addPeriodSlot({period_id:period.id,day_of_week:periodDayIdx,start_time_min:slot.start_time_min},token);
         const created=Array.isArray(res)?res[0]:res;
         if(created) setPeriodSlotsMap(p=>({...p,[period.id]:[...(p[period.id]||[]),created]}));
-      }catch(e){ alert("Error: "+e.message); }
+      }catch(e){ showToast("Error: "+e.message); }
     }
   };
 
@@ -1270,12 +1355,12 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       const created=Array.isArray(res)?res[0]:res;
       if(created) setPeriodSlotsMap(p=>({...p,[period.id]:[...(p[period.id]||[]),created]}));
       setPeriodPickH(null); setPeriodPickM(0);
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showToast("Error: "+e.message); }
   };
 
   return(
     <div style={{paddingBottom:80}}>
-      {confirm&&(
+      {confirm&&confirm.msg?<UaConfirm dialog={confirm} setDialog={setConf}/>:(confirm&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
           <div style={{background:C.surface,borderRadius:16,padding:"24px",width:"100%",maxWidth:340}}>
             <div style={{color:C.white,fontSize:16,fontWeight:700,marginBottom:8}}>Remove Slot?</div>
@@ -1286,7 +1371,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
             </div>
           </div>
         </div>
-      )}
+      ))}
       <div style={{padding:"22px 20px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Schedule</div><div style={{color:C.muted,fontSize:13,marginTop:2}}>Manage slots · Max {GYM_CAP} per slot</div></div>
         <Logo size={48}/>
@@ -1588,6 +1673,22 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
   const [pickedName,setPickedName]=useState("");
   const [editIdx,setEditIdx]=useState(null); // null=new, number=editing existing
   const [det,setDet]=useState({type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg"});
+  const [pmToast,setPmToast]=useState(null);
+  const showPmToast=(msg,ok=false)=>{setPmToast({msg,ok});setTimeout(()=>setPmToast(null),3500);};
+  const [renamingProg,setRenamingProg]=useState(false);
+  const [progNameDraft,setProgNameDraft]=useState(prog.name);
+  const [progName,setProgName]=useState(prog.name);
+  const saveProgName=async()=>{
+    const name=progNameDraft.trim();
+    if(!name||name===progName){setRenamingProg(false);return;}
+    try{
+      await updateTemplate(prog.id,{name},token);
+      setProgName(name);
+      onUpdate({...prog,name,exercises:days.flatMap?days:prog.exercises});
+      showPmToast("Program renamed.",true);
+    }catch(e){showPmToast("Error: "+e.message);}
+    setRenamingProg(false);
+  };
   const lib=useMemo(()=>loadLib(trainerId),[trainerId]);
   const hidden=useMemo(()=>loadHidden(trainerId),[trainerId]);
   const all=useMemo(()=>allExercises(lib,hidden),[lib,hidden]);
@@ -1602,7 +1703,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
       await updateTemplate(prog.id,{exercises:newDays},token);
       setDays(newDays);
       onUpdate({...prog,exercises:newDays});
-    }catch(e){alert("Error: "+e.message);}
+    }catch(e){showPmToast("Error: "+e.message);}
     setSaving(false);
   };
   const move=(idx,dir)=>{const n=[...exs];const to=idx+dir;if(to<0||to>=n.length)return;[n[idx],n[to]]=[n[to],n[idx]];persist(n);};
@@ -1657,8 +1758,20 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
           <button onClick={step!=="list"?resetDetail:onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 13px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>
             {step!=="list"?"← Back":"✕ Close"}
           </button>
-          <div style={{flex:1}}>
-            <div style={{color:C.white,fontSize:17,fontWeight:800,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5}}>{prog.name}</div>
+          <div style={{flex:1,minWidth:0}}>
+            {renamingProg
+              ?<div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <input autoFocus value={progNameDraft} onChange={e=>setProgNameDraft(e.target.value)}
+                    onKeyDown={e=>{if(e.key==="Enter")saveProgName();if(e.key==="Escape"){setRenamingProg(false);setProgNameDraft(progName);}}}
+                    style={{flex:1,background:C.surface2,border:`1px solid ${C.cyan}55`,borderRadius:8,padding:"5px 10px",color:"#fff",fontSize:14,outline:"none",fontFamily:"inherit"}}/>
+                  <button onClick={saveProgName} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:7,padding:"5px 10px",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+                  <button onClick={()=>{setRenamingProg(false);setProgNameDraft(progName);}} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:7,padding:"5px 10px",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+                </div>
+              :<div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{color:C.white,fontSize:17,fontWeight:800,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{progName}</div>
+                  <button onClick={()=>setRenamingProg(true)} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",padding:0,lineHeight:1,flexShrink:0}}>✎</button>
+                </div>
+            }
             <div style={{color:C.muted,fontSize:12,marginTop:1}}>{exs.length} exercise{exs.length!==1?"s":""}{saving?" · saving…":""}</div>
           </div>
         </div>
@@ -1797,6 +1910,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
           </div>
         )}
       </div>
+      <UaToast toast={pmToast}/>
     </div>
   );
 };
@@ -1812,6 +1926,9 @@ const ProgramsScreen=({trainerId,token})=>{
   const [creating,setCreating]=useState(false);
   const [editProg,setEditProg]=useState(null);   // program open in modal
   const [showLib,setShowLib]=useState(false);     // library sheet
+  const [delDlg,setDelDlg]=useState(null);
+  const [progToast,setProgToast]=useState(null);
+  const showProgToast=(msg,ok=false)=>{setProgToast({msg,ok});setTimeout(()=>setProgToast(null),3500);};
 
   useEffect(()=>{
     getTemplates(trainerId,token).then(r=>setPrograms(r||[])).catch(()=>{}).finally(()=>setLoad(false));
@@ -1830,15 +1947,21 @@ const ProgramsScreen=({trainerId,token})=>{
         setEditProg(created);   // open the new program immediately
       }
       setNewName(""); setShowNew(false);
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showProgToast("Error: "+e.message); }
     setCreating(false);
   };
 
-  const handleDelete=async(prog,e)=>{
+  const handleDelete=(prog,e)=>{
     e.stopPropagation();
-    if(!window.confirm(`Delete "${prog.name}"? This can't be undone.`)) return;
-    try{ await deleteTemplate(prog.id,token); setPrograms(p=>p.filter(x=>x.id!==prog.id)); }
-    catch(e2){ alert("Error: "+e2.message); }
+    setDelDlg({msg:`Delete "${prog.name}"? This can't be undone.`,okLabel:"Delete",onOk:async()=>{
+      try{
+        // Unlink from any packages first (FK constraint)
+        await dbPatch("packages",`program_id=eq.${prog.id}`,{program_id:null},token).catch(()=>{});
+        await deleteTemplate(prog.id,token);
+        setPrograms(p=>p.filter(x=>x.id!==prog.id));
+      }
+      catch(e2){ showProgToast("Error: "+e2.message); }
+    }});
   };
 
   const handleUpdate=(updated)=>{
@@ -1931,6 +2054,8 @@ const ProgramsScreen=({trainerId,token})=>{
 
       {/* Exercise library sheet */}
       {showLib&&<LibrarySheet trainerId={trainerId} onClose={()=>setShowLib(false)}/>}
+      <UaToast toast={progToast}/>
+      <UaConfirm dialog={delDlg} setDialog={setDelDlg}/>
     </div>
   );
 };

@@ -203,6 +203,45 @@ const Spinner=({size=44,fullscreen=false})=>{
   return(<div style={{display:"flex",justifyContent:"center",padding:"28px"}}>{inner}</div>);
 };
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
+const UaToast=({toast,c})=>toast?(<div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",background:toast.ok?c.green:c.pink,color:"#fff",padding:"10px 22px",borderRadius:12,zIndex:600,fontWeight:700,fontSize:13,whiteSpace:"nowrap",boxShadow:"0 4px 20px rgba(0,0,0,0.4)",pointerEvents:"none"}}>{toast.msg}</div>):null;
+
+const UaConfirm=({dialog,setDialog,c})=>{
+  if(!dialog) return null;
+  const close=()=>setDialog(null);
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+      <div style={{background:c.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${c.border}`}}>
+        <div style={{color:c.white,fontSize:15,fontWeight:700,marginBottom:4,lineHeight:1.4}}>{dialog.title||""}</div>
+        <div style={{color:c.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>{dialog.msg}</div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>{close();dialog.onOk?.();}} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:c.pink+"20",border:`1px solid ${c.pink}55`,color:c.pink}}>{dialog.okLabel||"Confirm"}</button>
+          <button onClick={close} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:`linear-gradient(135deg,${c.cyan},${c.pink})`,border:"none",color:"#fff"}}>{dialog.cancelLabel||"Cancel"}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const UaPrompt=({prompt,setPrompt,c})=>{
+  const [val,setVal]=useState(prompt?.defaultVal||"");
+  if(!prompt) return null;
+  const close=()=>setPrompt(null);
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+      <div style={{background:c.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${c.border}`}}>
+        <div style={{color:c.white,fontSize:15,fontWeight:700,marginBottom:12}}>{prompt.msg}</div>
+        <input autoFocus value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&val.trim()&&(close(),prompt.onOk(val.trim()))}
+          placeholder={prompt.placeholder||""}
+          style={{width:"100%",background:c.surface2,border:`1px solid ${c.cyan}55`,borderRadius:8,padding:"11px 12px",color:"#fff",fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:14}}/>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>val.trim()&&(close(),prompt.onOk(val.trim()))} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:`linear-gradient(135deg,${c.cyan},${c.pink})`,border:"none",color:"#fff"}}>OK</button>
+          <button onClick={close} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:c.muted+"20",border:`1px solid ${c.muted}55`,color:c.muted}}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
 const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"},missed:{c:C.muted,l:"Not logged"}};
 const StatusBadge=({status})=>{
@@ -237,6 +276,8 @@ const SessionSheet=({session,token,onClose})=>{
   const [rating, setRating] = useState(noteObj?.rating||0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [ssToast,setSsToast]=useState(null);
+  const showSsToast=(msg,ok=false)=>{setSsToast({msg,ok});setTimeout(()=>setSsToast(null),3500);};
   const isCompleted = session.status==="completed";
 
   const save = async () => {
@@ -246,7 +287,7 @@ const SessionSheet=({session,token,onClose})=>{
       await saveClientNote(session.id, clientNote, token, isCompleted?(rating||null):null);
       setSaved(true);
       setTimeout(()=>{ setSaved(false); onClose(); }, 1200);
-    } catch(e) { alert("Error saving: "+e.message); }
+    } catch(e) { showSsToast("Error saving: "+e.message); }
     setSaving(false);
   };
 
@@ -296,6 +337,7 @@ const SessionSheet=({session,token,onClose})=>{
 
         <GBtn label={saving?"Saving...":saved?"✓ Saved!":"Save Notes"} onClick={save} disabled={saving} style={{width:"100%"}}/>
       </div>
+      <UaToast toast={ssToast} c={C}/>
     </div>
   );
 };
@@ -517,6 +559,9 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
   const [myWeekBooks,setMyWeekBooks]=useState([]);
   const [todaySlotCount,setTodaySlotCount]=useState(null);
   const [wodDay,setWodDay]=useState(null); // day number to show WOD for, or null
+  const [cancelReDlg,setCancelReDlg]=useState(null);
+  const [homeToast,setHomeToast]=useState(null);
+  const showHomeToast=(msg,ok=false)=>{setHomeToast({msg,ok});setTimeout(()=>setHomeToast(null),3500);};
 
   useEffect(()=>{
     const dow=todayDow(); const today=todayISO();
@@ -605,23 +650,26 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
     return {h:Math.floor(totalSec/3600),m:Math.floor((totalSec%3600)/60),s:totalSec%60};
   };
 
-  const cancelAndReschedule=async(s)=>{
-    if(!window.confirm("Cancel this booking and go to schedule to rebook?")) return;
-    try{
-      if(s._fromBooking&&s._bookingId){
-        await dbPatch("bookings",`id=eq.${s._bookingId}`,{status:"cancelled"},token);
-      } else {
-        await dbPatch("sessions",`id=eq.${s.id}`,{status:"cancelled"},token);
+  const cancelAndReschedule=(s)=>{
+    setCancelReDlg({
+      msg:"Cancel this booking and go to schedule to rebook?",
+      okLabel:"Cancel & Rebook",
+      onOk:async()=>{
+        try{
+          if(s._fromBooking&&s._bookingId){
+            await dbPatch("bookings",`id=eq.${s._bookingId}`,{status:"cancelled"},token);
+          } else {
+            await dbPatch("sessions",`id=eq.${s.id}`,{status:"cancelled"},token);
+          }
+          if(pkg){
+            const newUsed=Math.max((pkg.sessions_used||0)-1,0);
+            await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
+            onPkgUpdate?.({...pkg,sessions_used:newUsed});
+          }
+          onNav("schedule");
+        }catch(e){ showHomeToast("Error: "+e.message); }
       }
-      // Always decrement sessions_used — the original booking/log incremented it,
-      // and the new booking in ScheduleScreen will increment it again.
-      if(pkg){
-        const newUsed=Math.max((pkg.sessions_used||0)-1,0);
-        await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
-        onPkgUpdate?.({...pkg,sessions_used:newUsed});
-      }
-      onNav("schedule");
-    }catch(e){ alert("Error: "+e.message); }
+    });
   };
 
   const heroItem=allUpcoming[0]||null;
@@ -860,6 +908,8 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
           })
         }
       </div>
+      <UaToast toast={homeToast} c={C}/>
+      <UaConfirm dialog={cancelReDlg} setDialog={setCancelReDlg} c={C}/>
     </div>
   );
 };
@@ -875,6 +925,8 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
   const [myWeekBookDates,setMyWeekBookDates]=useState(new Set());
   const [loading,setLoad]=useState(false);
   const [toast,setToast]=useState(null);
+  const [schedErrToast,setSchedErrToast]=useState(null);
+  const showSchedErr=(msg,ok=false)=>{setSchedErrToast({msg,ok});setTimeout(()=>setSchedErrToast(null),3500);};
   const [weekMsgVisible,setWeekMsgVisible]=useState(false);
   const [activeSession,setAS]=useState(null);
   const [showCustom,setShowC]=useState(false);
@@ -988,11 +1040,11 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
       setMyB(p=>p.filter(b=>b.id!==existingDayBook.id));
       setCounts(p=>({...p,[existingDayBook.slot_id]:Math.max((p[existingDayBook.slot_id]||1)-1,0)}));
       try{ const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk; if(created){setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));setWeekBookDates(p=>new Set(p).add(selDay.iso));} }
-      catch(e){ alert("Error: "+e.message); }
+      catch(e){ showSchedErr("Error: "+e.message); }
       return;
     }
     if(pkg&&(pkg.sessions_total-pkg.sessions_used)<=0){
-      alert("You've used all sessions in your package. Contact your trainer to renew.");
+      showSchedErr("You've used all sessions in your package. Contact your trainer to renew.");
       return;
     }
     // Week-full check (applies to ALL viewed weeks)
@@ -1004,7 +1056,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
     try{
       const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk;
       if(created){ setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); if(isCurrentWeek) setMyWeekBookDates(p=>new Set(p).add(selDay.iso)); setWeekBookDates(p=>new Set(p).add(selDay.iso)); adjustPkgUsed(1); }
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showSchedErr("Error: "+e.message); }
   };
 
   const handleWaitlist=async(slot)=>{
@@ -1020,7 +1072,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
       const r=await joinWaitlist({slot_id:slot.id,client_id:userId,book_date:selDay.iso,position},token);
       const created=Array.isArray(r)?r[0]:r;
       if(created) setMyWaitlist(p=>[...p,created]);
-    }catch(e){ alert("Error joining waitlist: "+e.message); }
+    }catch(e){ showSchedErr("Error joining waitlist: "+e.message); }
   };
 
   const confirmNext=async()=>{ if(toast?.next) await handleBook(toast.next); setToast(null); };
@@ -1033,7 +1085,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
     try{
       await postSlotRequest({client_id:userId,requested_date:selDay.iso,requested_time_min:customStart,status:"pending"},token);
       setReqSent(true);
-    }catch(e){ alert("Error: "+e.message); }
+    }catch(e){ showSchedErr("Error: "+e.message); }
     setReqSending(false);
   };
 
@@ -1204,6 +1256,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
       </div>
         </>
       }
+      <UaToast toast={schedErrToast} c={C}/>
     </div>
   );
 };
@@ -1402,6 +1455,8 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
   const [avatarUrl,setAvatarUrl]=useState(profile?.avatar_url||null);
   const [uploading,setUploading]=useState(false);
   const [showHistorySheet,setShowHistorySheet]=useState(false);
+  const [profToast,setProfToast]=useState(null);
+  const showProfToast=(msg,ok=false)=>{setProfToast({msg,ok});setTimeout(()=>setProfToast(null),3500);};
   const handleAvatarChange=async(e)=>{
     const file=e.target.files?.[0]; if(!file) return;
     setUploading(true);
@@ -1409,7 +1464,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
       const url=await uploadAvatar(userId,file,token);
       await updateProfile(userId,{avatar_url:url},token);
       setAvatarUrl(url); onAvatarChange?.(url);
-    }catch(e){ alert("Upload failed: "+e.message); }
+    }catch(e){ showProfToast("Upload failed: "+e.message); }
     setUploading(false);
     e.target.value="";
   };
@@ -1419,12 +1474,12 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
   const savePR=async()=>{
     if(!newPR.exercise||!newPR.weight) return;
     try{ const r=await addPR(userId,newPR,token); const c=Array.isArray(r)?r[0]:r; if(c)setPRs(p=>[c,...p]); setNew({exercise:"",weight:"",unit:"kg",reps:"1"}); setShowAddPR(false); }
-    catch(e){ alert("Error: "+e.message); }
+    catch(e){ showProfToast("Error: "+e.message); }
   };
   const removePR=async(id)=>{ try{ await deletePR(id,token); setPRs(p=>p.filter(x=>x.id!==id)); }catch(e){} };
   const savePhone=async()=>{
     if(savingName) return; setSavingN(true);
-    try{ await updateProfile(userId,{phone:phone.trim()||null},token); setEditing(false); }catch(e){ alert("Error: "+e.message); }
+    try{ await updateProfile(userId,{phone:phone.trim()||null},token); setEditing(false); }catch(e){ showProfToast("Error: "+e.message); }
     setSavingN(false);
   };
   const inp=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1}}/>);
@@ -1581,6 +1636,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
       <div style={{padding:"0 20px 8px"}}>
         <button onClick={onLogout} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.pink,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Log Out</button>
       </div>
+      <UaToast toast={profToast} c={C}/>
     </div>
   );
 };
