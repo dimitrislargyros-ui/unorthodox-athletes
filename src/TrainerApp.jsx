@@ -791,6 +791,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [renewDlg,setRenewDlg]=useState(null);
   const [progPrompt,setProgPrompt]=useState(null);
   const showUaToast=(msg,ok=false)=>{setUaToast({msg,ok});setTimeout(()=>setUaToast(null),3500);};
+  const hiddenKey=`ua_hidden_sess_${client.id}`;
+  const [hiddenSessIds,setHiddenSessIds]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem(hiddenKey)||"[]"));}catch{return new Set();}});
+  const [showHidden,setShowHidden]=useState(false);
+  const hideSession=(id)=>{ const n=new Set(hiddenSessIds); n.add(id); setHiddenSessIds(n); localStorage.setItem(hiddenKey,JSON.stringify([...n])); };
+  const unhideSession=(id)=>{ const n=new Set(hiddenSessIds); n.delete(id); setHiddenSessIds(n); localStorage.setItem(hiddenKey,JSON.stringify([...n])); };
   const spw=pkg?.sessions_per_week||3;
   const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
   const ratings=sessions.map(s=>firstNote(s.session_notes)?.rating).filter(r=>r!=null);
@@ -1163,33 +1168,49 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             <GBtn label={logging?"Logging...":"Log Session & Add Notes"} onClick={handleLog} disabled={logging} style={{width:"100%"}}/>
           </Card>
         )}
-        {loading?<Spinner/>:timeline.length===0?<Empty msg="No sessions yet"/>:
-          [...timeline].reverse().map((s,i)=>{
-            const isBooking=s._type==="booking";
-            const badgeStatus=statusMap[s.id];
-            const isCancellable=badgeStatus==="upcoming"||badgeStatus==="booked";
-            const icon=isBooking?"📅":s._type==="cancelled"?"🚫":s._type==="completed"?"💪":"⏳";
-            const iconBg=isBooking?C.amber+"22":s._type==="cancelled"?C.muted+"22":s._type==="completed"?C.cyan+"22":C.pink+"22";
-            return(
-            <div key={s.id||i} onClick={isBooking?undefined:()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${badgeStatus!=="completed"?(isBooking?C.amber+"44":C.cyan+"33"):C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:isBooking?"default":"pointer",marginBottom:8,textAlign:"left",boxSizing:"border-box"}}>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <div style={{width:36,height:36,borderRadius:10,background:iconBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{icon}</div>
-                <div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                    <span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {s._dayNum}</span>
-                    <span style={{color:C.muted,fontSize:10,fontWeight:700}}>{s._sessionNum}/{timeline.length}</span>
-                    <StatusBadge status={badgeStatus}/>
+        {loading?<Spinner/>:timeline.length===0?<Empty msg="No sessions yet"/>:(()=>{
+          const reversed=[...timeline].reverse();
+          const visible=reversed.filter(s=>showHidden||!hiddenSessIds.has(s.id));
+          const hiddenCount=reversed.filter(s=>hiddenSessIds.has(s.id)).length;
+          return(<>
+            {hiddenCount>0&&(
+              <button onClick={()=>setShowHidden(p=>!p)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 12px",color:C.muted,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:8}}>
+                {showHidden?`▲ Hide hidden (${hiddenCount})`:`▼ Show hidden (${hiddenCount})`}
+              </button>
+            )}
+            {visible.map((s,i)=>{
+              const isBooking=s._type==="booking";
+              const isHidden=hiddenSessIds.has(s.id);
+              const badgeStatus=statusMap[s.id];
+              const isCancellable=badgeStatus==="upcoming"||badgeStatus==="booked";
+              const icon=isBooking?"📅":s._type==="cancelled"?"🚫":s._type==="completed"?"💪":"⏳";
+              const iconBg=isBooking?C.amber+"22":s._type==="cancelled"?C.muted+"22":s._type==="completed"?C.cyan+"22":C.pink+"22";
+              return(
+              <div key={s.id||i} style={{opacity:isHidden?0.45:1,marginBottom:8}}>
+                <div onClick={isBooking?undefined:()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${badgeStatus!=="completed"?(isBooking?C.amber+"44":C.cyan+"33"):C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:isBooking?"default":"pointer",textAlign:"left",boxSizing:"border-box"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{width:36,height:36,borderRadius:10,background:iconBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{icon}</div>
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                        <span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {s._dayNum}</span>
+                        <span style={{color:C.muted,fontSize:10,fontWeight:700}}>{s._sessionNum}/{timeline.length}</span>
+                        <StatusBadge status={badgeStatus}/>
+                      </div>
+                      <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}{!isBooking&&s.exercises?.length>0?` · ${s.exercises.length} exercises`:""}</div>
+                    </div>
                   </div>
-                  <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}{!isBooking&&s.exercises?.length>0?` · ${s.exercises.length} exercises`:""}</div>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}>
+                    {!isBooking&&<span style={{color:s._type==="completed"?C.pink:C.cyan,fontSize:12,fontWeight:700}}>Edit →</span>}
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      {isCancellable&&<button onClick={e=>{e.stopPropagation();handleCancelSession(s);}} style={{background:"none",border:"none",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0}}>Cancel</button>}
+                      <button onClick={e=>{e.stopPropagation();isHidden?unhideSession(s.id):hideSession(s.id);}} title={isHidden?"Show":"Hide"} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 6px",color:C.muted,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{isHidden?"Show":"Hide"}</button>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}>
-                {!isBooking&&<span style={{color:s._type==="completed"?C.pink:C.cyan,fontSize:12,fontWeight:700}}>Edit →</span>}
-                {isCancellable&&<button onClick={e=>{e.stopPropagation();handleCancelSession(s);}} style={{background:"none",border:"none",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0}}>Cancel</button>}
-              </div>
-            </div>
-          );})
-        }
+            );})}
+          </>);
+        })()}
       </div>
       <UaToast toast={uaToast}/>
       <UaConfirm dialog={cancelDlg} setDialog={setCancelDlg}/>

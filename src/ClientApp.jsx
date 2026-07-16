@@ -127,6 +127,7 @@ const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${ui
 const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max(newUsed,0)},tk);
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
 const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
+const deleteNotification  =(id,tk)  => dbDelete("notifications",`id=eq.${id}`,tk);
 const VAPID_PUBLIC_KEY   = 'BNKaPdypI6pDPj7QQgVHhAAGxQgyjVpNcFIGu6N58WgZG05y9UTG4pwFIMu_9yDa8hMjhqtyUmJvE_84jASmVu0';
 // Use raw fetch for push subscription save — avoids the sb() auto-reload on 4xx errors
 const savePushSub = async (client_id, subscription, tk) => {
@@ -410,15 +411,38 @@ const HistorySheet=({sessions,spw,onClose,label="Personal Training"})=>{
   );
 };
 
-const NotificationModal=({notification,onDismiss})=>{
-  if(!notification) return null;
+const NotifPanel=({notifications,onDismiss,onDelete,onClose})=>{
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
-      <div style={{background:C.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${C.cyan}33`}}>
-        <div style={{fontSize:28,marginBottom:10}}>🔔</div>
-        <div style={{color:C.white,fontSize:15,fontWeight:700,marginBottom:8}}>Notification</div>
-        <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:20}}>{notification.message}</div>
-        <GBtn label="Got it" onClick={()=>onDismiss(notification.id)} style={{width:"100%"}}/>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",maxHeight:"80vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
+        <div style={{padding:"16px 20px 0"}}>
+          <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 14px"}}/>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{color:C.white,fontSize:16,fontWeight:800}}>🔔 Notifications</div>
+            <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>Close</button>
+          </div>
+        </div>
+        {notifications.length===0
+          ?<div style={{padding:"20px 20px 40px",color:C.muted,fontSize:13,textAlign:"center"}}>All caught up! No new notifications.</div>
+          :<div style={{padding:"0 20px 40px"}}>
+            {notifications.map(n=>(
+              <div key={n.id} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px 14px",marginBottom:8,display:"flex",gap:10,alignItems:"flex-start"}}>
+                <div style={{fontSize:18,flexShrink:0,marginTop:1}}>
+                  {n.type==="session_scheduled"?"📅":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":"🔔"}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{color:C.white,fontSize:13,lineHeight:1.5}}>{n.message}</div>
+                  {n.created_at&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{fmtDate(n.created_at?.split("T")[0])}</div>}
+                </div>
+                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  <button onClick={()=>onDismiss(n.id)} title="Mark as read" style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"5px 8px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700}}>Hide</button>
+                  <button onClick={()=>onDelete(n.id)} title="Delete" style={{background:"none",border:`1px solid ${C.pink}44`,borderRadius:7,padding:"5px 8px",color:C.pink,cursor:"pointer",fontFamily:"inherit",fontSize:13,lineHeight:1}}>🗑</button>
+                </div>
+              </div>
+            ))}
+            <button onClick={()=>notifications.forEach(n=>onDismiss(n.id))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px",color:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>Hide All</button>
+          </div>
+        }
       </div>
     </div>
   );
@@ -1783,6 +1807,7 @@ export default function App(){
   const [openSess,setOpenSess]=useState(null);
   const [showSignUp,setShowSignUp]=useState(false);
   const [notifications,setNotifications]=useState([]);
+  const [showNotifPanel,setShowNotifPanel]=useState(false);
   const [hasNewAnn,setHasNewAnn]=useState(false);
   const [latestAnnAt,setLatestAnnAt]=useState(null);
   const [priorAnnSeenAt,setPriorAnnSeenAt]=useState(null);
@@ -1860,6 +1885,11 @@ export default function App(){
     try{ await markNotificationRead(id,auth.token); }catch(e){}
   };
 
+  const deleteNotif=async(id)=>{
+    setNotifications(p=>p.filter(n=>n.id!==id));
+    try{ await deleteNotification(id,auth.token); }catch(e){}
+  };
+
   const handleSignUp=async(firstName,lastName,email,pw,phone=null)=>{
     const latinize=s=>{const G={'α':'a','β':'v','γ':'g','δ':'d','ε':'e','ζ':'z','η':'i','θ':'th','ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p','ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'f','χ':'ch','ψ':'ps','ω':'o','ά':'a','έ':'e','ή':'i','ί':'i','ό':'o','ύ':'y','ώ':'o','ϊ':'i','ΐ':'i','ϋ':'y','ΰ':'y'};let r='';for(const c of s.toLowerCase()){r+=G[c]||(c.normalize('NFD').replace(/[̀-ͯ]/g,'')||c);}return r.replace(/[^a-z]/g,'');};
     const data=await authSignUp(email,pw);
@@ -1919,7 +1949,17 @@ export default function App(){
   return(
     <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
       {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
-      {!openSess&&notifications.length>0&&<NotificationModal notification={notifications[0]} onDismiss={dismissNotification}/>}
+      {/* Bell icon — always visible top-right */}
+      {!openSess&&auth.token&&(
+        <button onClick={()=>setShowNotifPanel(true)} style={{position:"fixed",top:12,right:16,zIndex:250,background:notifications.length>0?`${C.pink}22`:C.surface,border:`1px solid ${notifications.length>0?C.pink+"55":C.border}`,borderRadius:"50%",width:42,height:42,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",boxShadow:notifications.length>0?`0 0 0 2px ${C.pink}44`:"none",transition:"all .2s"}}>
+          <span style={{fontSize:18}}>🔔</span>
+          {notifications.length>0&&(
+            <span style={{position:"absolute",top:4,right:4,background:C.pink,color:C.white,fontSize:9,fontWeight:900,width:16,height:16,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>{notifications.length>9?"9+":notifications.length}</span>
+          )}
+        </button>
+      )}
+      {/* Notification panel */}
+      {showNotifPanel&&<NotifPanel notifications={notifications} onDismiss={async(id)=>{await dismissNotification(id);}} onDelete={async(id)=>{await deleteNotif(id);}} onClose={()=>setShowNotifPanel(false)}/>}
       {renderScreen()}
       <BottomNav active={screen} onNav={handleNav} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials} annBadge={hasNewAnn}/>
     </div>
