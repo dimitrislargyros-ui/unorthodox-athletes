@@ -1268,7 +1268,8 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
     setForceLogging(true);
     try{
       const dayNum=await calcDayNum(cl.id,selDay.iso,token,cl._pkg?.sessions_per_week||3).catch(()=>null);
-      await createSession({client_id:cl.id,trainer_id:trainerId,session_date:selDay.iso,start_time_min:forceLogSlot.start_time_min,day_num:dayNum,status:"completed"},token);
+      const sessStatus=selDay.iso>todayISO()?"booked":"completed";
+      await createSession({client_id:cl.id,trainer_id:trainerId,session_date:selDay.iso,start_time_min:forceLogSlot.start_time_min,day_num:dayNum,status:sessStatus},token);
       if(cl._pkg){
         const newUsed=(cl._pkg.sessions_used||0)+1;
         await dbPatch("packages",`id=eq.${cl._pkg.id}`,{sessions_used:newUsed},token).catch(()=>{});
