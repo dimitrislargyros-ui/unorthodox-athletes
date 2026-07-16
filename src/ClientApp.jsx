@@ -127,7 +127,7 @@ const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${ui
 const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max(newUsed,0)},tk);
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
 const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
-const VAPID_PUBLIC_KEY   = '0po93KkjqkM-PtBCBUeEAAbFCDKNWk1wUga7o3nxaBkbTnL1RMbinAUgy7_3INryEyOGq3JSYm8T_ziMBKZW7Q';
+const VAPID_PUBLIC_KEY   = 'BNKaPdypI6pDPj7QQgVHhAAGxQgyjVpNcFIGu6N58WgZG05y9UTG4pwFIMu_9yDa8hMjhqtyUmJvE_84jASmVu0';
 // Use raw fetch for push subscription save — avoids the sb() auto-reload on 4xx errors
 const savePushSub = async (client_id, subscription, tk) => {
   const res = await fetch(`${SB_URL}/rest/v1/push_subscriptions`, {

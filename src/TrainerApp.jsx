@@ -897,6 +897,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const updPkg={...pkg,paid:newPaid};
       setPkg(updPkg);
       onClientUpdated({...client,_pkg:updPkg});
+      if(newPaid){
+        await postNotification({client_id:client.id,type:"payment_confirmed",message:`✅ Η πληρωμή επιβεβαιώθηκε για το πακέτο ${pkg.sessions_total} συνεδριών. Είσαι έτοιμος/η!`},token).catch(()=>{});
+      } else {
+        await postNotification({client_id:client.id,type:"payment_reminder",message:`⚠️ Η πληρωμή του πακέτου σου σημειώθηκε ως μη εξοφλημένη. Επικοινώνησε με τον προπονητή σου.`},token).catch(()=>{});
+      }
     }catch(e){ showUaToast("Error: "+e.message); }
   };
 
@@ -1313,15 +1318,26 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       const c=Array.isArray(res)?res[0]:res;
       if(c){
         setSlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min));
-        await postAnnouncement({title:"New Slot Added",body:`New time slot: ${WDAYS[selDay.dow]} ${toTime(selectedStart)}`},token).catch(()=>{});
+        const body=`📅 Νέο slot προστέθηκε: ${WDAYS[selDay.dow]} ${toTime(selectedStart)}. Δες το πρόγραμμα!`;
+        await postAnnouncement({title:"Αλλαγή Προγράμματος",body},token).catch(()=>{});
+        const allC=await getClients(token).catch(()=>[]);
+        await Promise.allSettled((allC||[]).map(cl=>postNotification({client_id:cl.id,type:"schedule_update",message:body},token)));
       }
       setPickH(null); setPickM(0);
     }catch(e){ showToast("Error: "+e.message); }
   };
 
   const handleRemove=async(slot)=>{
-    try{ await removeSlot(slot.id,token); setSlots(p=>p.filter(s=>s.id!==slot.id)); setConf(null); showToast("Slot removed.",true); }
-    catch(e){ showToast("Error: "+e.message); }
+    try{
+      await removeSlot(slot.id,token);
+      setSlots(p=>p.filter(s=>s.id!==slot.id));
+      setConf(null);
+      showToast("Slot removed.",true);
+      const body=`📅 Slot αφαιρέθηκε: ${WDAYS[slot.day_of_week??selDay.dow]} ${toTime(slot.start_time_min)}. Δες το ενημερωμένο πρόγραμμα!`;
+      await postAnnouncement({title:"Αλλαγή Προγράμματος",body},token).catch(()=>{});
+      const allC=await getClients(token).catch(()=>[]);
+      await Promise.allSettled((allC||[]).map(cl=>postNotification({client_id:cl.id,type:"schedule_update",message:body},token)));
+    }catch(e){ showToast("Error: "+e.message); }
   };
 
   const handleApproveRequest=async(r)=>{
@@ -1688,15 +1704,30 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
           const stdPickStart=stdPickH!=null?stdPickH*60+stdPickM:null;
           const stdConflict=stdPickStart!=null&&stdDaySlots.find(s=>s.start_time_min===stdPickStart&&s.is_active);
           const handleStdRemove=async(slot)=>{
-            try{ await removeSlot(slot.id,token); setStdDaySlots(p=>p.filter(s=>s.id!==slot.id)); if(!activePeriod) reloadDay(); showToast("Slot removed.",true); }
-            catch(e){ showToast("Error: "+e.message); }
+            try{
+              await removeSlot(slot.id,token);
+              setStdDaySlots(p=>p.filter(s=>s.id!==slot.id));
+              if(!activePeriod) reloadDay();
+              showToast("Slot removed.",true);
+              const body=`📅 Slot αφαιρέθηκε: ${WDAYS[stdDayIdx]} ${toTime(slot.start_time_min)}. Δες το ενημερωμένο πρόγραμμα!`;
+              await postAnnouncement({title:"Αλλαγή Προγράμματος",body},token).catch(()=>{});
+              const allC=await getClients(token).catch(()=>[]);
+              await Promise.allSettled((allC||[]).map(cl=>postNotification({client_id:cl.id,type:"schedule_update",message:body},token)));
+            }catch(e){ showToast("Error: "+e.message); }
           };
           const handleStdAdd=async()=>{
             if(!stdPickStart||stdConflict) return;
             try{
               const res=await addSlot({trainer_id:trainerId,day_of_week:stdDayIdx,start_time_min:stdPickStart},token);
               const c=Array.isArray(res)?res[0]:res;
-              if(c){ setStdDaySlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min)); if(!activePeriod) reloadDay(); }
+              if(c){
+                setStdDaySlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min));
+                if(!activePeriod) reloadDay();
+                const body=`📅 Νέο slot προστέθηκε: ${WDAYS[stdDayIdx]} ${toTime(stdPickStart)}. Δες το πρόγραμμα!`;
+                await postAnnouncement({title:"Αλλαγή Προγράμματος",body},token).catch(()=>{});
+                const allC=await getClients(token).catch(()=>[]);
+                await Promise.allSettled((allC||[]).map(cl=>postNotification({client_id:cl.id,type:"schedule_update",message:body},token)));
+              }
               setStdPickH(null); setStdPickM(0);
             }catch(e){ showToast("Error: "+e.message); }
           };
