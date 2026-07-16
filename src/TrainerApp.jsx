@@ -378,6 +378,27 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
   );
 };
 
+// ── Eye icon + password field ──
+const EyeIcon=({open})=>(
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {open
+      ?<><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+      :<><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
+    }
+  </svg>
+);
+const PwField=({value,onChange,placeholder,style,onKeyDown})=>{
+  const [show,setShow]=useState(false);
+  return(
+    <div style={{position:"relative",width:"100%"}}>
+      <input style={{...style,paddingRight:48}} type={show?"text":"password"} placeholder={placeholder} value={value} onChange={onChange} onKeyDown={onKeyDown}/>
+      <button type="button" onClick={()=>setShow(s=>!s)} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.muted,cursor:"pointer",padding:4,display:"flex",alignItems:"center",fontFamily:"inherit"}}>
+        <EyeIcon open={show}/>
+      </button>
+    </div>
+  );
+};
+
 // ── Login ──
 const LoginScreen=({onLogin})=>{
   const [email,setE]=useState(""); const [pw,setPw]=useState("");
@@ -402,7 +423,7 @@ const LoginScreen=({onLogin})=>{
       </div>
       <div style={{width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:10}}>
         <input style={inp} placeholder="Trainer email" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
-        <input style={inp} type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <PwField style={inp} placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {err&&<div style={{color:C.pink,fontSize:13,textAlign:"center"}}>{err}</div>}
         <GBtn label={loading?"Entering...":"Enter →"} onClick={handle} disabled={loading} style={{marginTop:2,width:"100%"}}/>
         <a href="/reset-password" style={{background:"none",border:"none",color:C.muted,fontSize:13,fontFamily:"inherit",textAlign:"center",width:"100%",textDecoration:"none"}}>Forgot password?</a>

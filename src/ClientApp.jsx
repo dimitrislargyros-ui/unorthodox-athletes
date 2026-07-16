@@ -445,6 +445,27 @@ const WODSheet=({programName,dayNum,exercises,onClose})=>(
   </div>
 );
 
+// ── Eye icon for password toggle ──
+const EyeIcon=({open})=>(
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    {open
+      ?<><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+      :<><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
+    }
+  </svg>
+);
+const PwField=({value,onChange,placeholder,style,onKeyDown})=>{
+  const [show,setShow]=useState(false);
+  return(
+    <div style={{position:"relative",width:"100%"}}>
+      <input style={{...style,paddingRight:48}} type={show?"text":"password"} placeholder={placeholder} value={value} onChange={onChange} onKeyDown={onKeyDown}/>
+      <button type="button" onClick={()=>setShow(s=>!s)} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:C.muted,cursor:"pointer",padding:4,display:"flex",alignItems:"center",fontFamily:"inherit"}}>
+        <EyeIcon open={show}/>
+      </button>
+    </div>
+  );
+};
+
 // ── Login ──
 const LoginScreen=({onLogin,onSignUp})=>{
   const [email,setE]=useState(""); const [pw,setPw]=useState("");
@@ -468,7 +489,7 @@ const LoginScreen=({onLogin,onSignUp})=>{
       </div>
       <div style={{width:"100%",maxWidth:320,display:"flex",flexDirection:"column",gap:10}}>
         <input style={inp} placeholder="Email address" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
-        <input style={inp} type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <PwField style={inp} placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {err&&<div style={{color:C.pink,fontSize:13,textAlign:"center"}}>{err}</div>}
         <GBtn label={loading?"Logging in...":"Let's Go →"} onClick={handle} disabled={loading} style={{marginTop:2,width:"100%"}}/>
         <a href="/reset-password" style={{background:"none",border:"none",color:C.muted,fontSize:13,fontFamily:"inherit",textAlign:"center",width:"100%",textDecoration:"none"}}>Forgot password?</a>
@@ -540,7 +561,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
           <input style={inp} placeholder="Email address" value={email} onChange={e=>setE(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
           {email.length>0&&!emailValid&&<div style={{color:C.pink,fontSize:12,marginTop:5}}>Enter a valid email address.</div>}
         </div>
-        <input style={inp} type="password" placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <PwField style={inp} placeholder="Password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {pw.length>0&&(
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",display:"flex",flexDirection:"column",gap:5}}>
             <PwReq ok={pwChecks.len} label="At least 8 characters"/>
@@ -550,7 +571,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
           </div>
         )}
         <div>
-          <input style={inp} type="password" placeholder="Confirm password" value={confirmPw} onChange={e=>setConfirmPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+          <PwField style={inp} placeholder="Confirm password" value={confirmPw} onChange={e=>setConfirmPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
           {confirmPw.length>0&&!pwMatch&&<div style={{color:C.pink,fontSize:12,marginTop:5}}>Passwords don't match.</div>}
         </div>
         <input style={{...inp,opacity:0.7}} placeholder="Phone number (optional)" value={phone} onChange={e=>setPhone(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()}/>
@@ -727,8 +748,40 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
   const greeting=hour<12?"morning":hour<17?"afternoon":"evening";
   const dateStr=now.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
 
+  const [notifDismissed,setNotifDismissed]=useState(false);
+  const notifState=typeof Notification!=="undefined"?Notification.permission:"denied";
+  const showNotifBanner=!notifDismissed&&notifState==="default"&&typeof PushManager!=="undefined";
+  const enableNotifs=async()=>{
+    if(!('serviceWorker' in navigator)) return;
+    try{
+      const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+      const perm=await Notification.requestPermission();
+      if(perm==='granted'){
+        const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+        if(sub) savePushSub(userId,sub.toJSON(),token).catch(()=>{});
+      }
+    }catch(e){}
+    setNotifDismissed(true);
+  };
+
   return(
     <div style={{paddingBottom:80}}>
+      {/* Notification enable banner */}
+      {showNotifBanner&&(
+        <div style={{margin:"12px 16px 0",background:C.cyan+"18",border:`1px solid ${C.cyan}44`,borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:20}}>🔔</span>
+            <div>
+              <div style={{color:C.white,fontSize:13,fontWeight:700}}>Enable Notifications</div>
+              <div style={{color:C.muted,fontSize:11,marginTop:1}}>Get alerts when your trainer books a session</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            <button onClick={enableNotifs} style={{background:C.cyan,border:"none",borderRadius:8,padding:"6px 12px",color:C.bg,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Enable</button>
+            <button onClick={()=>setNotifDismissed(true)} style={{background:"none",border:"none",color:C.muted,fontSize:16,cursor:"pointer",padding:"4px 6px",fontFamily:"inherit"}}>✕</button>
+          </div>
+        </div>
+      )}
       {/* WOD Sheet */}
       {wodDay&&pkg?.workout_templates&&(
         <WODSheet
