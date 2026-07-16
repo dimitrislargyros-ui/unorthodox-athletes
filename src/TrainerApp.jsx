@@ -979,7 +979,6 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             }
           }
           await postNotification({client_id:client.id,type:"session_cancelled",message:`Your session on ${fmtDate(item.session_date)} at ${toTime(item.start_time_min)} was cancelled by your trainer.`},token).catch(()=>{});
-          await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
         }catch(e){ showUaToast("Error: "+e.message); }
       }
     });
@@ -1316,13 +1315,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
     try{
       const res=await addSlot({trainer_id:trainerId,day_of_week:selDay.dow,start_time_min:selectedStart},token);
       const c=Array.isArray(res)?res[0]:res;
-      if(c){
-        setSlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min));
-        const body=`📅 Νέο slot προστέθηκε: ${WDAYS[selDay.dow]} ${toTime(selectedStart)}. Δες το πρόγραμμα!`;
-        await postAnnouncement({title:"Αλλαγή Προγράμματος",body},token).catch(()=>{});
-        const allC=await getClients(token).catch(()=>[]);
-        await Promise.allSettled((allC||[]).map(cl=>postNotification({client_id:cl.id,type:"schedule_update",message:body},token)));
-      }
+      if(c){ setSlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min)); }
       setPickH(null); setPickM(0);
     }catch(e){ showToast("Error: "+e.message); }
   };
@@ -1333,10 +1326,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       setSlots(p=>p.filter(s=>s.id!==slot.id));
       setConf(null);
       showToast("Slot removed.",true);
-      const body=`📅 Slot αφαιρέθηκε: ${WDAYS[slot.day_of_week??selDay.dow]} ${toTime(slot.start_time_min)}. Δες το ενημερωμένο πρόγραμμα!`;
-      await postAnnouncement({title:"Αλλαγή Προγράμματος",body},token).catch(()=>{});
-      const allC=await getClients(token).catch(()=>[]);
-      await Promise.allSettled((allC||[]).map(cl=>postNotification({client_id:cl.id,type:"schedule_update",message:body},token)));
     }catch(e){ showToast("Error: "+e.message); }
   };
 
@@ -1401,7 +1390,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         await cancelBookingRow(b.id,token);
         setBookingsMap(p=>({...p,[slot.id]:(p[slot.id]||[]).filter(x=>x.id!==b.id)}));
         await postNotification({client_id:b.client_id,type:"session_cancelled",message:`Your session on ${fmtDate(b.book_date)} at ${toTime(slot.start_time_min)} was cancelled by your trainer.`},token).catch(()=>{});
-        await postAnnouncement({title:"Slot Available",body:"A session slot has opened up — check the schedule!"},token).catch(()=>{});
         showToast("Booking cancelled.",true);
       }catch(e){ showToast("Error: "+e.message); }
     }});
@@ -1409,7 +1397,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
 
   const handleCreatePeriod=()=>{
     if(!periodName.trim()||!periodStart||!periodEnd) return;
-    setConf({msg:`Create period "${periodName.trim()}" (${fmtDate(periodStart)} – ${fmtDate(periodEnd)})?\n\nAll clients will be notified of the schedule change.`,okLabel:"Create & Notify",onOk:async()=>{
+    setConf({msg:`Create period "${periodName.trim()}" (${fmtDate(periodStart)} – ${fmtDate(periodEnd)})?`,okLabel:"Create",onOk:async()=>{
       try{
         const res=await createPeriod({trainer_id:trainerId,name:periodName.trim(),start_date:periodStart,end_date:periodEnd},token);
         const created=Array.isArray(res)?res[0]:res;
@@ -1418,11 +1406,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
           setPeriodName(""); setShowNewPeriod(false);
           const today=todayISO();
           if(today>=created.start_date&&today<=created.end_date) setActivePeriod(created);
-          const body=`📅 Schedule Update — "${created.name}" (${fmtDate(created.start_date)} – ${fmtDate(created.end_date)}). Check your schedule for updated time slots!`;
-          await postAnnouncement({title:"Schedule Period Updated",body},token).catch(()=>{});
-          const allC=await getClients(token).catch(()=>[]);
-          await Promise.allSettled((allC||[]).map(c=>postNotification({client_id:c.id,type:"schedule_update",message:body},token)));
-          showToast("Period created! All clients notified.",true);
+          showToast("Period created!",true);
         }
       }catch(e){ showToast("Error: "+e.message); }
     }});
@@ -1437,11 +1421,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       const updated={...period,start_date:newStart,end_date:newEnd};
       setPeriods(p=>p.map(x=>x.id===period.id?updated:x));
       setActivePeriod(updated);
-      const body=`📅 Schedule Update — "${updated.name}" is now the current schedule period (${fmtDate(updated.start_date)} – ${fmtDate(updated.end_date)}). Check your schedule!`;
-      await postAnnouncement({title:"Schedule Period Updated",body},token).catch(()=>{});
-      const allC=await getClients(token).catch(()=>[]);
-      await Promise.allSettled((allC||[]).map(c=>postNotification({client_id:c.id,type:"schedule_update",message:body},token)));
-      showToast("Period activated! All clients notified.",true);
+      showToast("Period activated!",true);
       reloadDay();
     }catch(e){ showToast("Error: "+e.message); }
   };
@@ -1709,10 +1689,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
               setStdDaySlots(p=>p.filter(s=>s.id!==slot.id));
               if(!activePeriod) reloadDay();
               showToast("Slot removed.",true);
-              const body=`📅 Slot αφαιρέθηκε: ${WDAYS[stdDayIdx]} ${toTime(slot.start_time_min)}. Δες το ενημερωμένο πρόγραμμα!`;
-              await postAnnouncement({title:"Αλλαγή Προγράμματος",body},token).catch(()=>{});
-              const allC=await getClients(token).catch(()=>[]);
-              await Promise.allSettled((allC||[]).map(cl=>postNotification({client_id:cl.id,type:"schedule_update",message:body},token)));
             }catch(e){ showToast("Error: "+e.message); }
           };
           const handleStdAdd=async()=>{
@@ -1723,10 +1699,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
               if(c){
                 setStdDaySlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min));
                 if(!activePeriod) reloadDay();
-                const body=`📅 Νέο slot προστέθηκε: ${WDAYS[stdDayIdx]} ${toTime(stdPickStart)}. Δες το πρόγραμμα!`;
-                await postAnnouncement({title:"Αλλαγή Προγράμματος",body},token).catch(()=>{});
-                const allC=await getClients(token).catch(()=>[]);
-                await Promise.allSettled((allC||[]).map(cl=>postNotification({client_id:cl.id,type:"schedule_update",message:body},token)));
               }
               setStdPickH(null); setStdPickM(0);
             }catch(e){ showToast("Error: "+e.message); }
