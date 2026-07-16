@@ -93,6 +93,8 @@ const postAnnouncement    = (d,tk)              => dbPost("announcements",d,tk);
 const deleteAnnouncement  = (id,tk)             => dbDelete("announcements",`id=eq.${id}`,tk);
 const getPendingRequests  = (tk)                => dbGet("slot_requests","status=eq.pending&select=*,profiles(name,initials)&order=created_at.asc",tk);
 const resolveRequest      = (id,status,tk)      => dbPatch("slot_requests",`id=eq.${id}`,{status},tk);
+const getCancelRequests   = (trainerId,tk)       => dbGet("cancel_requests",`trainer_id=eq.${trainerId}&status=eq.pending&select=*,profiles!cancel_requests_client_id_fkey(id,name,initials)&order=created_at.asc`,tk);
+const resolveCancelReq    = (id,status,tk)       => dbPatch("cancel_requests",`id=eq.${id}`,{status},tk);
 const findActiveSlot      = (trainerId,dow,startMin,tk) => dbGet("schedule_slots",`trainer_id=eq.${trainerId}&day_of_week=eq.${dow}&start_time_min=eq.${startMin}&is_active=eq.true`,tk).then(r=>r?.[0]||null);
 const getSlotBookCount    = (slotId,date,tk)    => dbGet("bookings",`slot_id=eq.${slotId}&book_date=eq.${date}&status=eq.booked&select=id`,tk).then(r=>r?.length||0);
 const createBooking       = (d,tk)              => dbPost("bookings",d,tk);
@@ -1233,6 +1235,8 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const [pendingReqs,setPendingReqs]=useState([]);
   const [reqsLoaded,setReqsLoaded]=useState(false);
   const [reqWarn,setReqWarn]=useState({}); // reqId → warning message for overlap
+  const [cancelReqs,setCancelReqs]=useState([]);
+  const [cancelReqsLoaded,setCancelReqsLoaded]=useState(false);
   const [toast,setToast]=useState(null);  // {msg,ok} for inline feedback
   const showToast=(msg,ok=false)=>{setToast({msg,ok});setTimeout(()=>setToast(null),3500);};
   const weekDates=Array.from({length:7},(_,i)=>{
@@ -1267,6 +1271,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   useEffect(()=>{
     getPendingRequests(token).then(r=>{ const reqs=r||[]; setPendingReqs(reqs); setReqsLoaded(true); onPendingChange?.(reqs.length); }).catch(()=>setReqsLoaded(true));
     getAllPeriods(token).then(r=>{ const all=r||[]; setPeriods(all); const today=todayISO(); const active=all.find(p=>today>=p.start_date&&today<=p.end_date)||null; setActivePeriod(active); }).catch(()=>{}).finally(()=>setPeriodsLoaded(true));
+    getCancelRequests(trainerId,token).then(r=>{ setCancelReqs(r||[]); setCancelReqsLoaded(true); }).catch(()=>setCancelReqsLoaded(true));
   },[]);
 
   useEffect(()=>{
@@ -1404,6 +1409,30 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       await resolveRequest(r.id,"rejected",token).catch(()=>{});
       await postNotification({client_id:r.client_id,type:"slot_request_rejected",message:`Your custom time request for ${fmtDate(r.requested_date)} at ${toTime(r.requested_time_min)} was declined. Talk to your trainer for alternatives.`},token).catch(()=>{});
       const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length);
+    }catch(e){ showToast("Error: "+e.message); }
+  };
+
+  const handleAcceptCancelReq=async(r)=>{
+    try{
+      const label=`${fmtDate(r.book_date)} στις ${toTime(r.start_time_min)}`;
+      // Cancel the booking if booking_id exists
+      if(r.booking_id){
+        await cancelBookingRow(r.booking_id,token).catch(()=>{});
+      }
+      await resolveCancelReq(r.id,"accepted",token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Η αίτηση ακύρωσης για ${label} εγκρίθηκε. Μπορείς να κάνεις νέα κράτηση.`},token).catch(()=>{});
+      setCancelReqs(p=>p.filter(x=>x.id!==r.id));
+      showToast("✓ Ακύρωση εγκρίθηκε",true);
+    }catch(e){ showToast("Error: "+e.message); }
+  };
+
+  const handleDeclineCancelReq=async(r)=>{
+    try{
+      const label=`${fmtDate(r.book_date)} στις ${toTime(r.start_time_min)}`;
+      await resolveCancelReq(r.id,"declined",token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Η αίτηση ακύρωσης για ${label} απορρίφθηκε. Επικοινώνησε με τον trainer σου.`},token).catch(()=>{});
+      setCancelReqs(p=>p.filter(x=>x.id!==r.id));
+      showToast("Αίτηση απορρίφθηκε");
     }catch(e){ showToast("Error: "+e.message); }
   };
 
@@ -1558,6 +1587,30 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
           </div>
         </div>
       )}
+      {/* Cancellation Requests */}
+      {cancelReqsLoaded&&cancelReqs.length>0&&(
+        <div style={{padding:"0 20px 4px"}}>
+          <div style={{background:C.surface,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"13px 16px"}}>
+            <div style={{color:C.amber,fontSize:12,fontWeight:700,marginBottom:8}}>⚠️ Αιτήσεις ακύρωσης ({cancelReqs.length})</div>
+            {cancelReqs.map((r,i)=>(
+              <div key={r.id} style={{padding:"9px 0",borderBottom:i<cancelReqs.length-1?`1px solid ${C.border}`:"none"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{color:C.white,fontSize:13,fontWeight:600}}>{r.profiles?.name||"Unknown"}</div>
+                    <div style={{color:C.muted,fontSize:12,marginTop:2}}>{fmtDate(r.book_date)} · {toTime(r.start_time_min)}</div>
+                    <div style={{color:C.amber,fontSize:11,marginTop:1}}>Εντός 48 ωρών</div>
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>handleAcceptCancelReq(r)} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 11px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓ Έγκριση</button>
+                    <button onClick={()=>handleDeclineCancelReq(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 11px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕ Απόρριψη</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{padding:"0 20px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <button onClick={()=>setWeekOffset(p=>p-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>‹</button>
         <span style={{color:C.cyan,fontSize:13,fontWeight:700}}>{weekLabel}</span>

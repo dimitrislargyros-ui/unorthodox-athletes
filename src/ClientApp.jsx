@@ -128,6 +128,8 @@ const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkg
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
 const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
 const deleteNotification  =(id,tk)  => dbDelete("notifications",`id=eq.${id}`,tk);
+const getTrainerProfile   = (tk)    => dbGet("profiles","role=eq.trainer&select=id,name&limit=1",tk).then(r=>r?.[0]);
+const postCancelRequest   = (d,tk)  => dbPost("cancel_requests",d,tk);
 const VAPID_PUBLIC_KEY   = 'BNKaPdypI6pDPj7QQgVHhAAGxQgyjVpNcFIGu6N58WgZG05y9UTG4pwFIMu_9yDa8hMjhqtyUmJvE_84jASmVu0';
 // Use raw fetch for push subscription save — avoids the sb() auto-reload on 4xx errors
 const savePushSub = async (client_id, subscription, tk) => {
@@ -256,6 +258,60 @@ const UaConfirm=({dialog,setDialog,c})=>{
           <button onClick={()=>{close();dialog.onOk?.();}} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:c.pink+"20",border:`1px solid ${c.pink}55`,color:c.pink}}>{dialog.okLabel||"Confirm"}</button>
           <button onClick={close} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:`linear-gradient(135deg,${c.cyan},${c.pink})`,border:"none",color:"#fff"}}>{dialog.cancelLabel||"Cancel"}</button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Cancel Request Sheet (within-48h cancellation flow) ──
+const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
+  const [sending,setSending]=React.useState(false);
+  const [sent,setSent]=React.useState(false);
+  const [err,setErr]=React.useState(null);
+  const sendRequest=async()=>{
+    setSending(true); setErr(null);
+    try{
+      const trainer=await getTrainerProfile(token);
+      if(!trainer) throw new Error("Trainer not found");
+      const myProfile=await getProfile(userId,token).catch(()=>null);
+      const label=`${fmtDate(bookDate)} στις ${toTime(startMin)}`;
+      // Save cancel request row (requires cancel_requests table)
+      await postCancelRequest({client_id:userId,trainer_id:trainer.id,booking_id:bookingId||null,book_date:bookDate,start_time_min:startMin,status:"pending"},token).catch(()=>{});
+      // Push notification to trainer
+      await fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"🔔 Αίτηση ακύρωσης",body:`${myProfile?.name||"Client"} ζητά ακύρωση: ${label}`})}).catch(()=>{});
+      // Notify trainer in-app
+      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} ζητά ακύρωση της συνεδρίας ${label}.`},token).catch(()=>{});
+      setSent(true);
+    }catch(e){ setErr("Σφάλμα αποστολής. Δοκίμασε ξανά."); }
+    setSending(false);
+  };
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:500,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={sent?onClose:undefined}>
+      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:430,padding:"24px 24px 40px",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:36,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px",opacity:.6}}/>
+        {sent?(
+          <div style={{textAlign:"center",padding:"12px 0 8px"}}>
+            <div style={{fontSize:48,marginBottom:12}}>✅</div>
+            <div style={{color:C.white,fontSize:17,fontWeight:800,marginBottom:8}}>Η αίτηση εστάλη!</div>
+            <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:24}}>Ο trainer σου θα δει την αίτησή σου και θα σε ενημερώσει για την απόφαση.</div>
+            <button onClick={onClose} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"14px",color:"#fff",fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>OK</button>
+          </div>
+        ):(
+          <>
+            <div style={{color:C.pink,fontSize:13,fontWeight:800,letterSpacing:.5,marginBottom:8,textTransform:"uppercase"}}>Αίτηση ακύρωσης</div>
+            <div style={{color:C.white,fontSize:16,fontWeight:700,marginBottom:6}}>Συνεδρία εντός 48 ωρών</div>
+            <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px 14px",marginBottom:14}}>
+              <div style={{color:C.cyan,fontSize:14,fontWeight:700}}>{fmtDate(bookDate)}</div>
+              <div style={{color:C.muted,fontSize:13,marginTop:2}}>{toTime(startMin)}</div>
+            </div>
+            <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:20}}>Δεν μπορείς να ακυρώσεις άμεσα συνεδρία εντός 48 ωρών. Θέλεις να στείλεις αίτηση ακύρωσης στον trainer σου;</div>
+            {err&&<div style={{color:C.pink,fontSize:12,fontWeight:700,marginBottom:10}}>{err}</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <button onClick={sendRequest} disabled={sending} style={{width:"100%",background:sending?"rgba(255,255,255,0.05)":`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"14px",color:sending?C.muted:"#fff",fontSize:15,fontWeight:800,cursor:sending?"not-allowed":"pointer",fontFamily:"inherit"}}>{sending?"Αποστολή...":"Ναι, στείλε αίτηση"}</button>
+              <button onClick={onClose} style={{width:"100%",background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"13px",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Όχι, ακύρωσε</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -682,6 +738,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
   const [todaySlotCount,setTodaySlotCount]=useState(null);
   const [wodDay,setWodDay]=useState(null); // day number to show WOD for, or null
   const [cancelReDlg,setCancelReDlg]=useState(null);
+  const [cancelReqSess,setCancelReqSess]=useState(null); // 48h cancel request session
   const [homeToast,setHomeToast]=useState(null);
   const showHomeToast=(msg,ok=false)=>{setHomeToast({msg,ok});setTimeout(()=>setHomeToast(null),3500);};
 
@@ -773,6 +830,13 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
   };
 
   const cancelAndReschedule=(s)=>{
+    // Check if session is within 48 hours
+    const msToSession=sessionDT({session_date:s.session_date,start_time_min:s.start_time_min})-Date.now();
+    if(msToSession<48*3600000&&msToSession>0){
+      // Within 48h — show cancel request dialog instead
+      setCancelReqSess({bookingId:s._bookingId||null,date:s.session_date,startMin:s.start_time_min});
+      return;
+    }
     setCancelReDlg({
       msg:"Cancel this booking and go to schedule to rebook?",
       okLabel:"Cancel & Rebook",
@@ -1078,6 +1142,16 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
       </div>
       <UaToast toast={homeToast} c={C}/>
       <UaConfirm dialog={cancelReDlg} setDialog={setCancelReDlg} c={C}/>
+      {cancelReqSess&&(
+        <CancelRequestSheet
+          bookDate={cancelReqSess.date}
+          startMin={cancelReqSess.startMin}
+          bookingId={cancelReqSess.bookingId}
+          userId={userId}
+          token={token}
+          onClose={()=>setCancelReqSess(null)}
+        />
+      )}
     </div>
   );
 };
@@ -1102,7 +1176,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
   const [pickM,setPickM]=useState(0);
   const [reqSent,setReqSent]=useState(false);
   const [reqSending,setReqSending]=useState(false);
-  const [cancelBlockedMsg,setCancelBlockedMsg]=useState(false);
+  const [cancelReqSlot,setCancelReqSlot]=useState(null); // {bookingId,date,startMin}
   const [activePeriod,setActivePeriod]=useState(null);
   const spw=pkg?.sessions_per_week||3;
 
@@ -1178,7 +1252,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
     if(already){
       const msToSession=sessionDT({session_date:selDay.iso,start_time_min:slot.start_time_min})-Date.now();
       if(msToSession<48*3600000){
-        setCancelBlockedMsg(true); setTimeout(()=>setCancelBlockedMsg(false),4000);
+        setCancelReqSlot({bookingId:already.id,date:selDay.iso,startMin:slot.start_time_min});
         return;
       }
       await cancelBook(already.id,token).catch(()=>{});
@@ -1317,10 +1391,15 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
           <div style={{color:C.amber,fontWeight:700,fontSize:14}}>Week quota reached — rest up! Contact trainer for extras.</div>
         </div>
       )}
-      {cancelBlockedMsg&&(
-        <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.pink}66`,borderRadius:14,padding:"14px 16px",zIndex:200,textAlign:"center"}}>
-          <div style={{color:C.pink,fontWeight:700,fontSize:14}}>Cancellation not allowed within 48 hours. Please contact your trainer.</div>
-        </div>
+      {cancelReqSlot&&(
+        <CancelRequestSheet
+          bookDate={cancelReqSlot.date}
+          startMin={cancelReqSlot.startMin}
+          bookingId={cancelReqSlot.bookingId}
+          userId={userId}
+          token={token}
+          onClose={()=>setCancelReqSlot(null)}
+        />
       )}
       {toast&&(
         <div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.pink}66`,borderRadius:14,padding:"16px",zIndex:200}}>
