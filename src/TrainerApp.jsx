@@ -1274,6 +1274,8 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         const newUsed=(cl._pkg.sessions_used||0)+1;
         await dbPatch("packages",`id=eq.${cl._pkg.id}`,{sessions_used:newUsed},token).catch(()=>{});
       }
+      const notifMsg=`📅 Your trainer scheduled a session for you on ${fmtDate(selDay.iso)} at ${toTime(forceLogSlot.start_time_min)}.`;
+      await postNotification({client_id:cl.id,type:"session_scheduled",message:notifMsg},token).catch(()=>{});
       showToast(`✓ Session logged for ${cl.name||"client"}`,true);
       setForceLogSlot(null); setForceLogClientId(""); setForceLogSearch("");
     }catch(e){ showToast("Error: "+e.message); }

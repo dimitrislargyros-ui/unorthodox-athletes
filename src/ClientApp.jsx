@@ -1236,8 +1236,34 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
                 );
               })
             :loading?<Spinner/>
-            :visibleSlots.length===0?<Empty msg="No slots available for this day. Contact your trainer."/>
-            :visibleSlots.map(s=><SlotCard key={s.id} slot={s}/>)
+            :(()=>{
+              // Trainer-scheduled sessions for this day (logged directly, not via bookings)
+              const trainerSched=sessions.filter(s=>
+                s.session_date===selDay.iso&&
+                (s.status==="booked"||s.status==="completed")&&
+                !myBooks.some(b=>b.slot_id===s.slot_id)
+              );
+              const dn=trainerSched.length>0?computeDayNum(trainerSched[0],sessions,spw):null;
+              return(<>
+                {trainerSched.map((s,i)=>(
+                  <div key={i} style={{background:C.pink+"18",border:`1px solid ${C.pink}44`,borderRadius:12,padding:"14px 16px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12}}>
+                      <div style={{width:36,height:36,borderRadius:10,background:C.pink+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🏋️</div>
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                          <span style={{color:C.white,fontSize:14,fontWeight:700}}>{sessLabel(pkg?.workout_templates?.name)}</span>
+                          {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                        </div>
+                        <div style={{color:C.muted,fontSize:12}}>{toTime(s.start_time_min)} · Scheduled by trainer</div>
+                      </div>
+                    </div>
+                    <span style={{color:C.pink,fontSize:11,fontWeight:800}}>Booked ✓</span>
+                  </div>
+                ))}
+                {visibleSlots.length===0&&trainerSched.length===0&&<Empty msg="No slots available for this day. Contact your trainer."/>}
+                {visibleSlots.map(s=><SlotCard key={s.id} slot={s}/>)}
+              </>);
+            })()
         }
 
         {!isSun&&!isPastDay&&(
