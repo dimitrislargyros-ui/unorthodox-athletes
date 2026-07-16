@@ -935,6 +935,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
   const [reqSent,setReqSent]=useState(false);
   const [reqSending,setReqSending]=useState(false);
   const [cancelBlockedMsg,setCancelBlockedMsg]=useState(false);
+  const [activePeriod,setActivePeriod]=useState(null);
   const spw=pkg?.sessions_per_week||3;
 
   const weekDates=Array.from({length:7},(_,i)=>{
@@ -965,6 +966,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
     const ws=WDATES_BASE[0].iso,we=WDATES_BASE[5].iso;
     dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,token)
       .then(r=>setMyWeekBookDates(new Set((r||[]).map(b=>b.book_date)))).catch(()=>{});
+    getActivePeriodForToday(token).then(p=>setActivePeriod(p||null)).catch(()=>{});
   },[]);
 
   useEffect(()=>{
@@ -1166,6 +1168,17 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
         <div style={{color:C.muted,fontSize:13,marginTop:2}}>Personal training · 90 min · Max {GYM_CAP} in gym</div>
         {pkg?.workout_templates?.name&&<div style={{color:C.cyan,fontSize:13,fontWeight:700,marginTop:6}}>🏋️ Program: {pkg.workout_templates.name}</div>}
       </div>
+      {activePeriod&&(
+        <div style={{padding:"0 20px 10px"}}>
+          <div style={{background:C.cyan+"18",border:`1px solid ${C.cyan}44`,borderRadius:10,padding:"9px 14px",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:14}}>📅</span>
+            <div>
+              <div style={{color:C.cyan,fontSize:12,fontWeight:800}}>Current Period: {activePeriod.name}</div>
+              <div style={{color:C.muted,fontSize:11,marginTop:1}}>{fmtDate(activePeriod.start_date)} – {fmtDate(activePeriod.end_date)}</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!pkg
         ?<div style={{padding:"0 20px"}}>

@@ -109,6 +109,8 @@ const getPeriodSlots     = (periodId,tk)    => dbGet("period_slots",`period_id=e
 const getAllSlotsForDay  = (dow,tk)         => dbGet("schedule_slots",`day_of_week=eq.${dow}&order=start_time_min.asc`,tk);
 const addPeriodSlot      = (d,tk)           => dbPost("period_slots",d,tk);
 const removePeriodSlotRow= (id,tk)          => dbDelete("period_slots",`id=eq.${id}`,tk);
+const getActivePeriodForToday=(tk)=>{ const t=todayISO(); return dbGet("schedule_periods",`start_date=lte.${t}&end_date=gte.${t}&order=start_date.desc&limit=1`,tk).then(r=>r?.[0]||null); };
+const activatePeriodNow=(id,start,end,tk)=>{ const t=todayISO(); return dbPatch("schedule_periods",`id=eq.${id}`,{start_date:start>t?t:start,end_date:end<t?new Date(new Date().getTime()+30*864e5).toISOString().split("T")[0]:end},tk); };
 
 // ── Workout templates (Programs) ──
 const getTemplates   = (trainerId,tk)    => dbGet("workout_templates",`trainer_id=eq.${trainerId}&order=name.asc`,tk);
@@ -1193,6 +1195,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
 
   const [periods,setPeriods]=useState([]);
   const [periodsLoaded,setPeriodsLoaded]=useState(false);
+  const [activePeriod,setActivePeriod]=useState(null);
   const [showNewPeriod,setShowNewPeriod]=useState(false);
   const [periodName,setPeriodName]=useState("");
   const [periodStart,setPeriodStart]=useState(todayISO());
@@ -1207,7 +1210,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
 
   useEffect(()=>{
     getPendingRequests(token).then(r=>{ const reqs=r||[]; setPendingReqs(reqs); setReqsLoaded(true); onPendingChange?.(reqs.length); }).catch(()=>setReqsLoaded(true));
-    getAllPeriods(token).then(r=>setPeriods(r||[])).catch(()=>{}).finally(()=>setPeriodsLoaded(true));
+    getAllPeriods(token).then(r=>{ const all=r||[]; setPeriods(all); const today=todayISO(); const active=all.find(p=>today>=p.start_date&&today<=p.end_date)||null; setActivePeriod(active); }).catch(()=>{}).finally(()=>setPeriodsLoaded(true));
   },[]);
 
   useEffect(()=>{
@@ -1217,7 +1220,19 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
 
   const reloadDay=()=>{
     if(isSun) return; setLoad(true);
-    return Promise.all([getSlots(selDay.dow,token),getDayBookings(selDay.iso,token)])
+    const getSlotsForDay=async()=>{
+      const ap=await getActivePeriodForToday(token).catch(()=>null);
+      setActivePeriod(ap||null);
+      if(!ap) return getSlots(selDay.dow,token);
+      const [pslots,allS]=await Promise.all([
+        dbGet("period_slots",`period_id=eq.${ap.id}&day_of_week=eq.${selDay.dow}`,token),
+        getAllSlotsForDay(selDay.dow,token),
+      ]);
+      const times=new Set((pslots||[]).map(p=>p.start_time_min));
+      if(times.size===0) return getSlots(selDay.dow,token);
+      return (allS||[]).filter(s=>times.has(s.start_time_min)).sort((a,b)=>a.start_time_min-b.start_time_min);
+    };
+    return Promise.all([getSlotsForDay(),getDayBookings(selDay.iso,token)])
       .then(([sl,bks])=>{
         setSlots(sl||[]);
         const m={};
@@ -1316,12 +1331,42 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
     }});
   };
 
-  const handleCreatePeriod=async()=>{
+  const handleCreatePeriod=()=>{
     if(!periodName.trim()||!periodStart||!periodEnd) return;
+    setConf({msg:`Create period "${periodName.trim()}" (${fmtDate(periodStart)} – ${fmtDate(periodEnd)})?\n\nAll clients will be notified of the schedule change.`,okLabel:"Create & Notify",onOk:async()=>{
+      try{
+        const res=await createPeriod({trainer_id:trainerId,name:periodName.trim(),start_date:periodStart,end_date:periodEnd},token);
+        const created=Array.isArray(res)?res[0]:res;
+        if(created){
+          setPeriods(p=>[created,...p]);
+          setPeriodName(""); setShowNewPeriod(false);
+          const today=todayISO();
+          if(today>=created.start_date&&today<=created.end_date) setActivePeriod(created);
+          const body=`📅 Schedule Update — "${created.name}" (${fmtDate(created.start_date)} – ${fmtDate(created.end_date)}). Check your schedule for updated time slots!`;
+          await postAnnouncement({title:"Schedule Period Updated",body},token).catch(()=>{});
+          const allC=await getClients(token).catch(()=>[]);
+          await Promise.allSettled((allC||[]).map(c=>postNotification({client_id:c.id,type:"schedule_update",message:body},token)));
+          showToast("Period created! All clients notified.",true);
+        }
+      }catch(e){ showToast("Error: "+e.message); }
+    }});
+  };
+
+  const handleActivatePeriod=async(period)=>{
     try{
-      const res=await createPeriod({trainer_id:trainerId,name:periodName.trim(),start_date:periodStart,end_date:periodEnd},token);
-      const created=Array.isArray(res)?res[0]:res;
-      if(created){ setPeriods(p=>[created,...p]); setPeriodName(""); setShowNewPeriod(false); }
+      const today=todayISO();
+      const newStart=period.start_date>today?today:period.start_date;
+      const newEnd=period.end_date<today?new Date(Date.now()+30*86400000).toISOString().split("T")[0]:period.end_date;
+      await dbPatch("schedule_periods",`id=eq.${period.id}`,{start_date:newStart,end_date:newEnd},token);
+      const updated={...period,start_date:newStart,end_date:newEnd};
+      setPeriods(p=>p.map(x=>x.id===period.id?updated:x));
+      setActivePeriod(updated);
+      const body=`📅 Schedule Update — "${updated.name}" is now the current schedule period (${fmtDate(updated.start_date)} – ${fmtDate(updated.end_date)}). Check your schedule!`;
+      await postAnnouncement({title:"Schedule Period Updated",body},token).catch(()=>{});
+      const allC=await getClients(token).catch(()=>[]);
+      await Promise.allSettled((allC||[]).map(c=>postNotification({client_id:c.id,type:"schedule_update",message:body},token)));
+      showToast("Period activated! All clients notified.",true);
+      reloadDay();
     }catch(e){ showToast("Error: "+e.message); }
   };
 
@@ -1389,6 +1434,18 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       <div style={{padding:"22px 20px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Schedule</div><div style={{color:C.muted,fontSize:13,marginTop:2}}>Manage slots · Max {GYM_CAP} per slot</div></div>
         <Logo size={48}/>
+      </div>
+      <div style={{padding:"0 20px 10px"}}>
+        <div style={{background:activePeriod?C.cyan+"18":C.surface2,border:`1px solid ${activePeriod?C.cyan+"44":C.border}`,borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:15}}>📅</span>
+            <div>
+              <div style={{color:activePeriod?C.cyan:C.muted,fontSize:12,fontWeight:800}}>{activePeriod?`Current Period: ${activePeriod.name}`:"Standard Schedule — no active period"}</div>
+              {activePeriod&&<div style={{color:C.muted,fontSize:11,marginTop:1}}>{fmtDate(activePeriod.start_date)} – {fmtDate(activePeriod.end_date)}</div>}
+            </div>
+          </div>
+          {activePeriod&&<button onClick={()=>{ setActivePeriod(null); reloadDay(); }} style={{background:"none",border:"none",color:C.muted,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"2px 6px",borderRadius:4,whiteSpace:"nowrap"}}>← Standard</button>}
+        </div>
       </div>
 
       {/* Pending custom time requests */}
@@ -1522,19 +1579,31 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
             <GBtn label="Create Period" onClick={handleCreatePeriod} style={{width:"100%"}}/>
           </Card>
         )}
-        {periodsLoaded&&periods.length===0&&<Empty msg="No schedule periods — default slots apply"/>}
+        {/* Standard period card */}
+        <Card glow={!activePeriod?C.cyan:null} style={{marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{color:C.white,fontSize:14,fontWeight:700}}>Standard Schedule {!activePeriod&&<span style={{color:C.cyan,fontSize:11,fontWeight:800}}>· Current</span>}</div>
+              <div style={{color:C.muted,fontSize:12,marginTop:2}}>Default base time slots — always available</div>
+            </div>
+            {activePeriod&&<button onClick={()=>{ setActivePeriod(null); reloadDay(); }} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Set as Current</button>}
+          </div>
+        </Card>
+        {periodsLoaded&&periods.length===0&&<Empty msg="No custom periods yet"/>}
         {periods.map(period=>{
           const isExpanded=expandedPeriod===period.id;
-          const isActiveNow=todayStr>=period.start_date&&todayStr<=period.end_date;
+          const isActiveNow=activePeriod?.id===period.id;
+          const isCurrent=activePeriod?.id===period.id;
           const daySlotIds=new Set((periodSlotsMap[period.id]||[]).filter(ps=>ps.day_of_week===periodDayIdx).map(ps=>ps.start_time_min));
           return(
-            <Card key={period.id} glow={isActiveNow?C.cyan:null} style={{marginBottom:10}}>
+            <Card key={period.id} glow={isCurrent?C.cyan:null} style={{marginBottom:10}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
-                  <div style={{color:C.white,fontSize:14,fontWeight:700}}>{period.name} {isActiveNow&&<span style={{color:C.cyan,fontSize:11,fontWeight:800}}>· Active</span>}</div>
+                  <div style={{color:C.white,fontSize:14,fontWeight:700}}>{period.name} {isCurrent&&<span style={{color:C.cyan,fontSize:11,fontWeight:800}}>· Current</span>}</div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{fmtDate(period.start_date)} → {fmtDate(period.end_date)}</div>
                 </div>
                 <div style={{display:"flex",gap:6,flexShrink:0}}>
+                  {!isCurrent&&<button onClick={()=>handleActivatePeriod(period)} style={{background:C.cyan+"22",border:`1px solid ${C.cyan}44`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>▶ Activate</button>}
                   <button onClick={()=>toggleExpandPeriod(period)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{isExpanded?"▲ Hide":"Manage slots"}</button>
                   <button onClick={()=>handleDeletePeriod(period.id)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
                 </div>
