@@ -1206,6 +1206,11 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const [periodDaySlots,setPeriodDaySlots]=useState([]);
   const [periodPickH,setPeriodPickH]=useState(null);
   const [periodPickM,setPeriodPickM]=useState(0);
+  const [stdExpanded,setStdExpanded]=useState(false);
+  const [stdDayIdx,setStdDayIdx]=useState(todayDow());
+  const [stdDaySlots,setStdDaySlots]=useState([]);
+  const [stdPickH,setStdPickH]=useState(null);
+  const [stdPickM,setStdPickM]=useState(0);
   const todayStr=todayISO();
 
   useEffect(()=>{
@@ -1217,6 +1222,11 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
     if(!expandedPeriod) return;
     getAllSlotsForDay(periodDayIdx,token).then(r=>setPeriodDaySlots(r||[])).catch(()=>setPeriodDaySlots([]));
   },[expandedPeriod,periodDayIdx]);
+
+  useEffect(()=>{
+    if(!stdExpanded) return;
+    getAllSlotsForDay(stdDayIdx,token).then(r=>setStdDaySlots(r||[])).catch(()=>setStdDaySlots([]));
+  },[stdExpanded,stdDayIdx]);
 
   const reloadDay=()=>{
     if(isSun) return; setLoad(true);
@@ -1580,15 +1590,66 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
           </Card>
         )}
         {/* Standard period card */}
-        <Card glow={!activePeriod?C.cyan:null} style={{marginBottom:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div>
-              <div style={{color:C.white,fontSize:14,fontWeight:700}}>Standard Schedule {!activePeriod&&<span style={{color:C.cyan,fontSize:11,fontWeight:800}}>· Current</span>}</div>
-              <div style={{color:C.muted,fontSize:12,marginTop:2}}>Default base time slots — always available</div>
+        {(()=>{
+          const stdPickStart=stdPickH!=null?stdPickH*60+stdPickM:null;
+          const stdConflict=stdPickStart!=null&&stdDaySlots.find(s=>s.start_time_min===stdPickStart&&s.is_active);
+          const handleStdRemove=async(slot)=>{
+            try{ await removeSlot(slot.id,token); setStdDaySlots(p=>p.filter(s=>s.id!==slot.id)); if(!activePeriod) reloadDay(); showToast("Slot removed.",true); }
+            catch(e){ showToast("Error: "+e.message); }
+          };
+          const handleStdAdd=async()=>{
+            if(!stdPickStart||stdConflict) return;
+            try{
+              const res=await addSlot({trainer_id:trainerId,day_of_week:stdDayIdx,start_time_min:stdPickStart},token);
+              const c=Array.isArray(res)?res[0]:res;
+              if(c){ setStdDaySlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min)); if(!activePeriod) reloadDay(); }
+              setStdPickH(null); setStdPickM(0);
+            }catch(e){ showToast("Error: "+e.message); }
+          };
+          return(
+          <Card glow={!activePeriod?C.cyan:null} style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{color:C.white,fontSize:14,fontWeight:700}}>Standard Schedule {!activePeriod&&<span style={{color:C.cyan,fontSize:11,fontWeight:800}}>· Current</span>}</div>
+                <div style={{color:C.muted,fontSize:12,marginTop:2}}>Default base time slots</div>
+              </div>
+              <div style={{display:"flex",gap:6,flexShrink:0}}>
+                {activePeriod&&<button onClick={()=>{ setActivePeriod(null); reloadDay(); }} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Set as Current</button>}
+                <button onClick={()=>setStdExpanded(p=>!p)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{stdExpanded?"▲ Hide":"Manage slots"}</button>
+              </div>
             </div>
-            {activePeriod&&<button onClick={()=>{ setActivePeriod(null); reloadDay(); }} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Set as Current</button>}
-          </div>
-        </Card>
+            {stdExpanded&&(
+              <div style={{marginTop:14}}>
+                <div style={{display:"flex",gap:4,marginBottom:10}}>
+                  {WDAYS.slice(0,6).map((d,i)=>(
+                    <button key={i} onClick={()=>setStdDayIdx(i)} style={{flex:1,padding:"7px 2px",borderRadius:8,border:"none",cursor:"pointer",background:stdDayIdx===i?C.cyan:C.surface2,color:stdDayIdx===i?C.bg:C.muted,fontSize:11,fontWeight:800}}>{d}</button>
+                  ))}
+                </div>
+                {stdDaySlots.filter(s=>s.is_active).length===0
+                  ?<Empty msg="No active slots for this day"/>
+                  :<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+                    {stdDaySlots.filter(s=>s.is_active).map(s=>(
+                      <div key={s.id} style={{display:"flex",alignItems:"center",gap:4,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px"}}>
+                        <span style={{color:C.white,fontSize:12,fontWeight:700}}>{toTime(s.start_time_min)}</span>
+                        <button onClick={()=>setConf({msg:`Remove ${toSlot(s.start_time_min)} from Standard Schedule? Existing bookings are not deleted.`,okLabel:"Remove",onOk:()=>handleStdRemove(s)})} style={{background:"none",border:"none",color:C.pink,fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,fontFamily:"inherit"}}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                }
+                <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:8}}>Add a slot for this day</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+                  {HOURS.map(h=><button key={h} onClick={()=>setStdPickH(stdPickH===h?null:h)} style={{background:stdPickH===h?C.pink+"33":C.surface2,border:`1px solid ${stdPickH===h?C.pink:C.border}`,borderRadius:7,padding:"6px 9px",color:stdPickH===h?C.pink:C.muted,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",minWidth:38,textAlign:"center"}}>{h<12?`${h}am`:h===12?"12pm":`${h-12}pm`}</button>)}
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:10}}>
+                  {[0,30].map(m=><button key={m} onClick={()=>setStdPickM(m)} style={{flex:1,background:stdPickM===m?C.cyan+"33":C.surface2,border:`1px solid ${stdPickM===m?C.cyan:C.border}`,borderRadius:7,padding:"7px",color:stdPickM===m?C.cyan:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>:{m===0?"00":"30"}</button>)}
+                </div>
+                {stdPickStart!=null&&<div style={{background:C.surface,borderRadius:8,padding:"8px",textAlign:"center",marginBottom:8}}><div style={{color:stdConflict?C.amber:C.white,fontSize:13,fontWeight:700}}>{stdConflict?"⚠️ Slot already exists":`📅 ${toSlot(stdPickStart)}`}</div></div>}
+                <GBtn sm label={stdPickStart&&!stdConflict?`+ Add ${toSlot(stdPickStart)}`:"Pick a time above"} onClick={handleStdAdd} disabled={!stdPickStart||!!stdConflict} style={{width:"100%"}}/>
+              </div>
+            )}
+          </Card>
+          );
+        })()}
         {periodsLoaded&&periods.length===0&&<Empty msg="No custom periods yet"/>}
         {periods.map(period=>{
           const isExpanded=expandedPeriod===period.id;
