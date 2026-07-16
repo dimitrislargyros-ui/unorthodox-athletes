@@ -127,7 +127,19 @@ const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${ui
 const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max(newUsed,0)},tk);
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
 const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
-const postNotification   = (d,tk)   => dbPost("notifications",d,tk);
+const VAPID_PUBLIC_KEY   = '0po93KkjqkM-PtBCBUeEAAbFCDKNWk1wUga7o3nxaBkbTnL1RMbinAUgy7_3INryEyOGq3JSYm8T_ziMBKZW7Q';
+const savePushSub = (client_id,subscription,tk) => dbPost("push_subscriptions",{client_id,subscription},tk);
+const postNotification = async (d,tk) => {
+  await dbPost("notifications",d,tk);
+  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id})}).catch(()=>{});
+};
+
+// Converts VAPID public key from base64url to Uint8Array for PushManager
+function urlBase64ToUint8Array(b64url){
+  const pad=b64url+'='.repeat((4-b64url.length%4)%4);
+  const raw=atob(pad.replace(/-/g,'+').replace(/_/g,'/'));
+  return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));
+}
 
 // ── Time utils ──
 const toTime = (min) => {
@@ -1721,9 +1733,28 @@ export default function App(){
       const seen=localStorage.getItem(seenKey);
       if(!seen){ if(latest) localStorage.setItem(seenKey,latest); setHasNewAnn(false); }
       else setHasNewAnn(!!latest&&latest>seen);
+      // Register service worker + subscribe to push notifications
+      registerPush(userId,token).catch(()=>{});
     }catch(e){
       setAuth(prev=>({...prev,loading:false}));
     }
+  };
+
+  const registerPush=async(userId,token)=>{
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)) return;
+    try{
+      const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+      const perm=await Notification.requestPermission();
+      if(perm!=='granted') return;
+      const existing=await reg.pushManager.getSubscription();
+      const sub=existing||await reg.pushManager.subscribe({
+        userVisibleOnly:true,
+        applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+      if(sub){
+        savePushSub(userId,sub.toJSON(),token).catch(()=>{});
+      }
+    }catch(e){}
   };
 
   const markAnnouncementsSeen=()=>{

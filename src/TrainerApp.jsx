@@ -99,7 +99,10 @@ const createBooking       = (d,tk)              => dbPost("bookings",d,tk);
 const cancelBookingRow    = (id,tk)              => dbPatch("bookings",`id=eq.${id}`,{status:"cancelled"},tk);
 const cancelSessionRow    = (id,tk)              => dbPatch("sessions",`id=eq.${id}`,{status:"cancelled"},tk);
 const decrementPkgUsed    = (pkgId,currentUsed,tk)=> dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max((currentUsed||0)-1,0)},tk);
-const postNotification    = (d,tk)              => dbPost("notifications",d,tk);
+const postNotification = async (d,tk) => {
+  await dbPost("notifications",d,tk);
+  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id})}).catch(()=>{});
+};
 
 // ── Schedule periods ──
 const getAllPeriods      = (tk)             => dbGet("schedule_periods","order=start_date.desc",tk);
