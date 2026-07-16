@@ -1256,6 +1256,28 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const selectedStart=pickH!=null?pickH*60+pickM:null;
   const conflict=selectedStart!=null&&slots.find(s=>s.start_time_min===selectedStart);
 
+  // Force-log: trainer can add a client to any slot regardless of capacity
+  const [forceLogSlot,setForceLogSlot]=useState(null); // slot object or {start_time_min} for date+time
+  const [forceLogClientId,setForceLogClientId]=useState("");
+  const [forceLogging,setForceLogging]=useState(false);
+  const handleForceLog=async()=>{
+    if(!forceLogSlot||!forceLogClientId||forceLogging) return;
+    const cl=clients.find(c=>c.id===forceLogClientId);
+    if(!cl) return;
+    setForceLogging(true);
+    try{
+      const dayNum=await calcDayNum(cl.id,selDay.iso,token,cl._pkg?.sessions_per_week||3).catch(()=>null);
+      await createSession({client_id:cl.id,trainer_id:trainerId,session_date:selDay.iso,start_time_min:forceLogSlot.start_time_min,day_num:dayNum,status:"completed"},token);
+      if(cl._pkg){
+        const newUsed=(cl._pkg.sessions_used||0)+1;
+        await dbPatch("packages",`id=eq.${cl._pkg.id}`,{sessions_used:newUsed},token).catch(()=>{});
+      }
+      showToast(`✓ Session logged for ${cl.name||"client"}`,true);
+      setForceLogSlot(null); setForceLogClientId("");
+    }catch(e){ showToast("Error: "+e.message); }
+    setForceLogging(false);
+  };
+
   const handleAdd=async()=>{
     if(!selectedStart||conflict) return;
     try{
@@ -1518,10 +1540,14 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
               const cnt=slotBks.length+overlapBks.length;
               const pct=Math.min((cnt/GYM_CAP)*100,100);
               const barCol=pct>=100?C.pink:pct>=75?C.amber:C.cyan;
+              const isForceOpen=forceLogSlot?.id===slot.id;
               return(<Card key={i} style={{marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                   <div><div style={{color:C.white,fontSize:15,fontWeight:800}}>{toSlot(slot.start_time_min)}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{cnt}/{GYM_CAP} booked{overlapBks.length>0&&<span style={{color:C.amber,fontSize:10,marginLeft:5}}>+{overlapBks.length} custom</span>}</div></div>
-                  <button onClick={()=>setConf(slot)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.pink,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Remove</button>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button onClick={()=>{ setForceLogSlot(isForceOpen?null:slot); setForceLogClientId(""); }} style={{background:isForceOpen?C.amber+"33":C.surface2,border:`1px solid ${isForceOpen?C.amber+"66":C.border}`,borderRadius:8,padding:"6px 10px",color:isForceOpen?C.amber:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}} title="Force-log extra client (trainer only, not visible to clients)">+ Log</button>
+                    <button onClick={()=>setConf(slot)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.pink,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Remove</button>
+                  </div>
                 </div>
                 {(slotBks.length>0||overlapBks.length>0)&&(
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
@@ -1551,8 +1577,18 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
                 )}
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <div style={{flex:1,height:6,background:C.surface2,borderRadius:3}}><div style={{width:`${pct}%`,height:"100%",borderRadius:3,background:barCol}}/></div>
-                  <span style={{color:C.muted,fontSize:11,fontWeight:700,minWidth:50,textAlign:"right"}}>{GYM_CAP-cnt} free</span>
+                  <span style={{color:C.muted,fontSize:11,fontWeight:700,minWidth:50,textAlign:"right"}}>{cnt>=GYM_CAP?"Full":GYM_CAP-cnt+" free"}</span>
                 </div>
+                {isForceOpen&&(
+                  <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+                    <div style={{color:C.amber,fontSize:11,fontWeight:700,marginBottom:8}}>🔒 Trainer-only log — not visible to clients</div>
+                    <select value={forceLogClientId} onChange={e=>setForceLogClientId(e.target.value)} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:forceLogClientId?C.white:C.muted,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}>
+                      <option value="">Select client…</option>
+                      {clients.filter(c=>c._pkg).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    <GBtn sm label={forceLogging?"Logging…":"Log Session"} onClick={handleForceLog} disabled={!forceLogClientId||forceLogging} style={{width:"100%"}} color={C.amber}/>
+                  </div>
+                )}
               </Card>);
             })
           }
