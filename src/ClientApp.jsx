@@ -130,6 +130,12 @@ const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{re
 const VAPID_PUBLIC_KEY   = 'BNKaPdypI6pDPj7QQgVHhAAGxQgyjVpNcFIGu6N58WgZG05y9UTG4pwFIMu_9yDa8hMjhqtyUmJvE_84jASmVu0';
 // Use raw fetch for push subscription save — avoids the sb() auto-reload on 4xx errors
 const savePushSub = async (client_id, subscription, tk) => {
+  // Skip if this exact endpoint was already saved — prevents duplicate rows on every page load
+  const cacheKey = `ua_push_ep_${client_id}`;
+  if (localStorage.getItem(cacheKey) === subscription.endpoint) {
+    console.log('[UA Push] Subscription unchanged, skipping save');
+    return;
+  }
   const res = await fetch(`${SB_URL}/rest/v1/push_subscriptions`, {
     method: 'POST',
     headers: {
@@ -145,6 +151,7 @@ const savePushSub = async (client_id, subscription, tk) => {
     console.error('[UA Push] Failed to save subscription:', res.status, err);
   } else {
     console.log('[UA Push] Subscription saved to DB ✓');
+    localStorage.setItem(cacheKey, subscription.endpoint);
   }
 };
 const postNotification = async (d,tk) => {

@@ -100,8 +100,10 @@ const cancelBookingRow    = (id,tk)              => dbPatch("bookings",`id=eq.${
 const cancelSessionRow    = (id,tk)              => dbPatch("sessions",`id=eq.${id}`,{status:"cancelled"},tk);
 const decrementPkgUsed    = (pkgId,currentUsed,tk)=> dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max((currentUsed||0)-1,0)},tk);
 const postNotification = async (d,tk) => {
-  await dbPost("notifications",d,tk);
-  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id})}).catch(()=>{});
+  // Send push first — fire and forget, include message so notification shows text
+  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message})}).catch(()=>{});
+  // Save to DB for in-app notification badge (may fail due to RLS — non-blocking)
+  await dbPost("notifications",d,tk).catch(()=>{});
 };
 
 // ── Schedule periods ──
