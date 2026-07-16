@@ -1001,12 +1001,9 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
         </div>
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
           <Logo size={52}/>
-          <button onClick={onOpenNotif} style={{display:"flex",alignItems:"center",gap:4,background:notifCount>0?C.pink+"22":"rgba(255,255,255,0.05)",border:`1px solid ${notifCount>0?C.pink+"55":"rgba(255,255,255,0.08)"}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",transition:"all .2s",position:"relative"}}>
-            <svg width={12} height={12} viewBox="0 0 24 24" fill={notifCount>0?C.pink:C.muted}><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
-            {notifCount>0
-              ?<span style={{background:C.pink,color:"#fff",fontSize:9,fontWeight:900,padding:"1px 5px",borderRadius:10,lineHeight:1.4}}>{notifCount>9?"9+":notifCount}</span>
-              :<span style={{color:C.muted,fontSize:9,fontWeight:700,letterSpacing:.5}}>notif</span>
-            }
+          <button onClick={onOpenNotif} style={{position:"relative",background:"none",border:"none",padding:"4px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <svg width={22} height={22} viewBox="0 0 24 24" fill={notifCount>0?C.pink:C.muted}><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+            {notifCount>0&&<span style={{position:"absolute",top:-2,right:-2,background:C.pink,color:"#fff",fontSize:9,fontWeight:900,minWidth:16,height:16,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,padding:"0 3px",boxSizing:"border-box"}}>{notifCount>9?"9+":notifCount}</span>}
           </button>
         </div>
       </div>
