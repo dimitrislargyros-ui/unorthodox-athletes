@@ -128,10 +128,29 @@ const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkg
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
 const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
 const VAPID_PUBLIC_KEY   = '0po93KkjqkM-PtBCBUeEAAbFCDKNWk1wUga7o3nxaBkbTnL1RMbinAUgy7_3INryEyOGq3JSYm8T_ziMBKZW7Q';
-const savePushSub = (client_id,subscription,tk) => dbPost("push_subscriptions",{client_id,subscription},tk);
+// Use raw fetch for push subscription save — avoids the sb() auto-reload on 4xx errors
+const savePushSub = async (client_id, subscription, tk) => {
+  const res = await fetch(`${SB_URL}/rest/v1/push_subscriptions`, {
+    method: 'POST',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': `Bearer ${tk||SB_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify({client_id, subscription}),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(()=>'');
+    console.error('[UA Push] Failed to save subscription:', res.status, err);
+  } else {
+    console.log('[UA Push] Subscription saved to DB ✓');
+  }
+};
 const postNotification = async (d,tk) => {
   await dbPost("notifications",d,tk);
-  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id})}).catch(()=>{});
+  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id})})
+    .then(r=>r.json()).then(j=>console.log('[UA Push] send-push result:',j)).catch(e=>console.error('[UA Push] send-push error:',e));
 };
 
 // Converts VAPID public key from base64url to Uint8Array for PushManager
@@ -756,11 +775,16 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
     try{
       const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
       const perm=await Notification.requestPermission();
+      console.log('[UA Push] Permission after request:',perm);
       if(perm==='granted'){
-        const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
-        if(sub) savePushSub(userId,sub.toJSON(),token).catch(()=>{});
+        const existing=await reg.pushManager.getSubscription();
+        const sub=existing||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+        if(sub){
+          console.log('[UA Push] Subscription:',sub.endpoint.slice(0,60)+'...');
+          await savePushSub(userId,sub.toJSON(),token);
+        }
       }
-    }catch(e){}
+    }catch(e){ console.error('[UA Push] enableNotifs error:',e); }
     setNotifDismissed(true);
   };
 
@@ -1794,20 +1818,26 @@ export default function App(){
   };
 
   const registerPush=async(userId,token)=>{
-    if(!('serviceWorker' in navigator)||!('PushManager' in window)) return;
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)){
+      console.log('[UA Push] SW or PushManager not supported');
+      return;
+    }
     try{
       const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
-      const perm=await Notification.requestPermission();
-      if(perm!=='granted') return;
+      console.log('[UA Push] SW registered');
+      const perm=Notification.permission;
+      console.log('[UA Push] Permission state:',perm);
+      if(perm!=='granted') return; // banner handles the actual request
       const existing=await reg.pushManager.getSubscription();
       const sub=existing||await reg.pushManager.subscribe({
         userVisibleOnly:true,
         applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
       });
       if(sub){
-        savePushSub(userId,sub.toJSON(),token).catch(()=>{});
+        console.log('[UA Push] Subscription obtained, saving...');
+        await savePushSub(userId,sub.toJSON(),token);
       }
-    }catch(e){}
+    }catch(e){ console.error('[UA Push] registerPush error:',e); }
   };
 
   const markAnnouncementsSeen=()=>{
