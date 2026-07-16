@@ -302,7 +302,46 @@ const computeStatusMap=(items,now)=>{
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
 };
-const BottomNav=({active,onNav,avatarUrl,initials,annBadge})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:"rgba(10,10,10,0.85)",backdropFilter:"blur(20px) saturate(180%)",WebkitBackdropFilter:"blur(20px) saturate(180%)",borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"home",l:"Home",i:"⊞"},{id:"schedule",l:"Schedule",i:"◫"},{id:"announcements",l:"Announcements",i:"◎"},{id:"profile",l:"Profile",i:"◯"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.cyan:C.muted,padding:"0 8px"}}>{t.id==="profile"?(avatarUrl?<img src={avatarUrl} style={{width:22,height:22,borderRadius:"50%",objectFit:"cover",border:`2px solid ${active==="profile"?C.cyan:"transparent"}`}} alt="av"/>:<div style={{width:22,height:22,borderRadius:"50%",background:active==="profile"?C.cyan+"33":C.surface2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:active==="profile"?C.cyan:C.muted}}>{initials||"◯"}</div>):<div style={{position:"relative",display:"inline-flex"}}><span style={{fontSize:18}}>{t.i}</span>{t.id==="announcements"&&annBadge&&<span style={{position:"absolute",top:-2,right:-4,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div>}<span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
+// ── SVG icon helpers for BottomNav ──
+const IcoHome=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H14v-5h-4v5H4a1 1 0 01-1-1V9.5z"/></svg>);
+const IcoCalendar=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>);
+const IcoMega=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 010 8"/><path d="M4.5 9H4a2 2 0 000 6h.5"/><path d="M4.5 9l9-5v14l-9-5V9z"/><path d="M7.5 9.5v5"/></svg>);
+const IcoPerson=({c,sz=22})=>(<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>);
+
+const BottomNav=({active,onNav,avatarUrl,initials,annBadge})=>{
+  const tabs=[
+    {id:"home",     label:"Home",          Icon:IcoHome},
+    {id:"schedule", label:"Schedule",      Icon:IcoCalendar},
+    {id:"announcements",label:"News",      Icon:IcoMega},
+    {id:"profile",  label:"Profile",       Icon:null},
+  ];
+  return(
+    <div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(8,8,8,0.92)",backdropFilter:"blur(24px) saturate(200%)",WebkitBackdropFilter:"blur(24px) saturate(200%)",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-around",alignItems:"flex-end",padding:"8px 0 max(env(safe-area-inset-bottom),20px)",zIndex:100}}>
+      {tabs.map(t=>{
+        const isActive=active===t.id;
+        const col=isActive?C.cyan:C.muted;
+        return(
+          <button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"2px 14px",position:"relative",transition:"transform .15s"}}>
+            <div style={{position:"relative",display:"flex",alignItems:"center",justifyContent:"center",width:40,height:32,borderRadius:12,background:isActive?C.cyan+"18":"transparent",transition:"background .2s"}}>
+              {t.id==="profile"
+                ?(avatarUrl
+                    ?<img src={avatarUrl} style={{width:26,height:26,borderRadius:"50%",objectFit:"cover",border:`2px solid ${isActive?C.cyan:"transparent"}`,transition:"border-color .2s"}} alt="av"/>
+                    :<IcoPerson c={col} sz={24}/>
+                  )
+                :<t.Icon c={col}/>
+              }
+              {t.id==="announcements"&&annBadge&&(
+                <span style={{position:"absolute",top:2,right:4,background:C.pink,borderRadius:"50%",width:7,height:7,display:"block",boxShadow:`0 0 0 2px ${C.bg}`}}/>
+              )}
+            </div>
+            <span style={{fontSize:9,fontWeight:isActive?800:600,color:col,letterSpacing:.4,textTransform:"uppercase",transition:"color .2s"}}>{t.label}</span>
+            {isActive&&<span style={{position:"absolute",bottom:-2,left:"50%",transform:"translateX(-50%)",width:20,height:2,background:C.cyan,borderRadius:2}}/>}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 // ── Session Sheet ──
 const SessionSheet=({session,token,onClose})=>{
@@ -634,7 +673,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
 };
 
 // ── Home ──
-const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUpdate})=>{
+const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUpdate,onOpenNotif,notifCount})=>{
   const [now,setNow]=useState(new Date());
   const [todaySlots,setTodaySlots]=useState([]);
   const [myTodayBook,setMyBook]=useState(null);
@@ -853,7 +892,16 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
           <div style={{color:C.white,fontSize:20,fontWeight:800,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5}}>{(()=>{const lz=s=>{const G={'α':'a','β':'v','γ':'g','δ':'d','ε':'e','ζ':'z','η':'i','θ':'th','ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p','ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'f','χ':'ch','ψ':'ps','ω':'o','ά':'a','έ':'e','ή':'i','ί':'i','ό':'o','ύ':'y','ώ':'o','ϊ':'i','ΐ':'i','ϋ':'y','ΰ':'y'};let r='';for(const c of s.toLowerCase()){r+=G[c]||(c.normalize('NFD').replace(/[̀-ͯ]/g,'')||c);}return r.replace(/[^a-z]/g,'');};const u=profile?.username||"";if(u&&u.includes("."))return u;const n=(profile?.name||"").trim();if(!n)return u||"athlete";const parts=n.split(" ").filter(Boolean);if(parts.length>=2)return`${lz(parts[0])}.${lz(parts.slice(1).join(""))}`;return u||lz(parts[0])||"athlete";})()}</div>
           <div style={{color:C.cyan,fontSize:14,fontWeight:700,marginTop:4}}>{dateStr}</div>
         </div>
-        <Logo size={64}/>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+          <Logo size={52}/>
+          <button onClick={onOpenNotif} style={{display:"flex",alignItems:"center",gap:4,background:notifCount>0?C.pink+"22":"rgba(255,255,255,0.05)",border:`1px solid ${notifCount>0?C.pink+"55":"rgba(255,255,255,0.08)"}`,borderRadius:20,padding:"4px 10px",cursor:"pointer",transition:"all .2s",position:"relative"}}>
+            <svg width={12} height={12} viewBox="0 0 24 24" fill={notifCount>0?C.pink:C.muted}><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+            {notifCount>0
+              ?<span style={{background:C.pink,color:"#fff",fontSize:9,fontWeight:900,padding:"1px 5px",borderRadius:10,lineHeight:1.4}}>{notifCount>9?"9+":notifCount}</span>
+              :<span style={{color:C.muted,fontSize:9,fontWeight:700,letterSpacing:.5}}>notif</span>
+            }
+          </button>
+        </div>
       </div>
 
       {/* No-package warning */}
@@ -1890,6 +1938,36 @@ export default function App(){
     try{ await deleteNotification(id,auth.token); }catch(e){}
   };
 
+  // Refetch notifications when app comes back to foreground (user returns after receiving a push)
+  useEffect(()=>{
+    const refetch=async()=>{
+      if(!auth.userId||!auth.token) return;
+      const notifs=await getMyNotifications(auth.userId,auth.token).catch(()=>null);
+      if(notifs) setNotifications(notifs);
+    };
+    const onVisible=()=>{ if(document.visibilityState==="visible") refetch(); };
+    document.addEventListener("visibilitychange",onVisible);
+    return ()=>document.removeEventListener("visibilitychange",onVisible);
+  },[auth.userId,auth.token]);
+
+  // Listen for real-time push data from service worker (app open when push arrives)
+  useEffect(()=>{
+    if(!('serviceWorker' in navigator)) return;
+    const handler=(e)=>{
+      if(e.data?.type==='UA_PUSH'&&e.data?.body&&auth.userId){
+        // Add a synthetic notification entry so the badge lights up immediately
+        const synthetic={id:`sw_${Date.now()}`,message:e.data.body,type:e.data.tag||'push',created_at:new Date().toISOString(),_synthetic:true};
+        setNotifications(p=>{
+          // Avoid duplicates if DB also returned the same message
+          if(p.some(n=>n.message===synthetic.message)) return p;
+          return [synthetic,...p];
+        });
+      }
+    };
+    navigator.serviceWorker.addEventListener('message',handler);
+    return ()=>navigator.serviceWorker.removeEventListener('message',handler);
+  },[auth.userId]);
+
   const handleSignUp=async(firstName,lastName,email,pw,phone=null)=>{
     const latinize=s=>{const G={'α':'a','β':'v','γ':'g','δ':'d','ε':'e','ζ':'z','η':'i','θ':'th','ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p','ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'f','χ':'ch','ψ':'ps','ω':'o','ά':'a','έ':'e','ή':'i','ί':'i','ό':'o','ύ':'y','ώ':'o','ϊ':'i','ΐ':'i','ϋ':'y','ΰ':'y'};let r='';for(const c of s.toLowerCase()){r+=G[c]||(c.normalize('NFD').replace(/[̀-ͯ]/g,'')||c);}return r.replace(/[^a-z]/g,'');};
     const data=await authSignUp(email,pw);
@@ -1938,7 +2016,7 @@ export default function App(){
 
   const renderScreen=()=>{
     switch(screen){
-      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))}/>;
+      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length}/>;
       case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
@@ -1949,15 +2027,6 @@ export default function App(){
   return(
     <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
       {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
-      {/* Bell icon — always visible top-right */}
-      {!openSess&&auth.token&&(
-        <button onClick={()=>setShowNotifPanel(true)} style={{position:"fixed",top:12,right:16,zIndex:250,background:notifications.length>0?`${C.pink}22`:C.surface,border:`1px solid ${notifications.length>0?C.pink+"55":C.border}`,borderRadius:"50%",width:42,height:42,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",boxShadow:notifications.length>0?`0 0 0 2px ${C.pink}44`:"none",transition:"all .2s"}}>
-          <span style={{fontSize:18}}>🔔</span>
-          {notifications.length>0&&(
-            <span style={{position:"absolute",top:4,right:4,background:C.pink,color:C.white,fontSize:9,fontWeight:900,width:16,height:16,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>{notifications.length>9?"9+":notifications.length}</span>
-          )}
-        </button>
-      )}
       {/* Notification panel */}
       {showNotifPanel&&<NotifPanel notifications={notifications} onDismiss={async(id)=>{await dismissNotification(id);}} onDelete={async(id)=>{await deleteNotif(id);}} onClose={()=>setShowNotifPanel(false)}/>}
       {renderScreen()}
