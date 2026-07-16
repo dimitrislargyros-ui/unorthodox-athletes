@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 
 // ── Premium Design System (injected once) ──
@@ -265,9 +265,9 @@ const UaConfirm=({dialog,setDialog,c})=>{
 
 // ── Cancel Request Sheet (within-48h cancellation flow) ──
 const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
-  const [sending,setSending]=React.useState(false);
-  const [sent,setSent]=React.useState(false);
-  const [err,setErr]=React.useState(null);
+  const [sending,setSending]=useState(false);
+  const [sent,setSent]=useState(false);
+  const [err,setErr]=useState(null);
   const sendRequest=async()=>{
     setSending(true); setErr(null);
     try{
@@ -506,34 +506,77 @@ const HistorySheet=({sessions,spw,onClose,label="Personal Training"})=>{
   );
 };
 
+// Swipeable notification row — swipe left to reveal delete, or full swipe to delete
+const SwipeNotifRow=({n,onDismiss,onDelete})=>{
+  const [tx,setTx]=useState(0);
+  const [dragging,setDragging]=useState(false);
+  const [gone,setGone]=useState(false);
+  const startX=useRef(null);
+  const THRESHOLD=80; // px to reveal delete zone
+  const KILL=220;     // px to auto-delete
+  const typeIcon=n.type==="session_scheduled"?"📅":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":"🔔";
+  const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; setDragging(true); };
+  const onTouchMove=(e)=>{
+    if(startX.current===null) return;
+    const dx=e.touches[0].clientX-startX.current;
+    if(dx<0) setTx(Math.max(dx,-KILL-20));
+  };
+  const onTouchEnd=()=>{
+    setDragging(false);
+    if(tx<-KILL){ setGone(true); setTimeout(()=>onDelete(n.id),280); }
+    else if(tx<-THRESHOLD) setTx(-THRESHOLD);
+    else setTx(0);
+    startX.current=null;
+  };
+  if(gone) return null;
+  const showBtn=tx<=-THRESHOLD;
+  return(
+    <div style={{position:"relative",marginBottom:8,overflow:"hidden",borderRadius:12}}>
+      {/* Red delete backing */}
+      <div style={{position:"absolute",inset:0,background:C.pink,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"flex-end",paddingRight:18}}>
+        <span style={{color:"#fff",fontSize:18}}>🗑</span>
+      </div>
+      {/* Row */}
+      <div
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+        style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px 14px",display:"flex",gap:10,alignItems:"flex-start",transform:`translateX(${tx}px)`,transition:dragging?"none":"transform .25s ease",willChange:"transform",position:"relative",zIndex:1,touchAction:"pan-y"}}
+      >
+        <div style={{fontSize:18,flexShrink:0,marginTop:1}}>{typeIcon}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{color:C.white,fontSize:13,lineHeight:1.5}}>{n.message}</div>
+          {n.created_at&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{fmtDate(n.created_at?.split("T")[0])}</div>}
+        </div>
+        <div style={{display:"flex",gap:4,flexShrink:0,alignItems:"center"}}>
+          {showBtn?(
+            <button onTouchEnd={e=>{e.stopPropagation();setGone(true);setTimeout(()=>onDelete(n.id),280);}} onClick={()=>{setGone(true);setTimeout(()=>onDelete(n.id),280);}}
+              style={{background:C.pink,border:"none",borderRadius:8,padding:"6px 10px",color:"#fff",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800}}>Delete</button>
+          ):(
+            <button onClick={()=>onDismiss(n.id)} title="Mark as read"
+              style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"5px 8px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700}}>Hide</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const NotifPanel=({notifications,onDismiss,onDelete,onClose})=>{
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
       <div style={{background:C.surface,borderRadius:"20px 20px 0 0",maxHeight:"80vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
         <div style={{padding:"16px 20px 0"}}>
           <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 14px"}}/>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
             <div style={{color:C.white,fontSize:16,fontWeight:800}}>🔔 Notifications</div>
             <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>Close</button>
           </div>
+          {notifications.length>0&&<div style={{color:C.muted,fontSize:11,marginBottom:12,paddingLeft:2}}>← σύρε αριστερά για διαγραφή</div>}
         </div>
         {notifications.length===0
           ?<div style={{padding:"20px 20px 40px",color:C.muted,fontSize:13,textAlign:"center"}}>All caught up! No new notifications.</div>
-          :<div style={{padding:"0 20px 40px"}}>
+          :<div style={{padding:"0 20px 32px"}}>
             {notifications.map(n=>(
-              <div key={n.id} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px 14px",marginBottom:8,display:"flex",gap:10,alignItems:"flex-start"}}>
-                <div style={{fontSize:18,flexShrink:0,marginTop:1}}>
-                  {n.type==="session_scheduled"?"📅":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":"🔔"}
-                </div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{color:C.white,fontSize:13,lineHeight:1.5}}>{n.message}</div>
-                  {n.created_at&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{fmtDate(n.created_at?.split("T")[0])}</div>}
-                </div>
-                <div style={{display:"flex",gap:4,flexShrink:0}}>
-                  <button onClick={()=>onDismiss(n.id)} title="Mark as read" style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"5px 8px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700}}>Hide</button>
-                  <button onClick={()=>onDelete(n.id)} title="Delete" style={{background:"none",border:`1px solid ${C.pink}44`,borderRadius:7,padding:"5px 8px",color:C.pink,cursor:"pointer",fontFamily:"inherit",fontSize:13,lineHeight:1}}>🗑</button>
-                </div>
-              </div>
+              <SwipeNotifRow key={n.id} n={n} onDismiss={onDismiss} onDelete={onDelete}/>
             ))}
             <button onClick={()=>notifications.forEach(n=>onDismiss(n.id))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px",color:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>Hide All</button>
           </div>
