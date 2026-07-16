@@ -907,9 +907,9 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       setPkg(updPkg);
       onClientUpdated({...client,_pkg:updPkg});
       if(newPaid){
-        await postNotification({client_id:client.id,type:"payment_confirmed",message:`✅ Η πληρωμή επιβεβαιώθηκε για το πακέτο ${pkg.sessions_total} συνεδριών. Είσαι έτοιμος/η!`},token).catch(()=>{});
+        await postNotification({client_id:client.id,type:"payment_confirmed",message:`✅ Payment confirmed for your ${pkg.sessions_total}-session package. You're all set!`},token).catch(()=>{});
       } else {
-        await postNotification({client_id:client.id,type:"payment_reminder",message:`⚠️ Η πληρωμή του πακέτου σου σημειώθηκε ως μη εξοφλημένη. Επικοινώνησε με τον προπονητή σου.`},token).catch(()=>{});
+        await postNotification({client_id:client.id,type:"payment_reminder",message:`⚠️ Your package payment has been marked as unpaid. Please contact your trainer.`},token).catch(()=>{});
       }
     }catch(e){ showUaToast("Error: "+e.message); }
   };
@@ -1414,25 +1414,25 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
 
   const handleAcceptCancelReq=async(r)=>{
     try{
-      const label=`${fmtDate(r.book_date)} στις ${toTime(r.start_time_min)}`;
+      const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
       // Cancel the booking if booking_id exists
       if(r.booking_id){
         await cancelBookingRow(r.booking_id,token).catch(()=>{});
       }
       await resolveCancelReq(r.id,"accepted",token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Η αίτηση ακύρωσης για ${label} εγκρίθηκε. Μπορείς να κάνεις νέα κράτηση.`},token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your cancellation request for ${label} was approved. You can rebook anytime.`},token).catch(()=>{});
       setCancelReqs(p=>p.filter(x=>x.id!==r.id));
-      showToast("✓ Ακύρωση εγκρίθηκε",true);
+      showToast("✓ Cancellation approved",true);
     }catch(e){ showToast("Error: "+e.message); }
   };
 
   const handleDeclineCancelReq=async(r)=>{
     try{
-      const label=`${fmtDate(r.book_date)} στις ${toTime(r.start_time_min)}`;
+      const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
       await resolveCancelReq(r.id,"declined",token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Η αίτηση ακύρωσης για ${label} απορρίφθηκε. Επικοινώνησε με τον trainer σου.`},token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your cancellation request for ${label} was declined. Please contact your trainer.`},token).catch(()=>{});
       setCancelReqs(p=>p.filter(x=>x.id!==r.id));
-      showToast("Αίτηση απορρίφθηκε");
+      showToast("Request declined");
     }catch(e){ showToast("Error: "+e.message); }
   };
 
@@ -1591,18 +1591,18 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       {cancelReqsLoaded&&cancelReqs.length>0&&(
         <div style={{padding:"0 20px 4px"}}>
           <div style={{background:C.surface,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"13px 16px"}}>
-            <div style={{color:C.amber,fontSize:12,fontWeight:700,marginBottom:8}}>⚠️ Αιτήσεις ακύρωσης ({cancelReqs.length})</div>
+            <div style={{color:C.amber,fontSize:12,fontWeight:700,marginBottom:8}}>⚠️ Cancellation Requests ({cancelReqs.length})</div>
             {cancelReqs.map((r,i)=>(
               <div key={r.id} style={{padding:"9px 0",borderBottom:i<cancelReqs.length-1?`1px solid ${C.border}`:"none"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div>
                     <div style={{color:C.white,fontSize:13,fontWeight:600}}>{r.profiles?.name||"Unknown"}</div>
                     <div style={{color:C.muted,fontSize:12,marginTop:2}}>{fmtDate(r.book_date)} · {toTime(r.start_time_min)}</div>
-                    <div style={{color:C.amber,fontSize:11,marginTop:1}}>Εντός 48 ωρών</div>
+                    <div style={{color:C.amber,fontSize:11,marginTop:1}}>Within 48 hours</div>
                   </div>
                   <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>handleAcceptCancelReq(r)} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 11px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓ Έγκριση</button>
-                    <button onClick={()=>handleDeclineCancelReq(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 11px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕ Απόρριψη</button>
+                    <button onClick={()=>handleAcceptCancelReq(r)} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 11px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓ Approve</button>
+                    <button onClick={()=>handleDeclineCancelReq(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 11px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕ Decline</button>
                   </div>
                 </div>
               </div>

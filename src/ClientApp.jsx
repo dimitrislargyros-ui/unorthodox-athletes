@@ -197,7 +197,7 @@ const localISO = (d=new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).
 const todayISO = () => localISO();
 const todayDow = () => { const d=new Date().getDay(); return d===0?6:d-1; };
 const calcDayNum = (sessionsUsedBefore, sessionsPerWeek=3) => (sessionsUsedBefore % sessionsPerWeek) + 1;
-const GR_DAYS=["Κυρ","Δευ","Τρί","Τετ","Πέμ","Παρ","Σάβ"];
+const GR_DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const weekDayShort=dateStr=>GR_DAYS[new Date(dateStr+"T12:00:00").getDay()];
 const sessLabel=tmplName=>tmplName?tmplName+" Training":"Personal Training";
 
@@ -274,15 +274,15 @@ const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
       const trainer=await getTrainerProfile(token);
       if(!trainer) throw new Error("Trainer not found");
       const myProfile=await getProfile(userId,token).catch(()=>null);
-      const label=`${fmtDate(bookDate)} στις ${toTime(startMin)}`;
+      const label=`${fmtDate(bookDate)} at ${toTime(startMin)}`;
       // Save cancel request row (requires cancel_requests table)
       await postCancelRequest({client_id:userId,trainer_id:trainer.id,booking_id:bookingId||null,book_date:bookDate,start_time_min:startMin,status:"pending"},token).catch(()=>{});
       // Push notification to trainer
-      await fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"🔔 Αίτηση ακύρωσης",body:`${myProfile?.name||"Client"} ζητά ακύρωση: ${label}`})}).catch(()=>{});
+      await fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"🔔 Cancellation Request",body:`${myProfile?.name||"Client"} requests cancellation: ${label}`})}).catch(()=>{});
       // Notify trainer in-app
-      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} ζητά ακύρωση της συνεδρίας ${label}.`},token).catch(()=>{});
+      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} has requested to cancel their session on ${label}.`},token).catch(()=>{});
       setSent(true);
-    }catch(e){ setErr("Σφάλμα αποστολής. Δοκίμασε ξανά."); }
+    }catch(e){ setErr("Failed to send. Please try again."); }
     setSending(false);
   };
   return(
@@ -292,23 +292,23 @@ const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
         {sent?(
           <div style={{textAlign:"center",padding:"12px 0 8px"}}>
             <div style={{fontSize:48,marginBottom:12}}>✅</div>
-            <div style={{color:C.white,fontSize:17,fontWeight:800,marginBottom:8}}>Η αίτηση εστάλη!</div>
-            <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:24}}>Ο trainer σου θα δει την αίτησή σου και θα σε ενημερώσει για την απόφαση.</div>
+            <div style={{color:C.white,fontSize:17,fontWeight:800,marginBottom:8}}>Request sent!</div>
+            <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:24}}>Your trainer will review your request and let you know their decision.</div>
             <button onClick={onClose} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"14px",color:"#fff",fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>OK</button>
           </div>
         ):(
           <>
-            <div style={{color:C.pink,fontSize:13,fontWeight:800,letterSpacing:.5,marginBottom:8,textTransform:"uppercase"}}>Αίτηση ακύρωσης</div>
-            <div style={{color:C.white,fontSize:16,fontWeight:700,marginBottom:6}}>Συνεδρία εντός 48 ωρών</div>
+            <div style={{color:C.pink,fontSize:13,fontWeight:800,letterSpacing:.5,marginBottom:8,textTransform:"uppercase"}}>Cancellation Request</div>
+            <div style={{color:C.white,fontSize:16,fontWeight:700,marginBottom:6}}>Session within 48 hours</div>
             <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px 14px",marginBottom:14}}>
               <div style={{color:C.cyan,fontSize:14,fontWeight:700}}>{fmtDate(bookDate)}</div>
               <div style={{color:C.muted,fontSize:13,marginTop:2}}>{toTime(startMin)}</div>
             </div>
-            <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:20}}>Δεν μπορείς να ακυρώσεις άμεσα συνεδρία εντός 48 ωρών. Θέλεις να στείλεις αίτηση ακύρωσης στον trainer σου;</div>
+            <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:20}}>You can't cancel a session within 48 hours directly. Would you like to send a cancellation request to your trainer?</div>
             {err&&<div style={{color:C.pink,fontSize:12,fontWeight:700,marginBottom:10}}>{err}</div>}
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <button onClick={sendRequest} disabled={sending} style={{width:"100%",background:sending?"rgba(255,255,255,0.05)":`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"14px",color:sending?C.muted:"#fff",fontSize:15,fontWeight:800,cursor:sending?"not-allowed":"pointer",fontFamily:"inherit"}}>{sending?"Αποστολή...":"Ναι, στείλε αίτηση"}</button>
-              <button onClick={onClose} style={{width:"100%",background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"13px",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Όχι, ακύρωσε</button>
+              <button onClick={sendRequest} disabled={sending} style={{width:"100%",background:sending?"rgba(255,255,255,0.05)":`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"14px",color:sending?C.muted:"#fff",fontSize:15,fontWeight:800,cursor:sending?"not-allowed":"pointer",fontFamily:"inherit"}}>{sending?"Sending...":"Yes, send request"}</button>
+              <button onClick={onClose} style={{width:"100%",background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"13px",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>No, go back</button>
             </div>
           </>
         )}
@@ -570,7 +570,7 @@ const NotifPanel=({notifications,onDismiss,onDelete,onClose})=>{
             <div style={{color:C.white,fontSize:16,fontWeight:800}}>🔔 Notifications</div>
             <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>Close</button>
           </div>
-          {notifications.length>0&&<div style={{color:C.muted,fontSize:11,marginBottom:12,paddingLeft:2}}>← σύρε αριστερά για διαγραφή</div>}
+          {notifications.length>0&&<div style={{color:C.muted,fontSize:11,marginBottom:12,paddingLeft:2}}>← swipe left to delete</div>}
         </div>
         {notifications.length===0
           ?<div style={{padding:"20px 20px 40px",color:C.muted,fontSize:13,textAlign:"center"}}>All caught up! No new notifications.</div>
@@ -1651,12 +1651,12 @@ const StatsPanel=({sessions,prs,pkg})=>{
   const sundayOfWeek=(()=>{const d=new Date(mondayOfWeek);d.setDate(d.getDate()+6);return d.toISOString().slice(0,10);})();
   const thisWeekCount=completed.filter(s=>s.session_date>=mondayOfWeek&&s.session_date<=sundayOfWeek).length;
   const summaryStats=[
-    {l:"Σύνολο",v:completed.length,color:C.cyan},
-    {l:"Αυτό τον μήνα",v:completed.filter(s=>s.session_date?.slice(0,7)===thisMonthStr).length,color:C.cyan},
-    {l:"Περ. μήνα",v:completed.filter(s=>s.session_date?.slice(0,7)===lastMonthStr).length,color:C.cyan},
+    {l:"Total",v:completed.length,color:C.cyan},
+    {l:"This month",v:completed.filter(s=>s.session_date?.slice(0,7)===thisMonthStr).length,color:C.cyan},
+    {l:"Last month",v:completed.filter(s=>s.session_date?.slice(0,7)===lastMonthStr).length,color:C.cyan},
     {l:"PRs",v:prs.length,color:C.pink},
-    {l:"Αυτή τη βδομάδα",v:thisWeekCount,color:C.cyan},
-    {l:"Απομένουν",v:left,color:left<=2?C.pink:C.green},
+    {l:"This week",v:thisWeekCount,color:C.cyan},
+    {l:"Remaining",v:left,color:left<=2?C.pink:C.green},
   ];
 
   // Weekly streak
@@ -1670,8 +1670,8 @@ const StatsPanel=({sessions,prs,pkg})=>{
   for(const wk of sortedWeeks){if(!prevWk){curStreak=1;}else{const p=new Date(prevWk);p.setDate(p.getDate()+7);curStreak=p.toISOString().slice(0,10)===wk?curStreak+1:1;}if(curStreak>bestStreak)bestStreak=curStreak;prevWk=wk;}
 
   // Yearly bar chart
-  const MSHORT=["Ιαν","Φεβ","Μαρ","Απρ","Μάι","Ιουν","Ιουλ","Αυγ","Σεπ","Οκτ","Νοε","Δεκ"];
-  const MFULL=["Ιανουάριος","Φεβρουάριος","Μάρτιος","Απρίλιος","Μάιος","Ιούνιος","Ιούλιος","Αύγουστος","Σεπτέμβριος","Οκτώβριος","Νοέμβριος","Δεκέμβριος"];
+  const MSHORT=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const MFULL=["January","February","March","April","May","June","July","August","September","October","November","December"];
   const monthCounts=MSHORT.map((_,i)=>{const m=`${selYear}-${String(i+1).padStart(2,'0')}`;return completed.filter(s=>s.session_date?.slice(0,7)===m).length;});
   const maxCount=Math.max(...monthCounts,1);
   const yearTotal=monthCounts.reduce((a,b)=>a+b,0);
@@ -1687,7 +1687,7 @@ const StatsPanel=({sessions,prs,pkg})=>{
 
   return(
     <div style={{padding:"0 20px 16px"}}>
-      <SL>Στατιστικά</SL>
+      <SL>Statistics</SL>
 
       {/* 6 summary tiles */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
@@ -1704,15 +1704,15 @@ const StatsPanel=({sessions,prs,pkg})=>{
         <div style={{flex:1,background:C.surface,borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
           <div style={{fontSize:24}}>🔥</div>
           <div>
-            <div style={{color:C.white,fontSize:20,fontWeight:900,lineHeight:1}}>{streak}<span style={{fontSize:12,fontWeight:600,color:C.muted,marginLeft:3}}>εβδ.</span></div>
-            <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>Τρέχον σερί</div>
+            <div style={{color:C.white,fontSize:20,fontWeight:900,lineHeight:1}}>{streak}<span style={{fontSize:12,fontWeight:600,color:C.muted,marginLeft:3}}>wks</span></div>
+            <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>Current streak</div>
           </div>
         </div>
         <div style={{flex:1,background:C.surface,borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
           <div style={{fontSize:24}}>🏆</div>
           <div>
-            <div style={{color:C.white,fontSize:20,fontWeight:900,lineHeight:1}}>{bestStreak}<span style={{fontSize:12,fontWeight:600,color:C.muted,marginLeft:3}}>εβδ.</span></div>
-            <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>Καλύτερο σερί</div>
+            <div style={{color:C.white,fontSize:20,fontWeight:900,lineHeight:1}}>{bestStreak}<span style={{fontSize:12,fontWeight:600,color:C.muted,marginLeft:3}}>wks</span></div>
+            <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>Best streak</div>
           </div>
         </div>
       </div>
@@ -1722,7 +1722,7 @@ const StatsPanel=({sessions,prs,pkg})=>{
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div>
             <div style={{color:C.white,fontSize:15,fontWeight:800}}>{selYear}</div>
-            <div style={{color:C.muted,fontSize:11}}>{yearTotal} συνεδρίες</div>
+            <div style={{color:C.muted,fontSize:11}}>{yearTotal} sessions</div>
           </div>
           <div style={{display:"flex",gap:6}}>
             <button onClick={()=>setSelYear(y=>y-1)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
@@ -1749,7 +1749,7 @@ const StatsPanel=({sessions,prs,pkg})=>{
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div>
             <div style={{color:C.white,fontSize:15,fontWeight:800}}>{MFULL[selMonth]} {selYear}</div>
-            <div style={{color:C.cyan,fontSize:12,fontWeight:700}}>{selMonthSess.length} συνεδρί{selMonthSess.length===1?"α":"ες"}</div>
+            <div style={{color:C.cyan,fontSize:12,fontWeight:700}}>{selMonthSess.length} session{selMonthSess.length===1?"":"s"}</div>
           </div>
           <div style={{display:"flex",gap:6}}>
             <button onClick={navPrevMonth} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,width:32,height:32,color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
@@ -1757,7 +1757,7 @@ const StatsPanel=({sessions,prs,pkg})=>{
           </div>
         </div>
         {selMonthSess.length===0
-          ? <div style={{color:C.muted,fontSize:13,textAlign:"center",padding:"16px 0"}}>Καμία συνεδρία αυτόν τον μήνα</div>
+          ? <div style={{color:C.muted,fontSize:13,textAlign:"center",padding:"16px 0"}}>No sessions this month</div>
           : <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
               {selMonthSess.map((s,i)=>(
                 <div key={i} style={{background:C.cyan+"14",border:`1px solid ${C.cyan}30`,borderRadius:10,padding:"8px 12px",minWidth:80}}>
@@ -1934,7 +1934,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
               );
             })}
             {completed.length>3&&
-              <button onClick={()=>setShowHistorySheet(true)} style={{width:"100%",background:"none",border:"none",color:C.cyan,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"12px 0",textAlign:"center"}}>Δες παλαιότερες ({completed.length-3} more) ›</button>
+              <button onClick={()=>setShowHistorySheet(true)} style={{width:"100%",background:"none",border:"none",color:C.cyan,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:"12px 0",textAlign:"center"}}>View older ({completed.length-3} more) ›</button>
             }
           </>);
         })()}

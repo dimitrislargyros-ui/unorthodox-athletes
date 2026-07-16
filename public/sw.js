@@ -6,7 +6,7 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
 self.addEventListener('push', (event) => {
   let title = 'Unorthodox Athletes';
-  let body = '📬 Έχεις νέο μήνυμα — Άνοιξε την εφαρμογή.';
+  let body = '📬 You have a new message — Open the app.';
   let tag = 'ua-notification';
   let pushData = null;
 

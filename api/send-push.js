@@ -174,7 +174,7 @@ export default async function handler(req, res) {
   // Build payload with the actual message so notification shows the text
   const pushPayload = (title || msgBody) ? {
     title: title || 'Unorthodox Athletes',
-    body:  msgBody || '📬 Νέο μήνυμα.',
+    body:  msgBody || '📬 New message.',
     tag:   'ua-notification',
   } : null;
 
