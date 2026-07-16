@@ -1257,8 +1257,9 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
   const conflict=selectedStart!=null&&slots.find(s=>s.start_time_min===selectedStart);
 
   // Force-log: trainer can add a client to any slot regardless of capacity
-  const [forceLogSlot,setForceLogSlot]=useState(null); // slot object or {start_time_min} for date+time
+  const [forceLogSlot,setForceLogSlot]=useState(null);
   const [forceLogClientId,setForceLogClientId]=useState("");
+  const [forceLogSearch,setForceLogSearch]=useState("");
   const [forceLogging,setForceLogging]=useState(false);
   const handleForceLog=async()=>{
     if(!forceLogSlot||!forceLogClientId||forceLogging) return;
@@ -1273,7 +1274,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         await dbPatch("packages",`id=eq.${cl._pkg.id}`,{sessions_used:newUsed},token).catch(()=>{});
       }
       showToast(`✓ Session logged for ${cl.name||"client"}`,true);
-      setForceLogSlot(null); setForceLogClientId("");
+      setForceLogSlot(null); setForceLogClientId(""); setForceLogSearch("");
     }catch(e){ showToast("Error: "+e.message); }
     setForceLogging(false);
   };
@@ -1545,7 +1546,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                   <div><div style={{color:C.white,fontSize:15,fontWeight:800}}>{toSlot(slot.start_time_min)}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{cnt}/{GYM_CAP} booked{overlapBks.length>0&&<span style={{color:C.amber,fontSize:10,marginLeft:5}}>+{overlapBks.length} custom</span>}</div></div>
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
-                    <button onClick={()=>{ setForceLogSlot(isForceOpen?null:slot); setForceLogClientId(""); }} style={{background:isForceOpen?C.amber+"33":C.surface2,border:`1px solid ${isForceOpen?C.amber+"66":C.border}`,borderRadius:8,padding:"6px 10px",color:isForceOpen?C.amber:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}} title="Force-log extra client (trainer only, not visible to clients)">+ Log</button>
+                    <button onClick={()=>{ setForceLogSlot(isForceOpen?null:slot); setForceLogClientId(""); setForceLogSearch(""); }} style={{background:isForceOpen?C.amber+"33":C.surface2,border:`1px solid ${isForceOpen?C.amber+"66":C.border}`,borderRadius:8,padding:"6px 10px",color:isForceOpen?C.amber:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}} title="Force-log extra client (trainer only, not visible to clients)">+ Log</button>
                     <button onClick={()=>setConf(slot)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.pink,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Remove</button>
                   </div>
                 </div>
@@ -1579,16 +1580,46 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
                   <div style={{flex:1,height:6,background:C.surface2,borderRadius:3}}><div style={{width:`${pct}%`,height:"100%",borderRadius:3,background:barCol}}/></div>
                   <span style={{color:C.muted,fontSize:11,fontWeight:700,minWidth:50,textAlign:"right"}}>{cnt>=GYM_CAP?"Full":GYM_CAP-cnt+" free"}</span>
                 </div>
-                {isForceOpen&&(
+                {isForceOpen&&(()=>{
+                  const q=forceLogSearch.toLowerCase();
+                  const filtered=clients.filter(c=>!q||c.name?.toLowerCase().includes(q)||(c.initials||"").toLowerCase().includes(q));
+                  const selClient=clients.find(c=>c.id===forceLogClientId);
+                  return(
                   <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-                    <div style={{color:C.amber,fontSize:11,fontWeight:700,marginBottom:8}}>🔒 Trainer-only log — not visible to clients</div>
-                    <select value={forceLogClientId} onChange={e=>setForceLogClientId(e.target.value)} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:forceLogClientId?C.white:C.muted,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}>
-                      <option value="">Select client…</option>
-                      {clients.filter(c=>c._pkg).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                    <GBtn sm label={forceLogging?"Logging…":"Log Session"} onClick={handleForceLog} disabled={!forceLogClientId||forceLogging} style={{width:"100%"}} color={C.amber}/>
+                    <div style={{color:C.amber,fontSize:11,fontWeight:700,marginBottom:8}}>🔒 Trainer-only log — clients won't see this</div>
+                    <input
+                      value={forceLogSearch}
+                      onChange={e=>{setForceLogSearch(e.target.value);setForceLogClientId("");}}
+                      placeholder="🔍 Search client…"
+                      style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:6}}
+                    />
+                    {forceLogClientId&&selClient
+                      ?<div style={{background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"8px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <Avatar initials={selClient.initials} size={24} avatarUrl={selClient.avatar_url}/>
+                            <span style={{color:C.amber,fontSize:13,fontWeight:700}}>{selClient.name}</span>
+                          </div>
+                          <button onClick={()=>{setForceLogClientId("");setForceLogSearch("");}} style={{background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer",fontFamily:"inherit",padding:"0 4px"}}>✕</button>
+                        </div>
+                      :<div style={{maxHeight:160,overflowY:"auto",borderRadius:8,border:`1px solid ${C.border}`,marginBottom:8,background:C.surface2}}>
+                        {filtered.length===0
+                          ?<div style={{padding:"12px",color:C.muted,fontSize:12,textAlign:"center"}}>No clients found</div>
+                          :filtered.map(c=>(
+                            <button key={c.id} onClick={()=>{setForceLogClientId(c.id);setForceLogSearch(c.name||"");}} style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${C.border}`,padding:"9px 12px",display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+                              <Avatar initials={c.initials} size={22} avatarUrl={c.avatar_url}/>
+                              <div>
+                                <div style={{color:C.white,fontSize:13,fontWeight:600}}>{c.name}</div>
+                                {c._pkg&&<div style={{color:C.muted,fontSize:10,marginTop:1}}>{c._pkg.sessions_used||0}/{c._pkg.sessions_total} sessions used</div>}
+                              </div>
+                            </button>
+                          ))
+                        }
+                      </div>
+                    }
+                    <GBtn sm label={forceLogging?"Logging…":"Log Session"} onClick={handleForceLog} disabled={!forceLogClientId||forceLogging} style={{width:"100%",background:forceLogClientId?C.amber:"",border:forceLogClientId?`1px solid ${C.amber}`:"",color:forceLogClientId?C.bg:""}}/>
                   </div>
-                )}
+                  );
+                })()}
               </Card>);
             })
           }
