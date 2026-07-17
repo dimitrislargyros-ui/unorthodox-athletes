@@ -766,6 +766,26 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
         <Row label="Sessions per week (avg)" value={perWeekAvg}/>
         <Row label="Package usage" value={pkg?`${cumCompleted} of ${pkg.sessions_total} (total to date)`:`${cumCompleted} completed`}/>
         <Row label="PRs set this month" value={monthPRs.length}/>
+        {pkg&&(
+          <div style={{marginTop:16,background:C.surface2,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+            <div style={{color:C.muted,fontSize:10,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Current Package</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+              <div>
+                <div style={{color:C.white,fontSize:14,fontWeight:800}}>{pkg.sessions_total}-Session Pack · {pkg.sessions_per_week||3}×/week · {pkg.weeks||"?"} weeks</div>
+                {pkg.workout_templates?.name&&<div style={{color:C.cyan,fontSize:12,marginTop:3}}>🏋️ {pkg.workout_templates.name}</div>}
+                <div style={{color:C.muted,fontSize:12,marginTop:4}}>{fmtDate(pkg.start_date)} → {fmtDate(pkg.end_date)}</div>
+              </div>
+              <span style={{background:pkg.paid?C.cyan+"22":C.pink+"22",color:pkg.paid?C.cyan:C.pink,border:`1px solid ${pkg.paid?C.cyan+"55":C.pink+"55"}`,borderRadius:8,padding:"4px 12px",fontSize:13,fontWeight:800,flexShrink:0,marginLeft:12}}>{pkg.paid?"✓ Paid":"⚠ Unpaid"}</span>
+            </div>
+            <div style={{height:4,background:C.border,borderRadius:2,marginTop:10}}>
+              <div style={{width:`${Math.min(100,(cumCompleted/pkg.sessions_total)*100)}%`,height:"100%",borderRadius:2,background:`linear-gradient(90deg,${C.cyan},${C.pink})`}}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}>
+              <span style={{color:C.muted,fontSize:11}}>{cumCompleted} used to date</span>
+              <span style={{color:C.muted,fontSize:11}}>{pkg.sessions_total - cumCompleted} remaining</span>
+            </div>
+          </div>
+        )}
         <div style={{marginTop:16}}>
           <SL>Day Breakdown</SL>
           {Array.from({length:spw},(_,i)=>i+1).map(d=>(
