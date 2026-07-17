@@ -719,7 +719,7 @@ const ClientsScreen=({clients,onViewClient})=>{
 };
 
 // ── Monthly Report ──
-const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
+const MonthlyReportModal=({client,timeline,statusMap,pkg,allPkgs,prs,spw,onClose})=>{
   const now=new Date();
   const [offset,setOffset]=useState(0); // 0 = current month, -1 = last month, etc.
   const target=new Date(now.getFullYear(),now.getMonth()+offset,1);
@@ -735,6 +735,9 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
   // Cumulative sessions completed up to end of viewed month (not live pkg counter)
   const monthEndStr=new Date(target.getFullYear(),target.getMonth()+1,0).toISOString().split("T")[0];
   const cumCompleted=(timeline||[]).filter(t=>t._type!=="booking"&&statusMap[t.id]==="completed"&&t.session_date<=monthEndStr).length;
+  // Find the package that was active during the viewed month (supports historical months)
+  const monthStartStr=monthStr+"-01";
+  const reportPkg=(allPkgs||[]).find(p=>p.start_date<=monthEndStr&&p.end_date>=monthStartStr)||pkg;
   const Row=({label,value})=>(
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
       <span style={{color:C.muted,fontSize:13}}>{label}</span>
@@ -764,25 +767,25 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
         </div>
         <Row label="Sessions completed this month" value={monthItems.length}/>
         <Row label="Sessions per week (avg)" value={perWeekAvg}/>
-        <Row label="Package usage" value={pkg?`${cumCompleted} of ${pkg.sessions_total} (total to date)`:`${cumCompleted} completed`}/>
+        <Row label="Package usage" value={reportPkg?`${cumCompleted} of ${reportPkg.sessions_total} (total to date)`:`${cumCompleted} completed`}/>
         <Row label="PRs set this month" value={monthPRs.length}/>
-        {pkg&&(
+        {reportPkg&&(
           <div style={{marginTop:16,background:C.surface2,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`}}>
-            <div style={{color:C.muted,fontSize:10,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Current Package</div>
+            <div style={{color:C.muted,fontSize:10,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>{reportPkg.is_active===false?"Past Package":"Current Package"}</div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
               <div>
-                <div style={{color:C.white,fontSize:14,fontWeight:800}}>{pkg.sessions_total}-Session Pack · {pkg.sessions_per_week||3}×/week · {pkg.weeks||"?"} weeks</div>
-                {pkg.workout_templates?.name&&<div style={{color:C.cyan,fontSize:12,marginTop:3}}>🏋️ {pkg.workout_templates.name}</div>}
-                <div style={{color:C.muted,fontSize:12,marginTop:4}}>{fmtDate(pkg.start_date)} → {fmtDate(pkg.end_date)}</div>
+                <div style={{color:C.white,fontSize:14,fontWeight:800}}>{reportPkg.sessions_total}-Session Pack · {reportPkg.sessions_per_week||3}×/week · {reportPkg.weeks||"?"} weeks</div>
+                {reportPkg.workout_templates?.name&&<div style={{color:C.cyan,fontSize:12,marginTop:3}}>🏋️ {reportPkg.workout_templates.name}</div>}
+                <div style={{color:C.muted,fontSize:12,marginTop:4}}>{fmtDate(reportPkg.start_date)} → {fmtDate(reportPkg.end_date)}</div>
               </div>
-              <span style={{background:pkg.paid?C.cyan+"22":C.pink+"22",color:pkg.paid?C.cyan:C.pink,border:`1px solid ${pkg.paid?C.cyan+"55":C.pink+"55"}`,borderRadius:8,padding:"4px 12px",fontSize:13,fontWeight:800,flexShrink:0,marginLeft:12}}>{pkg.paid?"✓ Paid":"⚠ Unpaid"}</span>
+              <span style={{background:reportPkg.paid?C.cyan+"22":C.pink+"22",color:reportPkg.paid?C.cyan:C.pink,border:`1px solid ${reportPkg.paid?C.cyan+"55":C.pink+"55"}`,borderRadius:8,padding:"4px 12px",fontSize:13,fontWeight:800,flexShrink:0,marginLeft:12}}>{reportPkg.paid?"✓ Paid":"⚠ Unpaid"}</span>
             </div>
             <div style={{height:4,background:C.border,borderRadius:2,marginTop:10}}>
-              <div style={{width:`${Math.min(100,(cumCompleted/pkg.sessions_total)*100)}%`,height:"100%",borderRadius:2,background:`linear-gradient(90deg,${C.cyan},${C.pink})`}}/>
+              <div style={{width:`${Math.min(100,(cumCompleted/reportPkg.sessions_total)*100)}%`,height:"100%",borderRadius:2,background:`linear-gradient(90deg,${C.cyan},${C.pink})`}}/>
             </div>
             <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}>
               <span style={{color:C.muted,fontSize:11}}>{cumCompleted} used to date</span>
-              <span style={{color:C.muted,fontSize:11}}>{pkg.sessions_total - cumCompleted} remaining</span>
+              <span style={{color:C.muted,fontSize:11}}>{reportPkg.sessions_total - cumCompleted} remaining</span>
             </div>
           </div>
         )}
@@ -816,6 +819,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [sessions,setSessions]=useState([]);
   const [clientBooks,setClientBooks]=useState([]);
   const [pkg,setPkg]=useState(client._pkg||null);
+  const [allPkgs,setAllPkgs]=useState(client._pkg?[client._pkg]:[]);
   const [loading,setLoad]=useState(true);
   const [activeSession,setAS]=useState(null);
   const [showReport,setShowReport]=useState(false);
@@ -853,8 +857,12 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const spw=pkg?.sessions_per_week||3;
   const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
   useEffect(()=>{
-    Promise.all([getClientSess(client.id,token), getClientBooks(client.id,token)])
-      .then(([s,b])=>{ setSessions(s||[]); setClientBooks(b||[]); })
+    Promise.all([
+      getClientSess(client.id,token),
+      getClientBooks(client.id,token),
+      dbGet("packages",`client_id=eq.${client.id}&order=created_at.desc&select=*,workout_templates(id,name)`,token)
+    ])
+      .then(([s,b,pkgs])=>{ setSessions(s||[]); setClientBooks(b||[]); setAllPkgs(pkgs||[]); })
       .finally(()=>setLoad(false));
     getTemplates(trainerId,token).then(r=>setPrograms(r||[])).catch(()=>{});
   },[client.id]);
@@ -1045,7 +1053,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   return(
     <div style={{paddingBottom:80}}>
       {activeSession&&<SessionEditor session={activeSession} spw={spw} token={token} trainerId={trainerId} onClose={()=>setAS(null)} onSaved={updated=>setSessions(p=>p.map(s=>s.id===updated.id?updated:s))}/>}
-      {showReport&&<MonthlyReportModal client={client} timeline={timeline} statusMap={statusMap} pkg={pkg} prs={prs} spw={spw} onClose={()=>setShowReport(false)}/>}
+      {showReport&&<MonthlyReportModal client={client} timeline={timeline} statusMap={statusMap} pkg={pkg} allPkgs={allPkgs} prs={prs} spw={spw} onClose={()=>setShowReport(false)}/>}
 
       <div style={{padding:"22px 20px 0",display:"flex",alignItems:"center",gap:12}}>
         <button onClick={onBack} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 12px",color:C.muted,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>← Back</button>
