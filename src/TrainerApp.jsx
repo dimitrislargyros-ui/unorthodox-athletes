@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
 
@@ -1985,6 +1985,9 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
   const [det,setDet]=useState({type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg"});
   const [pmToast,setPmToast]=useState(null);
   const showPmToast=(msg,ok=false)=>{setPmToast({msg,ok});setTimeout(()=>setPmToast(null),3500);};
+  const [dragIdx,setDragIdx]=useState(null);
+  const [dragOverIdx,setDragOverIdx]=useState(null);
+  const dragRef=useRef({});
   const [renamingProg,setRenamingProg]=useState(false);
   const [progNameDraft,setProgNameDraft]=useState(prog.name);
   const [progName,setProgName]=useState(prog.name);
@@ -1992,6 +1995,9 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
     const name=progNameDraft.trim();
     if(!name||name===progName){setRenamingProg(false);return;}
     try{
+      // We don't have the full programs list here, so we check via API
+      const existing=await dbGet("workout_templates",`trainer_id=eq.${trainerId}&name=eq.${encodeURIComponent(name)}`,token).catch(()=>[]);
+      if(Array.isArray(existing)&&existing.some(p=>p.id!==prog.id)){showPmToast(`A program named "${name}" already exists.`);setRenamingProg(false);setProgNameDraft(progName);return;}
       await updateTemplate(prog.id,{name},token);
       setProgName(name);
       onUpdate({...prog,name,exercises:days.flatMap?days:prog.exercises});
@@ -2016,11 +2022,25 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
     }catch(e){showPmToast("Error: "+e.message);}
     setSaving(false);
   };
-  const move=(idx,dir)=>{const n=[...exs];const to=idx+dir;if(to<0||to>=n.length)return;[n[idx],n[to]]=[n[to],n[idx]];persist(n);};
   const remove=(idx)=>persist(exs.filter((_,i)=>i!==idx));
+
+  const doReorder=(from,to)=>{if(from===to)return;const n=[...exs];const[r]=n.splice(from,1);n.splice(to,0,r);persist(n);};
+  const handleDragStart=(e,i)=>{dragRef.current={from:i,to:i};setDragIdx(i);setDragOverIdx(i);e.dataTransfer.effectAllowed='move';};
+  const handleDragOver=(e,i)=>{e.preventDefault();dragRef.current.to=i;setDragOverIdx(i);};
+  const handleDragEnd=()=>{const{from,to}=dragRef.current;setDragIdx(null);setDragOverIdx(null);doReorder(from,to);};
+  const handleTouchDrag=(startIdx)=>(e)=>{
+    e.preventDefault();
+    dragRef.current={from:startIdx,to:startIdx};setDragIdx(startIdx);setDragOverIdx(startIdx);
+    const onMove=(ev)=>{ev.preventDefault();const t=ev.touches[0];const el=document.elementFromPoint(t.clientX,t.clientY);const row=el?.closest?.('[data-exidx]');if(row){const idx=parseInt(row.getAttribute('data-exidx'));if(!isNaN(idx)){dragRef.current.to=idx;setDragOverIdx(idx);}}};
+    const onEnd=()=>{document.removeEventListener('touchmove',onMove,false);document.removeEventListener('touchend',onEnd);const{from,to}=dragRef.current;setDragIdx(null);setDragOverIdx(null);doReorder(from,to);};
+    document.addEventListener('touchmove',onMove,{passive:false});
+    document.addEventListener('touchend',onEnd);
+  };
 
   const startEdit=(idx)=>{
     const ex=exs[idx];
+    if(!ex) return;
+    if(!ex.name){setEditIdx(idx);setDet(exToDet(ex));setPickedName("");setPickSearch("");setStep("pick");return;}
     setPickedName(ex.name);
     setEditIdx(idx);
     setDet(exToDet(ex));
@@ -2107,19 +2127,22 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
             {exs.length===0
               ? <Empty msg={`No exercises for Day ${activeDay} yet`}/>
               : exs.map((ex,i)=>(
-                  <div key={i} style={{background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:8,border:`1px solid ${C.border}`}}>
-                    <div style={{color:C.muted,fontSize:12,fontWeight:800,minWidth:22,textAlign:"center"}}>{i+1}</div>
+                  <div key={i} data-exidx={i}
+                    draggable
+                    onDragStart={e=>handleDragStart(e,i)}
+                    onDragOver={e=>handleDragOver(e,i)}
+                    onDrop={handleDragEnd}
+                    onDragEnd={()=>{setDragIdx(null);setDragOverIdx(null);}}
+                    onClick={()=>!saving&&startEdit(i)}
+                    style={{background:dragOverIdx===i&&dragIdx!==i?`${C.cyan}12`:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:8,border:`1px solid ${dragOverIdx===i&&dragIdx!==i?C.cyan:C.border}`,cursor:"pointer",opacity:dragIdx===i?0.4:1,transition:"all 0.12s",userSelect:"none"}}>
+                    {/* drag handle */}
+                    <div onTouchStart={handleTouchDrag(i)} style={{color:C.border,fontSize:20,cursor:"grab",padding:"0 2px",flexShrink:0,touchAction:"none",lineHeight:1}}>⠿</div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{color:C.white,fontSize:14,fontWeight:700}}>{ex.name}</div>
                       <div style={{color:C.pink,fontSize:12,fontWeight:700,marginTop:2}}>{exLabel(ex)}</div>
                     </div>
-                    {/* edit button */}
-                    <button onClick={()=>startEdit(i)} disabled={saving} title="Edit" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,color:C.cyan,cursor:"pointer",fontSize:13,padding:"5px 9px",lineHeight:1,flexShrink:0}}>✏️</button>
-                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                      <button onClick={()=>move(i,-1)} disabled={i===0||saving} style={{background:"none",border:"none",color:i===0?C.border:C.muted,cursor:i===0?"default":"pointer",fontSize:12,padding:"2px 5px",lineHeight:1}}>▲</button>
-                      <button onClick={()=>move(i,1)} disabled={i===exs.length-1||saving} style={{background:"none",border:"none",color:i===exs.length-1?C.border:C.muted,cursor:i===exs.length-1?"default":"pointer",fontSize:12,padding:"2px 5px",lineHeight:1}}>▼</button>
-                    </div>
-                    <button onClick={()=>remove(i)} disabled={saving} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:17,padding:"4px"}}>✕</button>
+                    <button onClick={e=>{e.stopPropagation();!saving&&startEdit(i);}} title="Edit" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,color:C.cyan,cursor:"pointer",fontSize:13,padding:"5px 9px",lineHeight:1,flexShrink:0,opacity:saving?0.4:1}}>✏️</button>
+                    <button onClick={e=>{e.stopPropagation();remove(i);}} disabled={saving} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:17,padding:"4px"}}>✕</button>
                   </div>
                 ))
             }
@@ -2247,6 +2270,10 @@ const ProgramsScreen=({trainerId,token})=>{
   const handleCreate=async(nameOverride)=>{
     const name=nameOverride||newName.trim();
     if(!name) return;
+    if(programs.some(p=>p.name.toLowerCase()===name.toLowerCase())){
+      showProgToast(`A program named "${name}" already exists.`);
+      return;
+    }
     setCreating(true);
     try{
       const res=await createTemplate({trainer_id:trainerId,name,exercises:[]},token);
