@@ -699,9 +699,6 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
   const dayBreakdown={};
   monthItems.forEach(t=>{ dayBreakdown[t._dayNum]=(dayBreakdown[t._dayNum]||0)+1; });
   const monthPRs=(prs||[]).filter(p=>p.record_date?.slice(0,7)===monthStr);
-  const ratings=monthItems.map(t=>firstNote(t.session_notes)?.rating).filter(r=>r!=null);
-  const avgRating=ratings.length?(ratings.reduce((a,b)=>a+b,0)/ratings.length):null;
-
   const Row=({label,value})=>(
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
       <span style={{color:C.muted,fontSize:13}}>{label}</span>
@@ -733,7 +730,6 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
         <Row label="Sessions per week (avg)" value={perWeekAvg}/>
         <Row label="Package usage" value={pkg?`${pkg.sessions_used} of ${pkg.sessions_total}`:"No active package"}/>
         <Row label="PRs set this month" value={monthPRs.length}/>
-        <Row label="Average session rating" value={avgRating?`★ ${avgRating.toFixed(1)}`:"No ratings yet"}/>
         <div style={{marginTop:16}}>
           <SL>Day Breakdown</SL>
           {Array.from({length:spw},(_,i)=>i+1).map(d=>(
@@ -800,9 +796,6 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const unhideSession=(id)=>{ const n=new Set(hiddenSessIds); n.delete(id); setHiddenSessIds(n); localStorage.setItem(hiddenKey,JSON.stringify([...n])); };
   const spw=pkg?.sessions_per_week||3;
   const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
-  const ratings=sessions.map(s=>firstNote(s.session_notes)?.rating).filter(r=>r!=null);
-  const avgRating=ratings.length?(ratings.reduce((a,b)=>a+b,0)/ratings.length):null;
-
   useEffect(()=>{
     Promise.all([getClientSess(client.id,token), getClientBooks(client.id,token)])
       .then(([s,b])=>{ setSessions(s||[]); setClientBooks(b||[]); })
@@ -1012,7 +1005,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           {client.created_at&&<div style={{color:C.muted,fontSize:12,marginTop:3}}>Member since {fmtMemberSince(client.created_at)}</div>}
         </div>
         <div style={{display:"flex",gap:10}}>
-          {[{v:timeline.length,l:"Sessions"},{v:pkg?`${spw}x`:"-",l:"Per Week"},{v:left??"-",l:"Pkg Left",warn:left!=null&&left<=2},{v:avgRating?`★${avgRating.toFixed(1)}`:"-",l:"Avg Rating"}].map(s=>(
+          {[{v:timeline.length,l:"Sessions"},{v:pkg?`${spw}x`:"-",l:"Per Week"},{v:left??"-",l:"Pkg Left",warn:left!=null&&left<=2}].map(s=>(
             <div key={s.l} style={{background:C.surface,border:`1px solid ${s.warn?C.pink+"44":C.border}`,borderRadius:10,padding:"10px 14px",textAlign:"center",minWidth:60}}>
               <div style={{color:s.warn?C.pink:C.cyan,fontSize:20,fontWeight:900}}>{s.v}</div>
               <div style={{color:C.muted,fontSize:10,fontWeight:600,marginTop:2}}>{s.l}</div>

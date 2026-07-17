@@ -109,9 +109,9 @@ const uploadAvatar=async(uid,file,tk)=>{
   return `${SB_URL}/storage/v1/object/public/avatars/${path}?t=${Date.now()}`;
 };
 
-const saveClientNote = async (sessId, note, tk, rating=null) => {
+const saveClientNote = async (sessId, note, tk) => {
   const ex = await dbGet("session_notes",`session_id=eq.${sessId}`,tk).catch(()=>[]);
-  const body = {client_note:note,updated_at:new Date().toISOString(),...(rating!=null&&{rating})};
+  const body = {client_note:note,updated_at:new Date().toISOString()};
   if(ex?.length>0) return dbPatch("session_notes",`session_id=eq.${sessId}`,body,tk);
   return dbPost("session_notes",{session_id:sessId,...body},tk);
 };
@@ -407,7 +407,6 @@ const SessionSheet=({session,token,onClose})=>{
   const spw = session._pkg_spw || 3;
   const dayNum = session.sessions_used_before!=null ? calcDayNum(session.sessions_used_before, spw) : session.day_num;
   const [clientNote, setClientNote] = useState(noteObj?.client_note||"");
-  const [rating, setRating] = useState(noteObj?.rating||0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [ssToast,setSsToast]=useState(null);
@@ -418,7 +417,7 @@ const SessionSheet=({session,token,onClose})=>{
     if(saving||saved) return;
     setSaving(true);
     try {
-      await saveClientNote(session.id, clientNote, token, isCompleted?(rating||null):null);
+      await saveClientNote(session.id, clientNote, token);
       setSaved(true);
       setTimeout(()=>{ setSaved(false); onClose(); }, 1200);
     } catch(e) { showSsToast("Error saving: "+e.message); }
@@ -458,16 +457,6 @@ const SessionSheet=({session,token,onClose})=>{
           placeholder="How did it go? Anything to remember..."
           style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.white,fontSize:14,fontFamily:"inherit",resize:"none",height:90,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:12}}/>
 
-        {isCompleted&&(
-          <>
-            <SL>Rate This Session</SL>
-            <div style={{display:"flex",gap:8,marginBottom:16}}>
-              {[1,2,3,4,5].map(n=>(
-                <button key={n} onClick={()=>setRating(n)} style={{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:30,lineHeight:1,color:n<=rating?C.amber:C.border,fontFamily:"inherit"}}>★</button>
-              ))}
-            </div>
-          </>
-        )}
 
         <GBtn label={saving?"Saving...":saved?"✓ Saved!":"Save Notes"} onClick={save} disabled={saving} style={{width:"100%"}}/>
       </div>
