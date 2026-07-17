@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unorthodox Athletes – Install the App</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+    }
+    .wrapper { max-width: 560px; margin: 0 auto; background: #111111; }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+      padding: 40px 32px 32px;
+      text-align: center;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .logo-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+    .logo-wrap img {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid rgba(0,188,212,0.4);
+    }
+    .logo-wrap .brand {
+      font-size: 18px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, #00BCD4, #E91E63);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header h1 {
+      font-size: 26px;
+      font-weight: 800;
+      color: #ffffff;
+      line-height: 1.3;
+      margin-bottom: 10px;
+    }
+    .header p { font-size: 15px; color: #888; line-height: 1.6; }
+
+    /* Highlight box */
+    .highlight {
+      margin: 24px 24px 0;
+      background: rgba(0,188,212,0.08);
+      border: 1px solid rgba(0,188,212,0.25);
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+    .highlight .icon { font-size: 26px; flex-shrink: 0; margin-top: 2px; }
+    .highlight p { font-size: 14px; color: #aaa; line-height: 1.55; }
+    .highlight p strong { color: #00BCD4; }
+
+    /* Section */
+    .section { padding: 28px 24px 0; }
+    .section-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #555;
+      margin-bottom: 16px;
+    }
+
+    /* Platform card */
+    .platform-card {
+      background: #1a1a1a;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .platform-header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .platform-icon {
+      width: 42px; height: 42px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+    .ios-bg { background: linear-gradient(135deg, #007AFF22, #007AFF44); }
+    .android-bg { background: linear-gradient(135deg, #34A85322, #34A85344); }
+    .platform-header h3 { font-size: 16px; font-weight: 800; color: #fff; }
+    .platform-header p { font-size: 12px; color: #666; margin-top: 2px; }
+
+    /* Steps */
+    .steps { padding: 16px 20px 20px; }
+    .step { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px; }
+    .step:last-child { margin-bottom: 0; }
+    .step-num {
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; flex-shrink: 0; margin-top: 1px;
+    }
+    .ios-num { background: #007AFF22; color: #007AFF; border: 1px solid #007AFF44; }
+    .android-num { background: #34A85322; color: #34A853; border: 1px solid #34A85344; }
+    .step-text { font-size: 14px; color: #ccc; line-height: 1.55; }
+    .step-text strong { color: #fff; font-weight: 700; }
+    .tag {
+      display: inline-block;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px;
+      padding: 1px 8px;
+      font-size: 12px;
+      color: #ddd;
+      font-family: monospace;
+    }
+
+    /* Notifications section */
+    .notif-card {
+      background: #1a1a1a;
+      border: 1px solid rgba(233,30,99,0.2);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .notif-header {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: rgba(233,30,99,0.05);
+    }
+    .notif-icon {
+      width: 42px; height: 42px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #E91E6322, #E91E6344);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+    .notif-header h3 { font-size: 16px; font-weight: 800; color: #fff; }
+    .notif-header p { font-size: 12px; color: #666; margin-top: 2px; }
+    .notif-body { padding: 16px 20px 20px; }
+    .notif-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .notif-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .notif-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #E91E63;
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
+    .notif-item p { font-size: 13px; color: #bbb; line-height: 1.5; }
+    .notif-item p strong { color: #fff; }
+    .notif-tip {
+      margin-top: 14px;
+      background: rgba(233,30,99,0.08);
+      border: 1px solid rgba(233,30,99,0.2);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: #aaa;
+      line-height: 1.5;
+    }
+    .notif-tip strong { color: #E91E63; }
+
+    /* URL box */
+    .url-box {
+      margin: 20px 24px 0;
+      background: #1a1a1a;
+      border: 1px solid rgba(0,188,212,0.3);
+      border-radius: 12px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .url-box .url-icon { font-size: 20px; }
+    .url-box .url-text { font-size: 13px; color: #888; line-height: 1.4; }
+    .url-box .url-text a {
+      color: #00BCD4;
+      font-weight: 700;
+      text-decoration: none;
+      font-size: 15px;
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    /* Footer */
+    .footer {
+      background: #0a0a0a;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding: 24px 24px 36px;
+      text-align: center;
+      margin-top: 28px;
+    }
+    .footer .brand-footer {
+      display: inline-flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    }
+    .footer .brand-footer img {
+      width: 30px; height: 30px;
+      border-radius: 50%; object-fit: cover;
+    }
+    .footer .brand-footer span {
+      font-size: 13px; font-weight: 800; color: #555;
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .footer p { font-size: 12px; color: #444; line-height: 1.6; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo-wrap">
+      <img src="https://unorthodox-athletes.vercel.app/logo.png" alt="UA Logo">
+      <span class="brand">Unorthodox Athletes</span>
+    </div>
+    <h1>Install the app<br>on your phone</h1>
+    <p>No App Store download needed — one simple step<br>and you'll find it right on your home screen.</p>
+  </div>
+
+  <!-- Highlight -->
+  <div class="highlight">
+    <div class="icon">💡</div>
+    <p>The app works like a <strong>native app</strong> — it opens fullscreen with no browser bar, and lives on your phone's home screen just like any other app.</p>
+  </div>
+
+  <!-- Install Instructions -->
+  <div class="section">
+    <div class="section-title">Installation Instructions</div>
+
+    <!-- iOS -->
+    <div class="platform-card">
+      <div class="platform-header">
+        <div class="platform-icon ios-bg">🍎</div>
+        <div>
+          <h3>iPhone / iPad (iOS)</h3>
+          <p>Use Safari browser</p>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num ios-num">1</div>
+          <div class="step-text">Open <strong>Safari</strong> (not Chrome or another browser)</div>
+        </div>
+        <div class="step">
+          <div class="step-num ios-num">2</div>
+          <div class="step-text">Go to:<br><span class="tag">unorthodox-athletes.vercel.app</span></div>
+        </div>
+        <div class="step">
+          <div class="step-num ios-num">3</div>
+          <div class="step-text">Tap the <strong>Share</strong> button <span class="tag">□↑</span> at the bottom center of the screen</div>
+        </div>
+        <div class="step">
+          <div class="step-num ios-num">4</div>
+          <div class="step-text">Scroll down and tap <strong>"Add to Home Screen"</strong></div>
+        </div>
+        <div class="step">
+          <div class="step-num ios-num">5</div>
+          <div class="step-text">Tap <strong>"Add"</strong> in the top right — done! ✓</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Android -->
+    <div class="platform-card">
+      <div class="platform-header">
+        <div class="platform-icon android-bg">🤖</div>
+        <div>
+          <h3>Android</h3>
+          <p>Use Chrome browser</p>
+        </div>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num android-num">1</div>
+          <div class="step-text">Open <strong>Chrome</strong></div>
+        </div>
+        <div class="step">
+          <div class="step-num android-num">2</div>
+          <div class="step-text">Go to:<br><span class="tag">unorthodox-athletes.vercel.app</span></div>
+        </div>
+        <div class="step">
+          <div class="step-num android-num">3</div>
+          <div class="step-text">Tap the <strong>3-dot menu</strong> <span class="tag">⋮</span> in the top right</div>
+        </div>
+        <div class="step">
+          <div class="step-num android-num">4</div>
+          <div class="step-text">Select <strong>"Add to Home screen"</strong> or <strong>"Install App"</strong></div>
+        </div>
+        <div class="step">
+          <div class="step-num android-num">5</div>
+          <div class="step-text">Tap <strong>"Add"</strong> — done! ✓</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notifications Section -->
+  <div class="section">
+    <div class="section-title">Notifications</div>
+    <div class="notif-card">
+      <div class="notif-header">
+        <div class="notif-icon">🔔</div>
+        <div>
+          <h3>Stay in the loop</h3>
+          <p>What you'll receive notifications about</p>
+        </div>
+      </div>
+      <div class="notif-body">
+        <div class="notif-item">
+          <div class="notif-dot"></div>
+          <p><strong>Session booked</strong> — Confirmation when your trainer logs a new session for you</p>
+        </div>
+        <div class="notif-item">
+          <div class="notif-dot"></div>
+          <p><strong>Session cancelled</strong> — Immediate alert if a session is cancelled</p>
+        </div>
+        <div class="notif-item">
+          <div class="notif-dot"></div>
+          <p><strong>Slot opened up</strong> — Get notified when a previously full slot becomes available</p>
+        </div>
+        <div class="notif-item">
+          <div class="notif-dot"></div>
+          <p><strong>Announcements</strong> — Important updates from your trainer (schedule changes, closures, etc.)</p>
+        </div>
+        <div class="notif-item">
+          <div class="notif-dot"></div>
+          <p><strong>Package reminders</strong> — Heads up when your sessions are running low or a payment is pending</p>
+        </div>
+        <div class="notif-tip">
+          <strong>Tip:</strong> Notifications appear inside the app (bell icon). For push notifications on your phone, allow notifications when prompted after installing the app on your home screen.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- URL -->
+  <div class="url-box">
+    <div class="url-icon">🔗</div>
+    <div class="url-text">
+      <a href="https://unorthodox-athletes.vercel.app">unorthodox-athletes.vercel.app</a>
+      Your personal training app
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div class="brand-footer">
+      <img src="https://unorthodox-athletes.vercel.app/logo.png" alt="UA">
+      <span>Unorthodox Athletes</span>
+    </div>
+    <p>For any questions contact your trainer.<br>See you at the gym! 💪</p>
+  </div>
+
+</div>
+</body>
+</html>
