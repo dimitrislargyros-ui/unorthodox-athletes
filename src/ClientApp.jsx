@@ -200,10 +200,12 @@ const postCancelRequest   = (d,tk)  => dbPost("cancel_requests",d,tk);
 const VAPID_PUBLIC_KEY   = 'BNKaPdypI6pDPj7QQgVHhAAGxQgyjVpNcFIGu6N58WgZG05y9UTG4pwFIMu_9yDa8hMjhqtyUmJvE_84jASmVu0';
 // Use raw fetch for push subscription save — avoids the sb() auto-reload on 4xx errors
 const savePushSub = async (client_id, subscription, tk) => {
-  // Skip if this exact endpoint was already saved — prevents duplicate rows on every page load
   const cacheKey = `ua_push_ep_${client_id}`;
-  if (localStorage.getItem(cacheKey) === subscription.endpoint) {
-    console.log('[UA Push] Subscription unchanged, skipping save');
+  const cachedEp = localStorage.getItem(cacheKey);
+  const subEp = subscription.endpoint;
+  // Only skip if cached endpoint matches AND we trust the DB is in sync (cache was set this session)
+  if (cachedEp === subEp && sessionStorage.getItem(cacheKey+'_session')) {
+    console.log('[UA Push] Subscription already saved this session, skipping');
     return;
   }
   const res = await fetch(`${SB_URL}/rest/v1/push_subscriptions`, {
@@ -221,7 +223,8 @@ const savePushSub = async (client_id, subscription, tk) => {
     console.error('[UA Push] Failed to save subscription:', res.status, err);
   } else {
     console.log('[UA Push] Subscription saved to DB ✓');
-    localStorage.setItem(cacheKey, subscription.endpoint);
+    localStorage.setItem(cacheKey, subEp);
+    sessionStorage.setItem(cacheKey+'_session','1');
   }
 };
 const postNotification = async (d,tk) => {
@@ -1849,6 +1852,73 @@ const StatsPanel=({sessions,prs,pkg})=>{
   );
 };
 
+// ── Notification Settings Card (used in ProfileScreen) ──
+const NotifSettingsCard=({userId,token})=>{
+  const [status,setStatus]=useState(()=>typeof Notification!=='undefined'?Notification.permission:'unsupported');
+  const [working,setWorking]=useState(false);
+  const [msg,setMsg]=useState('');
+  const hasPush=typeof PushManager!=='undefined';
+  const enable=async()=>{
+    if(!('serviceWorker' in navigator)||!hasPush){setMsg('Push not supported on this device/browser. Install the app to your home screen first.');return;}
+    setWorking(true); setMsg('');
+    try{
+      const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+      const perm=await Notification.requestPermission();
+      setStatus(perm);
+      if(perm==='granted'){
+        const existing=await reg.pushManager.getSubscription();
+        const sub=existing||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+        if(sub){
+          // Force re-save by clearing session cache
+          const cacheKey=`ua_push_ep_${userId}`;
+          sessionStorage.removeItem(cacheKey+'_session');
+          await savePushSub(userId,sub.toJSON(),token);
+          setMsg('✅ Notifications enabled!');
+        }
+      } else if(perm==='denied'){
+        setMsg('❌ Blocked in browser settings. Open site settings to allow.');
+      }
+    }catch(e){setMsg('Error: '+e.message);}
+    setWorking(false);
+  };
+  const reregister=async()=>{
+    if(!('serviceWorker' in navigator)||!hasPush) return;
+    setWorking(true); setMsg('');
+    try{
+      const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+      const existing=await reg.pushManager.getSubscription();
+      const sub=existing||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+      if(sub){
+        const cacheKey=`ua_push_ep_${userId}`;
+        sessionStorage.removeItem(cacheKey+'_session');
+        await savePushSub(userId,sub.toJSON(),token);
+        setMsg('✅ Subscription refreshed!');
+      }
+    }catch(e){setMsg('Error: '+e.message);}
+    setWorking(false);
+  };
+  const statusColor=status==='granted'?C.green:status==='denied'?C.pink:C.muted;
+  const statusLabel=status==='granted'?'Enabled ✓':status==='denied'?'Blocked ✗':status==='unsupported'?'Not supported':'Not enabled';
+  return(
+    <div style={{background:C.surface,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+        <div>
+          <div style={{color:C.white,fontSize:13,fontWeight:700}}>Status: <span style={{color:statusColor}}>{statusLabel}</span></div>
+          {!hasPush&&<div style={{color:C.muted,fontSize:11,marginTop:3}}>Install as PWA (Add to Home Screen) to enable</div>}
+        </div>
+        {status==='granted'
+          ?<button onClick={reregister} disabled={working} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.cyan,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{working?'…':'Refresh'}</button>
+          :status!=='denied'&&hasPush
+            ?<button onClick={enable} disabled={working} style={{background:C.cyan,border:"none",borderRadius:8,padding:"6px 12px",color:C.bg,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{working?'…':'Enable'}</button>
+            :null
+        }
+      </div>
+      {msg&&<div style={{color:msg.startsWith('✅')?C.green:C.pink,fontSize:12,marginTop:4}}>{msg}</div>}
+      {status==='denied'&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>To re-enable: open your browser's site settings and allow notifications for this site, then tap Refresh.</div>}
+    </div>
+  );
+};
+
 // ── Profile ──
 const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onAvatarChange})=>{
   const [prs,setPRs]=useState(initPRs||[]);
@@ -2039,6 +2109,11 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
           })}
         </div>
       </div>
+      {/* Notifications */}
+      <div style={{padding:"0 20px 16px"}}>
+        <SL>Push Notifications</SL>
+        <NotifSettingsCard userId={userId} token={token}/>
+      </div>
       <div style={{padding:"0 20px 8px"}}>
         <button onClick={onLogout} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.pink,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Log Out</button>
       </div>
@@ -2086,6 +2161,10 @@ export default function App(){
       const anns=await getAnnouncements(token).catch(()=>[]);
       setAuth({loading:false,token,userId,profile,pkg:pkg||null,sessions:sessions||[],prs:prs||[]});
       setNotifications(notifs||[]);
+      // Show ImportantEventModal for any unread important notification already in DB on load
+      const MODAL_TYPES=['payment_confirmed','package_renewed','payment_reminder'];
+      const impEvent=(notifs||[]).find(n=>MODAL_TYPES.includes(n.type));
+      if(impEvent) setImportantEvent(impEvent);
       const latest=(anns||[])[0]?.created_at||null;
       setLatestAnnAt(latest);
       const seenKey=`ua_ann_seen_${userId}`;
