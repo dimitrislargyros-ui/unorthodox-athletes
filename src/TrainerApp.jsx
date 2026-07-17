@@ -732,6 +732,9 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
   const dayBreakdown={};
   monthItems.forEach(t=>{ dayBreakdown[t._dayNum]=(dayBreakdown[t._dayNum]||0)+1; });
   const monthPRs=(prs||[]).filter(p=>p.record_date?.slice(0,7)===monthStr);
+  // Cumulative sessions completed up to end of viewed month (not live pkg counter)
+  const monthEndStr=new Date(target.getFullYear(),target.getMonth()+1,0).toISOString().split("T")[0];
+  const cumCompleted=(timeline||[]).filter(t=>t._type!=="booking"&&statusMap[t.id]==="completed"&&t.session_date<=monthEndStr).length;
   const Row=({label,value})=>(
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
       <span style={{color:C.muted,fontSize:13}}>{label}</span>
@@ -761,7 +764,7 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,prs,spw,onClose})=>{
         </div>
         <Row label="Sessions completed this month" value={monthItems.length}/>
         <Row label="Sessions per week (avg)" value={perWeekAvg}/>
-        <Row label="Package usage" value={pkg?`${pkg.sessions_used} of ${pkg.sessions_total}`:"No active package"}/>
+        <Row label="Package usage" value={pkg?`${cumCompleted} of ${pkg.sessions_total} (total to date)`:`${cumCompleted} completed`}/>
         <Row label="PRs set this month" value={monthPRs.length}/>
         <div style={{marginTop:16}}>
           <SL>Day Breakdown</SL>
