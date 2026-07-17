@@ -1447,17 +1447,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
         <div style={{color:C.muted,fontSize:13,marginTop:2}}>Personal training · 90 min · Max {GYM_CAP} in gym</div>
         {pkg?.workout_templates?.name&&<div style={{color:C.cyan,fontSize:13,fontWeight:700,marginTop:6}}>🏋️ Program: {pkg.workout_templates.name}</div>}
       </div>
-      {activePeriod&&(
-        <div style={{padding:"0 20px 10px"}}>
-          <div style={{background:C.cyan+"18",border:`1px solid ${C.cyan}44`,borderRadius:10,padding:"9px 14px",display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:14}}>📅</span>
-            <div>
-              <div style={{color:C.cyan,fontSize:12,fontWeight:800}}>Current Period: {activePeriod.name}</div>
-              <div style={{color:C.muted,fontSize:11,marginTop:1}}>{fmtDate(activePeriod.start_date)} – {fmtDate(activePeriod.end_date)}</div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {!pkg
         ?<div style={{padding:"0 20px"}}>
@@ -1474,16 +1463,22 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
         <span style={{color:weekOffset===0?C.cyan:C.muted,fontSize:13,fontWeight:700}}>{weekLabel}</span>
         <button onClick={()=>setWeekOffset(p=>p+1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",color:C.muted,cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>›</button>
       </div>
+      {!isCurrentWeek&&(
+        <div style={{padding:"0 20px 6px",display:"flex",justifyContent:"center"}}>
+          <button onClick={()=>{setWeekOffset(0);setDay(todayDow());}} style={{background:C.amber+"18",border:`1px solid ${C.amber}55`,borderRadius:20,padding:"4px 14px",color:C.amber,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ Back to Today</button>
+        </div>
+      )}
 
       <div style={{padding:"0 20px 16px",display:"flex",gap:5}}>
         {weekDates.map((d,i)=>{
           const isToday=d.iso===todayStr;
           const hasSess=sessionDaySet.has(d.iso);
+          const isActive=dayIdx===i;
           return(
-            <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:11,border:`1px solid ${isToday&&dayIdx!==i?C.cyan+"55":"transparent"}`,cursor:"pointer",background:dayIdx===i?C.cyan:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <span style={{color:dayIdx===i?C.bg:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
-              <span style={{color:dayIdx===i?C.bg:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
-              {hasSess&&<span style={{width:4,height:4,borderRadius:"50%",background:dayIdx===i?C.bg:C.cyan,display:"block"}}/>}
+            <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:11,cursor:"pointer",border:`1px solid ${isActive?"transparent":isToday?C.amber+"77":"transparent"}`,background:isActive?C.cyan:isToday?C.amber+"18":C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{color:isActive?C.bg:isToday?C.amber:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
+              <span style={{color:isActive?C.bg:isToday?C.amber:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
+              {(hasSess||isToday)&&<span style={{width:4,height:4,borderRadius:"50%",background:isActive?C.bg:isToday?C.amber:C.cyan,display:"block"}}/>}
             </button>
           );
         })}

@@ -1637,18 +1637,28 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         </div>
       )}
 
-      <div style={{padding:"0 20px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{padding:"0 20px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <button onClick={()=>setWeekOffset(p=>p-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>‹</button>
-        <span style={{color:C.cyan,fontSize:13,fontWeight:700}}>{weekLabel}</span>
+        <span style={{color:isCurrentWeek?C.pink:C.muted,fontSize:13,fontWeight:700}}>{weekLabel}</span>
         <button onClick={()=>setWeekOffset(p=>p+1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>›</button>
       </div>
+      {!isCurrentWeek&&(
+        <div style={{padding:"0 20px 6px",display:"flex",justifyContent:"center"}}>
+          <button onClick={()=>{setWeekOffset(0);setDay(todayDow());}} style={{background:C.amber+"18",border:`1px solid ${C.amber}55`,borderRadius:20,padding:"4px 14px",color:C.amber,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ Back to Today</button>
+        </div>
+      )}
       <div style={{padding:"0 20px 16px",display:"flex",gap:5}}>
-        {weekDates.map((d,i)=>{const isToday=isCurrentWeek&&i===todayDow();return(
-          <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:10,border:`1px solid ${isToday&&dayIdx!==i?C.pink+"55":"transparent"}`,cursor:"pointer",background:dayIdx===i?C.pink:C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-            <span style={{color:dayIdx===i?C.white:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
-            <span style={{color:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
-          </button>
-        );})}
+        {weekDates.map((d,i)=>{
+          const isToday=d.iso===todayStr;
+          const isActive=dayIdx===i;
+          return(
+            <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:10,cursor:"pointer",border:`1px solid ${isActive?"transparent":isToday?C.amber+"77":"transparent"}`,background:isActive?C.pink:isToday?C.amber+"18":C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <span style={{color:isActive?C.white:isToday?C.amber:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
+              <span style={{color:isActive?C.white:isToday?C.amber:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
+              {isToday&&!isActive&&<span style={{width:4,height:4,borderRadius:"50%",background:C.amber,display:"block"}}/>}
+            </button>
+          );
+        })}
       </div>
       {isSun?<div style={{padding:"0 20px"}}><Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>😴</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Rest Day</div><div style={{color:C.muted,fontSize:14,marginTop:6}}>Gym closed Sundays.</div></Card></div>:(
         <div style={{padding:"0 20px"}}>
