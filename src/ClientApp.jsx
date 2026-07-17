@@ -13,6 +13,9 @@ import ExercisePicker from "./ExercisePicker.jsx";
   style.textContent=`
     @keyframes ua-spin{to{transform:rotate(360deg)}}
     @keyframes ua-logo-pulse{0%,100%{opacity:1}50%{opacity:.75}}
+    @keyframes ua-fade-in{from{opacity:0}to{opacity:1}}
+    @keyframes ua-scale-in{from{transform:scale(0.82);opacity:0}to{transform:scale(1);opacity:1}}
+    @keyframes ua-slide-down{from{opacity:0;transform:translateX(-50%) translateY(-16px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
     .ua-btn-grad{transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s ease}
     .ua-btn-grad:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,201,225,.35)}
     .ua-btn-grad:not(:disabled):active{transform:translateY(0) scale(.97)}
@@ -47,6 +50,70 @@ const SESS_MIN = 90;
 // ── Supabase ──
 const SB_URL = "https://hxyqvryuniqmvpjljrry.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4eXF2cnl1bmlxbXZwamxqcnJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyOTQ0NTAsImV4cCI6MjA5Nzg3MDQ1MH0.eSoak4YVf7vqFwYlYebayMS3CCiEjLhZ5olEAnkDJlU";
+
+// ── Supabase Realtime — minimal Phoenix WebSocket client ──
+// Handles live DB changes (INSERT/UPDATE) without a full supabase-js dependency.
+function makeRealtime(supabaseUrl, anonKey) {
+  let ws = null, _ref = 0, heartbeatTimer = null, reconnTimer = null, _jwt = null;
+  const _subs = [];
+  const _nextRef = () => String(++_ref);
+  const _send = (msg) => { if (ws?.readyState === 1) ws.send(JSON.stringify(msg)); };
+  const _joinAll = () => {
+    _subs.forEach((s, i) => {
+      const r = _nextRef();
+      _send({
+        topic: `realtime:ua_rt_${i}`,
+        event: 'phx_join',
+        payload: {
+          config: {
+            broadcast: { self: false },
+            presence: { key: '' },
+            postgres_changes: [{
+              event: s.event || '*',
+              schema: 'public',
+              table: s.table,
+              ...(s.filter ? { filter: s.filter } : {}),
+            }],
+          },
+          access_token: _jwt || anonKey,
+        },
+        ref: r, join_ref: r,
+      });
+    });
+  };
+  const rt = {};
+  rt.subscribe = (table, event, filter, callback) => { _subs.push({ table, event, filter, callback }); };
+  rt.connect = (userJwt) => {
+    _jwt = userJwt;
+    if (ws) { ws.onclose = null; ws.close(); }
+    clearInterval(heartbeatTimer); clearTimeout(reconnTimer);
+    const url = `${supabaseUrl.replace('https://', 'wss://')}/realtime/v1/websocket?vsn=1.0.0&apikey=${anonKey}`;
+    ws = new WebSocket(url);
+    ws.onopen = () => {
+      heartbeatTimer = setInterval(() => _send({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: _nextRef() }), 25000);
+      _joinAll();
+    };
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.event !== 'postgres_changes') return;
+        const data = msg.payload?.data;
+        if (!data) return;
+        _subs.forEach(s => {
+          if (s.table === data.table && (s.event === '*' || s.event === data.type))
+            s.callback(data.new, data.old, data.type);
+        });
+      } catch {}
+    };
+    ws.onclose = () => { clearInterval(heartbeatTimer); reconnTimer = setTimeout(() => rt.connect(_jwt), 5000); };
+    ws.onerror = () => {};
+  };
+  rt.disconnect = () => {
+    clearInterval(heartbeatTimer); clearTimeout(reconnTimer);
+    if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  };
+  return rt;
+}
 
 const sb = async (path, method="GET", body=null, token=null, prefer="return=representation") => {
   const res = await fetch(`${SB_URL}${path}`, {
@@ -159,7 +226,8 @@ const savePushSub = async (client_id, subscription, tk) => {
 };
 const postNotification = async (d,tk) => {
   await dbPost("notifications",d,tk);
-  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id})})
+  // Include title+body so the push shows the actual message text
+  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message})})
     .then(r=>r.json()).then(j=>console.log('[UA Push] send-push result:',j)).catch(e=>console.error('[UA Push] send-push error:',e));
 };
 
@@ -245,6 +313,31 @@ const Spinner=({size=44,fullscreen=false})=>{
 };
 const Empty=({msg})=>(<div style={{textAlign:"center",padding:"28px 16px",color:C.muted,fontSize:14}}>{msg}</div>);
 const UaToast=({toast,c})=>toast?(<div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",background:toast.ok?c.green:c.pink,color:"#fff",padding:"10px 22px",borderRadius:12,zIndex:600,fontWeight:700,fontSize:13,whiteSpace:"nowrap",boxShadow:"0 4px 20px rgba(0,0,0,0.4)",pointerEvents:"none"}}>{toast.msg}</div>):null;
+
+// ── Important Event Modal — prominent pop-up for payment/package events ──
+const ImportantEventModal=({event:ev,onClose})=>{
+  if(!ev) return null;
+  const cfg={
+    payment_confirmed:{icon:'✅',title:'Payment Confirmed!',color:C.green},
+    package_renewed:  {icon:'🎯',title:'New Package Assigned!',color:C.cyan},
+    payment_reminder: {icon:'💳',title:'Payment Reminder',color:C.pink},
+    session_scheduled:{icon:'📅',title:'Session Booked!',color:C.cyan},
+    session_cancelled:{icon:'🚫',title:'Session Cancelled',color:C.pink},
+    waitlist_promoted:{icon:'🎉',title:'Spot Available!',color:C.green},
+    slot_request_approved:{icon:'✅',title:'Request Approved!',color:C.green},
+  };
+  const {icon='🔔',title='Notification',color=C.cyan}=cfg[ev.type]||{};
+  return(
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.82)',zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 24px',animation:'ua-fade-in .2s ease'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:24,padding:'36px 24px 28px',width:'100%',maxWidth:340,border:`1px solid ${color}44`,boxShadow:`0 0 80px ${color}18`,textAlign:'center',animation:'ua-scale-in .28s cubic-bezier(.22,1,.36,1)'}}>
+        <div style={{fontSize:60,marginBottom:14,lineHeight:1,filter:`drop-shadow(0 0 20px ${color}66)`}}>{icon}</div>
+        <div style={{color:C.white,fontSize:20,fontWeight:800,marginBottom:10,letterSpacing:'-0.3px'}}>{title}</div>
+        <div style={{color:'#aaa',fontSize:14,lineHeight:1.65,marginBottom:26,padding:'0 8px'}}>{ev.message}</div>
+        <button onClick={onClose} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:'none',borderRadius:12,padding:'13px 0',color:'#fff',fontWeight:800,fontSize:15,cursor:'pointer',fontFamily:'inherit',width:'100%',letterSpacing:'0.2px'}}>Got it 👍</button>
+      </div>
+    </div>
+  );
+};
 
 const UaConfirm=({dialog,setDialog,c})=>{
   if(!dialog) return null;
@@ -1965,6 +2058,9 @@ export default function App(){
   const [hasNewAnn,setHasNewAnn]=useState(false);
   const [latestAnnAt,setLatestAnnAt]=useState(null);
   const [priorAnnSeenAt,setPriorAnnSeenAt]=useState(null);
+  const [importantEvent,setImportantEvent]=useState(null); // prominent modal for payment/package
+  const [rtToast,setRtToast]=useState(null);               // top toast for realtime events
+  const rtToastTimer=useRef(null);
 
   useEffect(()=>{
     const init=async()=>{
@@ -2074,6 +2170,52 @@ export default function App(){
     return ()=>navigator.serviceWorker.removeEventListener('message',handler);
   },[auth.userId]);
 
+  // ── Supabase Realtime — live updates while app is open ──
+  useEffect(()=>{
+    if(!auth.userId||!auth.token) return;
+    const rt=makeRealtime(SB_URL,SB_KEY);
+
+    const showRtToast=(msg)=>{
+      clearTimeout(rtToastTimer.current);
+      setRtToast(msg);
+      rtToastTimer.current=setTimeout(()=>setRtToast(null),4000);
+    };
+
+    // New notification for this client → update bell + show modal or toast
+    rt.subscribe('notifications','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
+      setNotifications(prev=>prev.some(n=>n.id===row.id)?prev:[row,...prev]);
+      const MODAL=['payment_confirmed','package_renewed','payment_reminder'];
+      if(MODAL.includes(row.type)){
+        setImportantEvent(row);
+      } else {
+        showRtToast(row.message);
+      }
+    });
+
+    // New announcement → toast + badge
+    rt.subscribe('announcements','INSERT',null,(row)=>{
+      setHasNewAnn(true);
+      showRtToast(`📢 ${row.message||'New announcement from your trainer'}`);
+    });
+
+    // Package INSERT or UPDATE → refresh in auth state (new package assigned, payment status change)
+    rt.subscribe('packages','*',`client_id=eq.${auth.userId}`,(row)=>{
+      setAuth(prev=>({...prev,pkg:row}));
+      // Also trigger important modal if a new package arrived and no notification came yet
+      if(row.sessions_total&&!importantEvent){
+        // A notification will also fire; this is a fallback
+      }
+    });
+
+    // New session (trainer force-logged) → update sessions list
+    rt.subscribe('sessions','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
+      setAuth(prev=>({...prev,sessions:[row,...(prev.sessions||[])]}));
+    });
+
+    rt.connect(auth.token);
+    return ()=>{ rt.disconnect(); clearTimeout(rtToastTimer.current); };
+  },[auth.userId,auth.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSignUp=async(firstName,lastName,email,pw,phone=null)=>{
     const latinize=s=>{const G={'α':'a','β':'v','γ':'g','δ':'d','ε':'e','ζ':'z','η':'i','θ':'th','ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p','ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'f','χ':'ch','ψ':'ps','ω':'o','ά':'a','έ':'e','ή':'i','ί':'i','ό':'o','ύ':'y','ώ':'o','ϊ':'i','ΐ':'i','ϋ':'y','ΰ':'y'};let r='';for(const c of s.toLowerCase()){r+=G[c]||(c.normalize('NFD').replace(/[̀-ͯ]/g,'')||c);}return r.replace(/[^a-z]/g,'');};
     const data=await authSignUp(email,pw);
@@ -2135,6 +2277,15 @@ export default function App(){
       {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
       {/* Notification panel */}
       {showNotifPanel&&<NotifPanel notifications={notifications} onDismiss={async(id)=>{await dismissNotification(id);}} onDelete={async(id)=>{await deleteNotif(id);}} onClose={()=>setShowNotifPanel(false)}/>}
+      {/* Important event modal (payment / package) */}
+      {importantEvent&&<ImportantEventModal event={importantEvent} onClose={()=>setImportantEvent(null)}/>}
+      {/* Realtime top toast */}
+      {rtToast&&(
+        <div style={{position:'fixed',top:18,left:'50%',transform:'translateX(-50%)',background:C.surface,border:`1px solid ${C.cyan}55`,color:C.white,padding:'10px 18px',borderRadius:14,zIndex:650,fontWeight:700,fontSize:13,boxShadow:'0 6px 28px rgba(0,0,0,0.55)',display:'flex',alignItems:'center',gap:8,maxWidth:'calc(100vw - 32px)',animation:'ua-slide-down .25s cubic-bezier(.22,1,.36,1)',pointerEvents:'none'}}>
+          <span style={{fontSize:16}}>🔔</span>
+          <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{rtToast}</span>
+        </div>
+      )}
       {renderScreen()}
       <BottomNav active={screen} onNav={handleNav} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials} annBadge={hasNewAnn}/>
     </div>
