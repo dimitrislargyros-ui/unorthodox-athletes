@@ -252,7 +252,40 @@ const computeStatusMap=(items,now)=>{
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
 };
-const BottomNav=({active,onNav,scheduleBadge=0})=>(<div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",background:"rgba(10,10,10,0.85)",backdropFilter:"blur(20px) saturate(180%)",WebkitBackdropFilter:"blur(20px) saturate(180%)",borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",justifyContent:"space-around",padding:"10px 0 24px",zIndex:100}}>{[{id:"today",l:"Today",i:"◈"},{id:"clients",l:"Clients",i:"◉"},{id:"schedule",l:"Schedule",i:"◫"},{id:"programs",l:"Programs",i:"▦"}].map(t=>(<button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5,color:active===t.id?C.pink:C.muted,padding:"0 10px"}}><div style={{position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:20}}>{t.i}</span>{t.id==="schedule"&&scheduleBadge>0&&<span style={{position:"absolute",top:-4,right:-6,background:C.pink,borderRadius:"50%",width:8,height:8,display:"block"}}/>}</div><span style={{fontSize:10,fontWeight:700,letterSpacing:0.5}}>{t.l}</span></button>))}</div>);
+// ── SVG icons for Trainer BottomNav ──
+const IcoToday=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><circle cx="12" cy="16" r="1.5" fill={c} stroke="none"/><path d="M12 13v1"/></svg>);
+const IcoClients=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="7" r="3.5"/><path d="M2 20c0-3.5 3.1-6 7-6"/><circle cx="17" cy="8" r="2.5"/><path d="M22 20c0-2.8-2.3-5-5-5a5 5 0 00-2 .4"/></svg>);
+const IcoCalTr=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>);
+const IcoDumbbell=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M8 12h8"/><rect x="5.5" y="8" width="2.5" height="8" rx="1"/><rect x="16" y="8" width="2.5" height="8" rx="1"/><rect x="2.5" y="10" width="3" height="4" rx="1"/><rect x="18.5" y="10" width="3" height="4" rx="1"/></svg>);
+
+const BottomNav=({active,onNav,scheduleBadge=0})=>{
+  const tabs=[
+    {id:"today",    label:"Today",    Icon:IcoToday},
+    {id:"clients",  label:"Clients",  Icon:IcoClients},
+    {id:"schedule", label:"Schedule", Icon:IcoCalTr},
+    {id:"programs", label:"Programs", Icon:IcoDumbbell},
+  ];
+  return(
+    <div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(8,8,8,0.92)",backdropFilter:"blur(24px) saturate(200%)",WebkitBackdropFilter:"blur(24px) saturate(200%)",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-around",alignItems:"flex-end",padding:"8px 0 max(env(safe-area-inset-bottom),20px)",zIndex:100}}>
+      {tabs.map(t=>{
+        const isActive=active===t.id;
+        const col=isActive?C.pink:C.muted;
+        return(
+          <button key={t.id} onClick={()=>onNav(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"2px 14px",position:"relative",transition:"transform .15s"}}>
+            <div style={{position:"relative",display:"flex",alignItems:"center",justifyContent:"center",width:40,height:32,borderRadius:12,background:isActive?C.pink+"18":"transparent",transition:"background .2s"}}>
+              <t.Icon c={col}/>
+              {t.id==="schedule"&&scheduleBadge>0&&(
+                <span style={{position:"absolute",top:2,right:4,background:C.pink,borderRadius:"50%",width:7,height:7,display:"block",boxShadow:`0 0 0 2px ${C.bg}`}}/>
+              )}
+            </div>
+            <span style={{fontSize:9,fontWeight:isActive?800:600,color:col,letterSpacing:.4,textTransform:"uppercase",transition:"color .2s"}}>{t.label}</span>
+            {isActive&&<span style={{position:"absolute",bottom:-2,left:"50%",transform:"translateX(-50%)",width:20,height:2,background:C.pink,borderRadius:2}}/>}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 // ── Session Editor ──
 const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
