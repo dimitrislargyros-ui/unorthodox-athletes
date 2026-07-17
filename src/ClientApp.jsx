@@ -462,13 +462,14 @@ const IcoPerson=({c,sz=22})=>(<svg width={sz} height={sz} viewBox="0 0 24 24" fi
 
 const BottomNav=({active,onNav,avatarUrl,initials,annBadge})=>{
   const tabs=[
-    {id:"home",     label:"Home",          Icon:IcoHome},
-    {id:"schedule", label:"Schedule",      Icon:IcoCalendar},
+    {id:"home",     label:"Home",         Icon:IcoHome},
+    {id:"schedule", label:"Schedule",     Icon:IcoCalendar},
     {id:"announcements",label:"News",      Icon:IcoMega},
     {id:"profile",  label:"Profile",       Icon:null},
   ];
   return(
-    <div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(8,8,8,0.92)",backdropFilter:"blur(24px) saturate(200%)",WebkitBackdropFilter:"blur(24px) saturate(200%)",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-around",alignItems:"flex-end",padding:"8px 0 max(env(safe-area-inset-bottom),20px)",zIndex:100}}>
+    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:200,display:"flex",justifyContent:"center",pointerEvents:"none"}}>
+    <div style={{width:"100%",maxWidth:480,background:"rgba(8,8,8,0.94)",backdropFilter:"blur(24px) saturate(180%)",WebkitBackdropFilter:"blur(24px) saturate(180%)",borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",justifyContent:"space-around",alignItems:"flex-end",padding:"8px 0 max(env(safe-area-inset-bottom),18px)",pointerEvents:"all"}}>
       {tabs.map(t=>{
         const isActive=active===t.id;
         const col=isActive?C.cyan:C.muted;
@@ -491,6 +492,7 @@ const BottomNav=({active,onNav,avatarUrl,initials,annBadge})=>{
           </button>
         );
       })}
+    </div>
     </div>
   );
 };
@@ -591,35 +593,52 @@ const HistorySheet=({sessions,spw,onClose,label="Personal Training"})=>{
   );
 };
 
-// Swipeable notification row — swipe left to reveal delete, or full swipe to delete
-const SwipeNotifRow=({n,onDismiss,onDelete})=>{
+// Swipeable notification row — swipe left to reveal trash, tap trash to delete
+const SwipeNotifRow=({n,onDelete})=>{
+  const [open,setOpen]=useState(false);
   const [tx,setTx]=useState(0);
   const [dragging,setDragging]=useState(false);
   const [gone,setGone]=useState(false);
   const startX=useRef(null);
-  const THRESHOLD=80; // px to reveal delete zone
-  const KILL=220;     // px to auto-delete
+  const THRESHOLD=75; // px to snap open
   const typeIcon=n.type==="session_scheduled"?"📅":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":"🔔";
+
   const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; setDragging(true); };
   const onTouchMove=(e)=>{
     if(startX.current===null) return;
-    const dx=e.touches[0].clientX-startX.current;
-    if(dx<0) setTx(Math.max(dx,-KILL-20));
+    const raw=e.touches[0].clientX-startX.current;
+    // if open, allow right-swipe to close or left to stay open
+    const base=open?-THRESHOLD:0;
+    const clamped=Math.max(base+raw,-THRESHOLD-20);
+    setTx(Math.min(clamped,open?0:0));
   };
   const onTouchEnd=()=>{
     setDragging(false);
-    if(tx<-KILL){ setGone(true); setTimeout(()=>onDelete(n.id),280); }
-    else if(tx<-THRESHOLD) setTx(-THRESHOLD);
-    else setTx(0);
+    const base=open?-THRESHOLD:0;
+    const delta=tx-base;
+    if(!open){
+      // left swipe past threshold → snap open
+      if(tx<-THRESHOLD/2) { setOpen(true); setTx(-THRESHOLD); }
+      else { setTx(0); }
+    } else {
+      // right swipe past 30px → snap closed
+      if(delta>30) { setOpen(false); setTx(0); }
+      else { setTx(-THRESHOLD); }
+    }
     startX.current=null;
   };
+
+  const doDelete=()=>{ setGone(true); setTimeout(()=>onDelete(n.id),280); };
+
   if(gone) return null;
-  const showBtn=tx<=-THRESHOLD;
   return(
     <div style={{position:"relative",marginBottom:8,overflow:"hidden",borderRadius:12}}>
-      {/* Red delete backing */}
-      <div style={{position:"absolute",inset:0,background:C.pink,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"flex-end",paddingRight:18}}>
-        <span style={{color:"#fff",fontSize:18}}>🗑</span>
+      {/* Red trash backing — always visible, click only works when open */}
+      <div
+        onClick={open?doDelete:undefined}
+        style={{position:"absolute",inset:0,background:C.pink,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"flex-end",paddingRight:18,cursor:open?"pointer":"default"}}
+      >
+        <span style={{color:"#fff",fontSize:22}}>🗑</span>
       </div>
       {/* Row */}
       <div
@@ -631,21 +650,12 @@ const SwipeNotifRow=({n,onDismiss,onDelete})=>{
           <div style={{color:C.white,fontSize:13,lineHeight:1.5}}>{n.message}</div>
           {n.created_at&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{fmtDate(n.created_at?.split("T")[0])}</div>}
         </div>
-        <div style={{display:"flex",gap:4,flexShrink:0,alignItems:"center"}}>
-          {showBtn?(
-            <button onTouchEnd={e=>{e.stopPropagation();setGone(true);setTimeout(()=>onDelete(n.id),280);}} onClick={()=>{setGone(true);setTimeout(()=>onDelete(n.id),280);}}
-              style={{background:C.pink,border:"none",borderRadius:8,padding:"6px 10px",color:"#fff",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800}}>Delete</button>
-          ):(
-            <button onClick={()=>onDismiss(n.id)} title="Mark as read"
-              style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"5px 8px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700}}>Hide</button>
-          )}
-        </div>
       </div>
     </div>
   );
 };
 
-const NotifPanel=({notifications,onDismiss,onDelete,onClose})=>{
+const NotifPanel=({notifications,onDelete,onClose})=>{
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
       <div style={{background:C.surface,borderRadius:"20px 20px 0 0",maxHeight:"80vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
@@ -655,15 +665,15 @@ const NotifPanel=({notifications,onDismiss,onDelete,onClose})=>{
             <div style={{color:C.white,fontSize:16,fontWeight:800}}>🔔 Notifications</div>
             <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>Close</button>
           </div>
-          {notifications.length>0&&<div style={{color:C.muted,fontSize:11,marginBottom:12,paddingLeft:2}}>← swipe left to delete</div>}
+          {notifications.length>0&&<div style={{color:C.muted,fontSize:11,marginBottom:12,paddingLeft:2}}>← σύρε αριστερά · πάτα 🗑 για διαγραφή</div>}
         </div>
         {notifications.length===0
           ?<div style={{padding:"20px 20px 40px",color:C.muted,fontSize:13,textAlign:"center"}}>All caught up! No new notifications.</div>
           :<div style={{padding:"0 20px 32px"}}>
             {notifications.map(n=>(
-              <SwipeNotifRow key={n.id} n={n} onDismiss={onDismiss} onDelete={onDelete}/>
+              <SwipeNotifRow key={n.id} n={n} onDelete={onDelete}/>
             ))}
-            <button onClick={()=>notifications.forEach(n=>onDismiss(n.id))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px",color:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>Hide All</button>
+            <button onClick={()=>notifications.forEach(n=>onDelete(n.id))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px",color:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>Delete All</button>
           </div>
         }
       </div>
@@ -1852,14 +1862,14 @@ const StatsPanel=({sessions,prs,pkg})=>{
   );
 };
 
-// ── Notification Settings Card (used in ProfileScreen) ──
-const NotifSettingsCard=({userId,token})=>{
+// ── Notification Bell Sheet (bottom sheet from bell icon in Profile header) ──
+const NotifBellSheet=({userId,token,onClose})=>{
   const [status,setStatus]=useState(()=>typeof Notification!=='undefined'?Notification.permission:'unsupported');
   const [working,setWorking]=useState(false);
   const [msg,setMsg]=useState('');
   const hasPush=typeof PushManager!=='undefined';
   const enable=async()=>{
-    if(!('serviceWorker' in navigator)||!hasPush){setMsg('Push not supported on this device/browser. Install the app to your home screen first.');return;}
+    if(!('serviceWorker' in navigator)||!hasPush){setMsg('Push not supported. Install the app to Home Screen first.');return;}
     setWorking(true); setMsg('');
     try{
       const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
@@ -1869,19 +1879,18 @@ const NotifSettingsCard=({userId,token})=>{
         const existing=await reg.pushManager.getSubscription();
         const sub=existing||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
         if(sub){
-          // Force re-save by clearing session cache
           const cacheKey=`ua_push_ep_${userId}`;
           sessionStorage.removeItem(cacheKey+'_session');
           await savePushSub(userId,sub.toJSON(),token);
-          setMsg('✅ Notifications enabled!');
+          setMsg('✅ Ειδοποιήσεις ενεργοποιήθηκαν!');
         }
       } else if(perm==='denied'){
-        setMsg('❌ Blocked in browser settings. Open site settings to allow.');
+        setMsg('❌ Αποκλείστηκαν. Άνοιξε ρυθμίσεις ιστότοπου για να τις επιτρέψεις.');
       }
     }catch(e){setMsg('Error: '+e.message);}
     setWorking(false);
   };
-  const reregister=async()=>{
+  const refresh=async()=>{
     if(!('serviceWorker' in navigator)||!hasPush) return;
     setWorking(true); setMsg('');
     try{
@@ -1892,29 +1901,46 @@ const NotifSettingsCard=({userId,token})=>{
         const cacheKey=`ua_push_ep_${userId}`;
         sessionStorage.removeItem(cacheKey+'_session');
         await savePushSub(userId,sub.toJSON(),token);
-        setMsg('✅ Subscription refreshed!');
+        setMsg('✅ Η εγγραφή ανανεώθηκε!');
       }
     }catch(e){setMsg('Error: '+e.message);}
     setWorking(false);
   };
-  const statusColor=status==='granted'?C.green:status==='denied'?C.pink:C.muted;
-  const statusLabel=status==='granted'?'Enabled ✓':status==='denied'?'Blocked ✗':status==='unsupported'?'Not supported':'Not enabled';
+  const enabled=status==='granted';
+  const denied=status==='denied';
   return(
-    <div style={{background:C.surface,borderRadius:14,padding:"14px 16px",border:`1px solid ${C.border}`}}>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-        <div>
-          <div style={{color:C.white,fontSize:13,fontWeight:700}}>Status: <span style={{color:statusColor}}>{statusLabel}</span></div>
-          {!hasPush&&<div style={{color:C.muted,fontSize:11,marginTop:3}}>Install as PWA (Add to Home Screen) to enable</div>}
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:500,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 18px"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+          <span style={{fontSize:24}}>{enabled?'🔔':'🔕'}</span>
+          <div style={{color:C.white,fontSize:17,fontWeight:800}}>Push Notifications</div>
         </div>
-        {status==='granted'
-          ?<button onClick={reregister} disabled={working} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.cyan,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{working?'…':'Refresh'}</button>
-          :status!=='denied'&&hasPush
-            ?<button onClick={enable} disabled={working} style={{background:C.cyan,border:"none",borderRadius:8,padding:"6px 12px",color:C.bg,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{working?'…':'Enable'}</button>
-            :null
-        }
+        <div style={{color:enabled?C.green:denied?C.pink:C.muted,fontSize:13,fontWeight:700,marginBottom:16}}>
+          {enabled?'Ενεργές ✓':denied?'Αποκλεισμένες ✗':'Ανενεργές'}
+        </div>
+        {!hasPush&&<div style={{color:C.muted,fontSize:12,marginBottom:16}}>Πρόσθεσε την εφαρμογή στην Αρχική Οθόνη (PWA) για να ενεργοποιήσεις τις ειδοποιήσεις.</div>}
+        {denied&&<div style={{color:C.muted,fontSize:12,marginBottom:16}}>Για επανενεργοποίηση: άνοιξε τις ρυθμίσεις ιστότοπου στον browser και επίτρεψε τις ειδοποιήσεις, μετά πάτα Ανανέωση.</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {!enabled&&hasPush&&!denied&&(
+            <button onClick={enable} disabled={working} style={{background:C.cyan,border:"none",borderRadius:12,padding:"14px",color:C.bg,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+              {working?'Περιμένε…':'🔔 Ενεργοποίηση'}
+            </button>
+          )}
+          {enabled&&(
+            <button onClick={refresh} disabled={working} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.cyan,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+              {working?'Περιμένε…':'🔄 Ανανέωση εγγραφής'}
+            </button>
+          )}
+          {denied&&hasPush&&(
+            <button onClick={refresh} disabled={working} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.cyan,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+              {working?'Περιμένε…':'🔄 Ανανέωση μετά από αλλαγή ρυθμίσεων'}
+            </button>
+          )}
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"12px",color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>Κλείσιμο</button>
+        </div>
+        {msg&&<div style={{color:msg.startsWith('✅')?C.green:C.pink,fontSize:13,marginTop:14,textAlign:"center",fontWeight:600}}>{msg}</div>}
       </div>
-      {msg&&<div style={{color:msg.startsWith('✅')?C.green:C.pink,fontSize:12,marginTop:4}}>{msg}</div>}
-      {status==='denied'&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>To re-enable: open your browser's site settings and allow notifications for this site, then tap Refresh.</div>}
     </div>
   );
 };
@@ -1932,6 +1958,8 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
   const [uploading,setUploading]=useState(false);
   const [showHistorySheet,setShowHistorySheet]=useState(false);
   const [profToast,setProfToast]=useState(null);
+  const [showBellSheet,setShowBellSheet]=useState(false);
+  const notifEnabled=typeof Notification!=='undefined'&&Notification.permission==='granted';
   const showProfToast=(msg,ok=false)=>{setProfToast({msg,ok});setTimeout(()=>setProfToast(null),3500);};
   const handleAvatarChange=async(e)=>{
     const file=e.target.files?.[0]; if(!file) return;
@@ -1962,7 +1990,13 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
 
   return(
     <div style={{paddingBottom:80}}>
-      <div style={{padding:"22px 20px 0"}}><div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>My Profile</div></div>
+      {showBellSheet&&<NotifBellSheet userId={userId} token={token} onClose={()=>setShowBellSheet(false)}/>}
+      <div style={{padding:"22px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>My Profile</div>
+        <button onClick={()=>setShowBellSheet(true)} title={notifEnabled?"Ειδοποιήσεις ενεργές":"Ειδοποιήσεις ανενεργές"} style={{background:"none",border:"none",cursor:"pointer",fontSize:24,padding:"4px 2px",lineHeight:1,color:notifEnabled?C.cyan:C.muted}}>
+          {notifEnabled?'🔔':'🔕'}
+        </button>
+      </div>
 
       {/* Avatar + name */}
       <div style={{padding:"20px",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
@@ -2108,11 +2142,6 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
             );
           })}
         </div>
-      </div>
-      {/* Notifications */}
-      <div style={{padding:"0 20px 16px"}}>
-        <SL>Push Notifications</SL>
-        <NotifSettingsCard userId={userId} token={token}/>
       </div>
       <div style={{padding:"0 20px 8px"}}>
         <button onClick={onLogout} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.pink,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Log Out</button>
@@ -2352,21 +2381,23 @@ export default function App(){
   };
 
   return(
-    <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
-      {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
-      {/* Notification panel */}
-      {showNotifPanel&&<NotifPanel notifications={notifications} onDismiss={async(id)=>{await dismissNotification(id);}} onDelete={async(id)=>{await deleteNotif(id);}} onClose={()=>setShowNotifPanel(false)}/>}
-      {/* Important event modal (payment / package) */}
-      {importantEvent&&<ImportantEventModal event={importantEvent} onClose={()=>setImportantEvent(null)}/>}
-      {/* Realtime top toast */}
-      {rtToast&&(
-        <div style={{position:'fixed',top:18,left:'50%',transform:'translateX(-50%)',background:C.surface,border:`1px solid ${C.cyan}55`,color:C.white,padding:'10px 18px',borderRadius:14,zIndex:650,fontWeight:700,fontSize:13,boxShadow:'0 6px 28px rgba(0,0,0,0.55)',display:'flex',alignItems:'center',gap:8,maxWidth:'calc(100vw - 32px)',animation:'ua-slide-down .25s cubic-bezier(.22,1,.36,1)',pointerEvents:'none'}}>
-          <span style={{fontSize:16}}>🔔</span>
-          <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{rtToast}</span>
-        </div>
-      )}
-      {renderScreen()}
+    <>
+      <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
+        {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
+        {/* Notification panel */}
+        {showNotifPanel&&<NotifPanel notifications={notifications} onDelete={async(id)=>{await deleteNotif(id);}} onClose={()=>setShowNotifPanel(false)}/>}
+        {/* Important event modal (payment / package) */}
+        {importantEvent&&<ImportantEventModal event={importantEvent} onClose={()=>setImportantEvent(null)}/>}
+        {/* Realtime top toast */}
+        {rtToast&&(
+          <div style={{position:'fixed',top:18,left:'50%',transform:'translateX(-50%)',background:C.surface,border:`1px solid ${C.cyan}55`,color:C.white,padding:'10px 18px',borderRadius:14,zIndex:650,fontWeight:700,fontSize:13,boxShadow:'0 6px 28px rgba(0,0,0,0.55)',display:'flex',alignItems:'center',gap:8,maxWidth:'calc(100vw - 32px)',animation:'ua-slide-down .25s cubic-bezier(.22,1,.36,1)',pointerEvents:'none'}}>
+            <span style={{fontSize:16}}>🔔</span>
+            <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{rtToast}</span>
+          </div>
+        )}
+        {renderScreen()}
+      </div>
       <BottomNav active={screen} onNav={handleNav} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials} annBadge={hasNewAnn}/>
-    </div>
+    </>
   );
 }

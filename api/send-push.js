@@ -140,12 +140,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid JSON' });
   }
 
-  const { client_id, title, body: msgBody } = body;
-  if (!client_id) return res.status(400).json({ error: 'client_id required' });
+  const { client_id, broadcast, title, body: msgBody } = body;
+  if (!client_id && !broadcast) return res.status(400).json({ error: 'client_id or broadcast required' });
 
-  // Fetch all subscriptions for this client
-  const subRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/push_subscriptions?client_id=eq.${client_id}&select=id,subscription`,
+  // Fetch subscriptions — either for one client or all (broadcast)
+  const url = broadcast
+    ? `${SUPABASE_URL}/rest/v1/push_subscriptions?select=id,subscription,client_id`
+    : `${SUPABASE_URL}/rest/v1/push_subscriptions?client_id=eq.${client_id}&select=id,subscription`;
+  const subRes = await fetch(url,
     { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
   );
   const subs = await subRes.json();
