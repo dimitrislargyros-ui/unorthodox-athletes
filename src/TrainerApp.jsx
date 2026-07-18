@@ -1160,43 +1160,37 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         {showPkg&&(
           <Card style={{marginBottom:12}}>
             <SL>Assign New Package</SL>
-            <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Total Sessions</div>
-            <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
-              {[8,10,12,16,20].map(n=><button key={n} onClick={()=>{setNPT(String(n));setCustomTotal("");}} style={{flex:"1 1 0",minWidth:44,background:newPkgTotal===String(n)&&!customTotal?C.pink+"33":C.surface2,border:`1px solid ${newPkgTotal===String(n)&&!customTotal?C.pink:C.border}`,borderRadius:8,padding:"8px 4px",color:newPkgTotal===String(n)&&!customTotal?C.pink:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{n}<br/><span style={{fontSize:9}}>sessions</span></button>)}
-              <button onClick={()=>{setCustomTotal(prev=>prev||newPkgTotal);}} style={{flex:"1 1 0",minWidth:44,background:customTotal?"rgba(200,150,255,0.15)":C.surface2,border:`1px solid ${customTotal?"#C89AFF":C.border}`,borderRadius:8,padding:"8px 4px",color:customTotal?"#C89AFF":C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✏️<br/><span style={{fontSize:9}}>custom</span></button>
-            </div>
-            {customTotal!==undefined&&customTotal!==""&&(
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                <input
-                  type="number" min="1" max="999"
-                  value={customTotal}
-                  onChange={e=>{setCustomTotal(e.target.value);setNPT(e.target.value);}}
-                  placeholder="e.g. 15"
-                  style={{flex:1,background:C.surface2,border:"1px solid #C89AFF",borderRadius:8,padding:"9px 12px",color:"#C89AFF",fontSize:14,fontWeight:700,outline:"none",fontFamily:"inherit"}}
-                  autoFocus
-                />
-                <span style={{color:C.muted,fontSize:12}}>sessions</span>
-                <button onClick={()=>{setCustomTotal("");}} style={{background:"none",border:"none",color:C.muted,fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+            {/* --- Standard presets (unchanged) --- */}
+            {!customTotal&&!customSpw&&(<>
+              <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Total Sessions</div>
+              <div style={{display:"flex",gap:8,marginBottom:12}}>
+                {[8,10,12].map(n=><button key={n} onClick={()=>setNPT(String(n))} style={{flex:1,background:newPkgTotal===String(n)?C.pink+"33":C.surface2,border:`1px solid ${newPkgTotal===String(n)?C.pink:C.border}`,borderRadius:8,padding:"10px",color:newPkgTotal===String(n)?C.pink:C.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{n}<br/><span style={{fontSize:10}}>sessions</span></button>)}
               </div>
-            )}
-            <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Sessions per Week</div>
-            <div style={{display:"flex",gap:6,marginBottom:6}}>
-              {[1,2,3,4,5,6].map(n=><button key={n} onClick={()=>{setNSpw(String(n));setCustomSpw("");}} style={{flex:1,background:newSpw===String(n)&&!customSpw?C.cyan+"33":C.surface2,border:`1px solid ${newSpw===String(n)&&!customSpw?C.cyan:C.border}`,borderRadius:8,padding:"8px 4px",color:newSpw===String(n)&&!customSpw?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{n}x</button>)}
-              <button onClick={()=>{setCustomSpw(prev=>prev||newSpw);}} style={{flex:1,background:customSpw?"rgba(200,150,255,0.15)":C.surface2,border:`1px solid ${customSpw?"#C89AFF":C.border}`,borderRadius:8,padding:"8px 4px",color:customSpw?"#C89AFF":C.muted,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✏️<br/><span style={{fontSize:9}}>custom</span></button>
-            </div>
-            {customSpw!==undefined&&customSpw!==""&&(
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                <input
-                  type="number" min="1" max="14"
-                  value={customSpw}
-                  onChange={e=>{setCustomSpw(e.target.value);setNSpw(e.target.value);}}
-                  placeholder="e.g. 5"
-                  style={{flex:1,background:C.surface2,border:"1px solid #C89AFF",borderRadius:8,padding:"9px 12px",color:"#C89AFF",fontSize:14,fontWeight:700,outline:"none",fontFamily:"inherit"}}
-                  autoFocus
-                />
-                <span style={{color:C.muted,fontSize:12}}>x/week</span>
-                <button onClick={()=>{setCustomSpw("");}} style={{background:"none",border:"none",color:C.muted,fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+              <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Sessions per Week</div>
+              <div style={{display:"flex",gap:8,marginBottom:12}}>
+                {[1,2,3,4].map(n=><button key={n} onClick={()=>setNSpw(String(n))} style={{flex:1,background:newSpw===String(n)?C.cyan+"33":C.surface2,border:`1px solid ${newSpw===String(n)?C.cyan:C.border}`,borderRadius:8,padding:"10px",color:newSpw===String(n)?C.cyan:C.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{n}x</button>)}
               </div>
+            </>)}
+            {/* --- Custom package section --- */}
+            {(customTotal||customSpw)?(
+              <div style={{background:C.surface2,borderRadius:10,border:"1px solid #C89AFF55",padding:"12px",marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <span style={{color:"#C89AFF",fontSize:12,fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>✏️ Custom Package</span>
+                  <button onClick={()=>{setCustomTotal("");setCustomSpw("");setNPT("10");setNSpw("3");}} style={{background:"none",border:"none",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>← Back to presets</button>
+                </div>
+                <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
+                  <div style={{flex:1}}>
+                    <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Total Sessions</div>
+                    <input type="number" min="1" max="999" value={customTotal} onChange={e=>{setCustomTotal(e.target.value);setNPT(e.target.value);}} placeholder="π.χ. 1" style={{width:"100%",background:C.bg,border:"1px solid #C89AFF",borderRadius:8,padding:"10px 12px",color:"#C89AFF",fontSize:18,fontWeight:700,outline:"none",fontFamily:"inherit",boxSizing:"border-box",textAlign:"center"}} autoFocus/>
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Sessions / Week</div>
+                    <input type="number" min="1" max="14" value={customSpw} onChange={e=>{setCustomSpw(e.target.value);setNSpw(e.target.value);}} placeholder="π.χ. 1" style={{width:"100%",background:C.bg,border:"1px solid #C89AFF",borderRadius:8,padding:"10px 12px",color:"#C89AFF",fontSize:18,fontWeight:700,outline:"none",fontFamily:"inherit",boxSizing:"border-box",textAlign:"center"}}/>
+                  </div>
+                </div>
+              </div>
+            ):(
+              <button onClick={()=>{setCustomTotal(newPkgTotal);setCustomSpw(newSpw);}} style={{width:"100%",background:"none",border:`1px dashed ${C.border}`,borderRadius:8,padding:"8px",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>✏️ Custom package (μονή / οποιοδήποτε αριθμό)</button>
             )}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderTop:`1px solid ${C.border}`,marginBottom:8}}>
               <span style={{color:C.white,fontSize:14,fontWeight:600}}>⚠️ Injury / Limitation</span>
@@ -1207,7 +1201,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             {programPicker(newPkgProgramId,setNewPkgProgramId)}
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Training Notes</div>
             <textarea value={pkgNotes} onChange={e=>setPkgNotes(e.target.value)} placeholder="Focus areas, goals..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,fontFamily:"inherit",resize:"none",height:70,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:12}}/>
-            <GBtn label={`Assign ${newPkgTotal}-Session Pack (${newSpw}x/week)`} onClick={handleRenew} style={{width:"100%"}}/>
+            <GBtn label={`Assign ${newPkgTotal} Session${parseInt(newPkgTotal)===1?"":"s"} · ${newSpw}x/week`} onClick={handleRenew} style={{width:"100%"}}/>
           </Card>
         )}
         {pkg?(
