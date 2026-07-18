@@ -830,6 +830,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [showLog,setShowLog]=useState(false);
   const [newPkgTotal,setNPT]=useState("10");
   const [newSpw,setNSpw]=useState("3");
+  const [customTotal,setCustomTotal]=useState("");
+  const [customSpw,setCustomSpw]=useState("");
   const [hasInjury,setHasInj]=useState(false);
   const [injuryNotes,setInjNotes]=useState("");
   const [pkgNotes,setPkgNotes]=useState("");
@@ -906,7 +908,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         const res=await createPkg({client_id:client.id,sessions_total:total,sessions_used:0,sessions_per_week:spwNum,weeks,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null},token);
         const created=Array.isArray(res)?res[0]:res;
         created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
-        setPkg(created); setShowPkg(false);
+        setPkg(created); setShowPkg(false); setCustomTotal(""); setCustomSpw("");
         onClientUpdated({...client,_pkg:created});
         const progName=programs.find(p=>p.id===newPkgProgramId)?.name;
         await postNotification({client_id:client.id,type:"package_renewed",message:`🎯 ${progName?progName+" p":"P"}ackage assigned: ${newPkgTotal} sessions · ${newSpw}x/week. Let's get to work!`},token).catch(()=>{});
@@ -1137,7 +1139,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           <SL style={{marginBottom:0}}>Package</SL>
           <div style={{display:"flex",gap:8}}>
             {pkg&&<button onClick={()=>showEditNotes?setShowEditNotes(false):handleOpenEditNotes()} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",color:C.cyan,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showEditNotes?"▲ Cancel":"✎ Notes"}</button>}
-            <button onClick={()=>setShowPkg(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showPkg?"▲ Cancel":"↻ Renew"}</button>
+            <button onClick={()=>{setShowPkg(p=>{if(p){setCustomTotal("");setCustomSpw("");}return !p;});}} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showPkg?"▲ Cancel":"↻ Renew"}</button>
           </div>
         </div>
         {showEditNotes&&(
@@ -1159,13 +1161,43 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           <Card style={{marginBottom:12}}>
             <SL>Assign New Package</SL>
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Total Sessions</div>
-            <div style={{display:"flex",gap:8,marginBottom:12}}>
-              {[8,10,12].map(n=><button key={n} onClick={()=>setNPT(String(n))} style={{flex:1,background:newPkgTotal===String(n)?C.pink+"33":C.surface2,border:`1px solid ${newPkgTotal===String(n)?C.pink:C.border}`,borderRadius:8,padding:"10px",color:newPkgTotal===String(n)?C.pink:C.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{n}<br/><span style={{fontSize:10}}>sessions</span></button>)}
+            <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
+              {[8,10,12,16,20].map(n=><button key={n} onClick={()=>{setNPT(String(n));setCustomTotal("");}} style={{flex:"1 1 0",minWidth:44,background:newPkgTotal===String(n)&&!customTotal?C.pink+"33":C.surface2,border:`1px solid ${newPkgTotal===String(n)&&!customTotal?C.pink:C.border}`,borderRadius:8,padding:"8px 4px",color:newPkgTotal===String(n)&&!customTotal?C.pink:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{n}<br/><span style={{fontSize:9}}>sessions</span></button>)}
+              <button onClick={()=>{setCustomTotal(prev=>prev||newPkgTotal);}} style={{flex:"1 1 0",minWidth:44,background:customTotal?"rgba(200,150,255,0.15)":C.surface2,border:`1px solid ${customTotal?"#C89AFF":C.border}`,borderRadius:8,padding:"8px 4px",color:customTotal?"#C89AFF":C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✏️<br/><span style={{fontSize:9}}>custom</span></button>
             </div>
+            {customTotal!==undefined&&customTotal!==""&&(
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <input
+                  type="number" min="1" max="999"
+                  value={customTotal}
+                  onChange={e=>{setCustomTotal(e.target.value);setNPT(e.target.value);}}
+                  placeholder="e.g. 15"
+                  style={{flex:1,background:C.surface2,border:"1px solid #C89AFF",borderRadius:8,padding:"9px 12px",color:"#C89AFF",fontSize:14,fontWeight:700,outline:"none",fontFamily:"inherit"}}
+                  autoFocus
+                />
+                <span style={{color:C.muted,fontSize:12}}>sessions</span>
+                <button onClick={()=>{setCustomTotal("");}} style={{background:"none",border:"none",color:C.muted,fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+              </div>
+            )}
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Sessions per Week</div>
-            <div style={{display:"flex",gap:8,marginBottom:12}}>
-              {[1,2,3,4].map(n=><button key={n} onClick={()=>setNSpw(String(n))} style={{flex:1,background:newSpw===String(n)?C.cyan+"33":C.surface2,border:`1px solid ${newSpw===String(n)?C.cyan:C.border}`,borderRadius:8,padding:"10px",color:newSpw===String(n)?C.cyan:C.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{n}x</button>)}
+            <div style={{display:"flex",gap:6,marginBottom:6}}>
+              {[1,2,3,4,5,6].map(n=><button key={n} onClick={()=>{setNSpw(String(n));setCustomSpw("");}} style={{flex:1,background:newSpw===String(n)&&!customSpw?C.cyan+"33":C.surface2,border:`1px solid ${newSpw===String(n)&&!customSpw?C.cyan:C.border}`,borderRadius:8,padding:"8px 4px",color:newSpw===String(n)&&!customSpw?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{n}x</button>)}
+              <button onClick={()=>{setCustomSpw(prev=>prev||newSpw);}} style={{flex:1,background:customSpw?"rgba(200,150,255,0.15)":C.surface2,border:`1px solid ${customSpw?"#C89AFF":C.border}`,borderRadius:8,padding:"8px 4px",color:customSpw?"#C89AFF":C.muted,fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✏️<br/><span style={{fontSize:9}}>custom</span></button>
             </div>
+            {customSpw!==undefined&&customSpw!==""&&(
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <input
+                  type="number" min="1" max="14"
+                  value={customSpw}
+                  onChange={e=>{setCustomSpw(e.target.value);setNSpw(e.target.value);}}
+                  placeholder="e.g. 5"
+                  style={{flex:1,background:C.surface2,border:"1px solid #C89AFF",borderRadius:8,padding:"9px 12px",color:"#C89AFF",fontSize:14,fontWeight:700,outline:"none",fontFamily:"inherit"}}
+                  autoFocus
+                />
+                <span style={{color:C.muted,fontSize:12}}>x/week</span>
+                <button onClick={()=>{setCustomSpw("");}} style={{background:"none",border:"none",color:C.muted,fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+              </div>
+            )}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderTop:`1px solid ${C.border}`,marginBottom:8}}>
               <span style={{color:C.white,fontSize:14,fontWeight:600}}>⚠️ Injury / Limitation</span>
               <button onClick={()=>setHasInj(p=>!p)} style={{background:hasInjury?C.amber+"33":C.surface2,border:`1px solid ${hasInjury?C.amber:C.border}`,borderRadius:20,padding:"6px 16px",color:hasInjury?C.amber:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{hasInjury?"Yes ✓":"No"}</button>
