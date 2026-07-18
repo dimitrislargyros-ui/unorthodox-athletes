@@ -45,6 +45,11 @@ const THEMES={
 const THEME_KEY="ua_theme";
 const getTheme=()=>THEMES[localStorage.getItem(THEME_KEY)||"cyber"]||THEMES.cyber;
 const C=getTheme();
+// Track which ImportantEventModal notifications the user has already dismissed,
+// so a theme change (which triggers window.location.reload) doesn't re-show them.
+const SEEN_EVENTS_KEY="ua_seen_events";
+const getSeenEvents=()=>new Set(JSON.parse(localStorage.getItem(SEEN_EVENTS_KEY)||"[]"));
+const markEventSeen=(id)=>{const seen=[...getSeenEvents(),String(id)].slice(-40);localStorage.setItem(SEEN_EVENTS_KEY,JSON.stringify(seen));};
 const SESS_MIN = 90;
 
 // ── Supabase ──
@@ -275,13 +280,13 @@ const sessLabel=tmplName=>tmplName?tmplName+" Training":"Personal Training";
 // Returns the ISO date of the Monday of the week containing isoDate
 const weekMon=(isoDate)=>{const d=new Date(isoDate+"T12:00:00");const dow=d.getDay()===0?6:d.getDay()-1;const m=new Date(d.getTime()-dow*86400000);return localISO(m);};
 
-// Day numbering is weekly-scoped: Day 1/2/3 resets every Monday
+// Day numbering is sequential across ALL sessions — Day 1/2/3 cycles globally
+// and only resets when the full cycle completes (not every Monday).
 const computeDayNum = (session, allSessions, spw=3) => {
-  const wk=weekMon(session.session_date);
-  const weekSess=[...allSessions]
-    .filter(s=>(s.status==="completed"||s.status==="booked")&&weekMon(s.session_date)===wk)
+  const ordered=[...allSessions]
+    .filter(s=>s.status==="completed"||s.status==="booked")
     .sort((a,b)=>a.session_date.localeCompare(b.session_date)||(a.start_time_min-b.start_time_min));
-  const idx=weekSess.findIndex(x=>x.id===session.id);
+  const idx=ordered.findIndex(x=>x.id===session.id);
   return idx>=0?(idx%spw)+1:(session.day_num||null);
 };
 
@@ -709,19 +714,36 @@ const WODSheet=({programName,dayNum,exercises,onClose})=>(
       </div>
       {exercises.length===0
         ? <div style={{textAlign:"center",padding:"28px 0",color:C.muted,fontSize:14}}>No program set for Day {dayNum} yet</div>
-        : <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {exercises.map((ex,i)=>(
-              <div key={i} style={{background:C.surface2,borderRadius:12,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${C.border}`}}>
-                <div>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{color:C.muted,fontSize:12,fontWeight:800,minWidth:18}}>{i+1}.</span>
-                    <div style={{color:C.white,fontSize:14,fontWeight:700}}>{ex.name}</div>
+        : <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {(()=>{
+              let lastSs=null;
+              return exercises.map((ex,i)=>{
+                const ss=ex.supersetGroup||null;
+                const showSsHeader=ss&&ss!==lastSs;
+                lastSs=ss;
+                return(
+                  <div key={i}>
+                    {showSsHeader&&(
+                      <div style={{display:"flex",alignItems:"center",gap:6,margin:"4px 0 2px"}}>
+                        <div style={{height:1,flex:1,background:`${C.cyan}33`}}/>
+                        <div style={{fontSize:9,fontWeight:800,color:C.cyan,letterSpacing:1.2,textTransform:"uppercase"}}>⚡ Superset {ss}</div>
+                        <div style={{height:1,flex:1,background:`${C.cyan}33`}}/>
+                      </div>
+                    )}
+                    <div style={{background:C.surface2,borderRadius:12,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${ss?C.cyan+"33":C.border}`,marginBottom:ss&&exercises[i+1]?.supersetGroup===ss?2:0}}>
+                      <div>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{color:C.muted,fontSize:12,fontWeight:800,minWidth:18}}>{i+1}.</span>
+                          <div style={{color:C.white,fontSize:14,fontWeight:700}}>{ex.name}</div>
+                        </div>
+                        {(ex.sets||ex.reps)&&<div style={{color:C.muted,fontSize:12,marginTop:3,paddingLeft:26}}>{[ex.sets&&`${ex.sets} sets`,ex.reps&&`${ex.reps} reps`].filter(Boolean).join(" × ")}</div>}
+                      </div>
+                      {ex.weight&&<div style={{color:C.cyan,fontSize:14,fontWeight:800,flexShrink:0}}>{ex.weight}</div>}
+                    </div>
                   </div>
-                  {(ex.sets||ex.reps)&&<div style={{color:C.muted,fontSize:12,marginTop:3,paddingLeft:26}}>{[ex.sets&&`${ex.sets} sets`,ex.reps&&`${ex.reps} reps`].filter(Boolean).join(" × ")}</div>}
-                </div>
-                {ex.weight&&<div style={{color:C.cyan,fontSize:14,fontWeight:800,flexShrink:0}}>{ex.weight}</div>}
-              </div>
-            ))}
+                );
+              });
+            })()}
           </div>
       }
     </div>
@@ -2191,8 +2213,10 @@ export default function App(){
       setAuth({loading:false,token,userId,profile,pkg:pkg||null,sessions:sessions||[],prs:prs||[]});
       setNotifications(notifs||[]);
       // Show ImportantEventModal for any unread important notification already in DB on load
+      // Skip any notification the user already dismissed (persisted across theme reloads).
       const MODAL_TYPES=['payment_confirmed','package_renewed','payment_reminder'];
-      const impEvent=(notifs||[]).find(n=>MODAL_TYPES.includes(n.type));
+      const seenEvts=getSeenEvents();
+      const impEvent=(notifs||[]).find(n=>MODAL_TYPES.includes(n.type)&&!seenEvts.has(String(n.id)));
       if(impEvent) setImportantEvent(impEvent);
       const latest=(anns||[])[0]?.created_at||null;
       setLatestAnnAt(latest);
@@ -2293,7 +2317,7 @@ export default function App(){
     rt.subscribe('notifications','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
       setNotifications(prev=>prev.some(n=>n.id===row.id)?prev:[row,...prev]);
       const MODAL=['payment_confirmed','package_renewed','payment_reminder'];
-      if(MODAL.includes(row.type)){
+      if(MODAL.includes(row.type)&&!getSeenEvents().has(String(row.id))){
         setImportantEvent(row);
       } else {
         showRtToast(row.message);
@@ -2387,7 +2411,7 @@ export default function App(){
         {/* Notification panel */}
         {showNotifPanel&&<NotifPanel notifications={notifications} onDelete={async(id)=>{await deleteNotif(id);}} onClose={()=>setShowNotifPanel(false)}/>}
         {/* Important event modal (payment / package) */}
-        {importantEvent&&<ImportantEventModal event={importantEvent} onClose={()=>setImportantEvent(null)}/>}
+        {importantEvent&&<ImportantEventModal event={importantEvent} onClose={()=>{markEventSeen(importantEvent.id);setImportantEvent(null);}}/>}
         {/* Realtime top toast */}
         {rtToast&&(
           <div style={{position:'fixed',top:18,left:'50%',transform:'translateX(-50%)',background:C.surface,border:`1px solid ${C.cyan}55`,color:C.white,padding:'10px 18px',borderRadius:14,zIndex:650,fontWeight:700,fontSize:13,boxShadow:'0 6px 28px rgba(0,0,0,0.55)',display:'flex',alignItems:'center',gap:8,maxWidth:'calc(100vw - 32px)',animation:'ua-slide-down .25s cubic-bezier(.22,1,.36,1)',pointerEvents:'none'}}>

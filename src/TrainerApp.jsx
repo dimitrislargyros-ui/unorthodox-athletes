@@ -2050,15 +2050,23 @@ const exToDet=(ex)=>{
   return {type:"weighted",sets:ex.sets||"3",reps:ex.reps||"10",vol:w.replace(/[a-z]+$/i,""),unit:"kg"};
 };
 
-const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
-  const [days,setDays]=useState(()=>toDayPlan(prog.exercises||[],numDays));
+const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
+  // numDays is dynamic — trainer can add/remove days
+  const initNumDays=(()=>{
+    const raw=prog.exercises||[];
+    if(!raw.length) return 3;
+    if(raw[0]?.day!==undefined) return Math.max(1,Math.max(...raw.map(d=>d.day)));
+    return 3;
+  })();
+  const [numDays,setNumDays]=useState(initNumDays);
+  const [days,setDays]=useState(()=>toDayPlan(prog.exercises||[],initNumDays));
   const [activeDay,setActiveDay]=useState(1);
   const [saving,setSaving]=useState(false);
   const [step,setStep]=useState("list"); // "list" | "pick" | "detail"
   const [pickSearch,setPickSearch]=useState("");
   const [pickedName,setPickedName]=useState("");
   const [editIdx,setEditIdx]=useState(null); // null=new, number=editing existing
-  const [det,setDet]=useState({type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg"});
+  const [det,setDet]=useState({type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg",supersetGroup:""});
   const [pmToast,setPmToast]=useState(null);
   const showPmToast=(msg,ok=false)=>{setPmToast({msg,ok});setTimeout(()=>setPmToast(null),3500);};
   const [dragIdx,setDragIdx]=useState(null);
@@ -2088,6 +2096,12 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
 
   const exs=days.find(d=>d.day===activeDay)?.exercises||[];
 
+  // Get all superset groups used in the active day
+  const ssGroups=useMemo(()=>{
+    const g=new Set((exs||[]).map(e=>e.supersetGroup).filter(Boolean));
+    return [...g].sort();
+  },[exs]);
+
   const persist=async(newExsForDay)=>{
     const newDays=days.map(d=>d.day===activeDay?{...d,exercises:newExsForDay}:d);
     setSaving(true);
@@ -2098,6 +2112,36 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
     }catch(e){showPmToast("Error: "+e.message);}
     setSaving(false);
   };
+
+  const persistAllDays=async(newDays)=>{
+    setSaving(true);
+    try{
+      await updateTemplate(prog.id,{exercises:newDays},token);
+      setDays(newDays);
+      onUpdate({...prog,exercises:newDays});
+    }catch(e){showPmToast("Error: "+e.message);}
+    setSaving(false);
+  };
+
+  const addDay=()=>{
+    const n=numDays+1;
+    const newDays=[...days,{day:n,exercises:[]}];
+    setNumDays(n);
+    persistAllDays(newDays);
+    setActiveDay(n);
+    setStep("list");
+  };
+
+  const removeLastDay=()=>{
+    if(numDays<=1){showPmToast("Need at least 1 day.");return;}
+    const n=numDays-1;
+    const newDays=days.filter(d=>d.day<=n);
+    setNumDays(n);
+    if(activeDay>n){setActiveDay(n);}
+    persistAllDays(newDays);
+    setStep("list");
+  };
+
   const remove=(idx)=>persist(exs.filter((_,i)=>i!==idx));
 
   const doReorder=(from,to)=>{if(from===to)return;const n=[...exs];const[r]=n.splice(from,1);n.splice(to,0,r);persist(n);};
@@ -2116,23 +2160,33 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
   const startEdit=(idx)=>{
     const ex=exs[idx];
     if(!ex) return;
-    if(!ex.name){setEditIdx(idx);setDet(exToDet(ex));setPickedName("");setPickSearch("");setStep("pick");return;}
+    if(!ex.name){setEditIdx(idx);setDet({...exToDet(ex),supersetGroup:ex.supersetGroup||""});setPickedName("");setPickSearch("");setStep("pick");return;}
     setPickedName(ex.name);
     setEditIdx(idx);
-    setDet(exToDet(ex));
+    setDet({...exToDet(ex),supersetGroup:ex.supersetGroup||""});
     setStep("detail");
   };
+  const BLANK_DET={type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg",supersetGroup:""};
   const startAdd=()=>{
-    setPickedName("");setEditIdx(null);setDet({type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg"});setPickSearch("");setStep("pick");
+    setPickedName("");setEditIdx(null);setDet(BLANK_DET);setPickSearch("");setStep("pick");
   };
-  const resetDetail=()=>{setPickedName("");setEditIdx(null);setDet({type:"weighted",sets:"3",reps:"10",vol:"",unit:"kg"});setPickSearch("");setStep("list");};
+  const resetDetail=()=>{setPickedName("");setEditIdx(null);setDet(BLANK_DET);setPickSearch("");setStep("list");};
+
+  // Next available superset letter: A, B, C…
+  const nextSsLetter=()=>{
+    const used=new Set((exs||[]).map(e=>e.supersetGroup).filter(Boolean));
+    for(let i=0;i<26;i++){const l=String.fromCharCode(65+i);if(!used.has(l))return l;}
+    return "A";
+  };
 
   const buildExercise=()=>{
     let weight="";
     if(det.type==="weighted") weight=det.vol?`${det.vol}${det.unit}`:"";
     else if(det.type==="cardio"||det.type==="timed") weight=det.vol?`${det.vol}${det.unit}`:"";
     else weight=""; // reps only
-    return {name:pickedName,sets:det.sets,reps:det.type==="cardio"||det.type==="timed"?"":det.reps,weight};
+    const ex={name:pickedName,sets:det.sets,reps:det.type==="cardio"||det.type==="timed"?"":det.reps,weight};
+    if(det.supersetGroup) ex.supersetGroup=det.supersetGroup;
+    return ex;
   };
 
   const confirmSave=()=>{
@@ -2183,18 +2237,25 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
         </div>
 
         {/* ── Day Tabs ── */}
-        <div style={{display:"flex",gap:6,padding:"10px 16px",flexShrink:0,borderBottom:`1px solid ${C.border}`,background:C.bg}}>
-          {Array.from({length:numDays},(_,i)=>i+1).map(d=>{
-            const cnt=days.find(x=>x.day===d)?.exercises?.length||0;
-            const active=activeDay===d;
-            return(
-              <button key={d} onClick={()=>{setActiveDay(d);setStep("list");}}
-                style={{flex:1,padding:"8px 4px",borderRadius:10,border:`1px solid ${active?C.cyan:C.border}`,background:active?`${C.cyan}22`:"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
-                <div style={{color:active?C.cyan:C.muted,fontSize:13,fontWeight:800}}>Day {d}</div>
-                <div style={{color:active?C.cyan+"99":C.border,fontSize:10,fontWeight:600,marginTop:2}}>{cnt} ex</div>
-              </button>
-            );
-          })}
+        <div style={{display:"flex",gap:5,padding:"10px 12px",flexShrink:0,borderBottom:`1px solid ${C.border}`,background:C.bg,alignItems:"center"}}>
+          <div style={{display:"flex",gap:5,flex:1,overflowX:"auto",minWidth:0}}>
+            {days.map(d=>{
+              const cnt=d.exercises?.length||0;
+              const active=activeDay===d.day;
+              return(
+                <button key={d.day} onClick={()=>{setActiveDay(d.day);setStep("list");}}
+                  style={{flexShrink:0,minWidth:56,padding:"7px 6px",borderRadius:10,border:`1px solid ${active?C.cyan:C.border}`,background:active?`${C.cyan}22`:"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
+                  <div style={{color:active?C.cyan:C.muted,fontSize:12,fontWeight:800}}>Day {d.day}</div>
+                  <div style={{color:active?C.cyan+"99":C.border,fontSize:10,fontWeight:600,marginTop:1}}>{cnt} ex</div>
+                </button>
+              );
+            })}
+          </div>
+          {/* Add / remove day buttons */}
+          <button onClick={addDay} disabled={saving} title="Add day"
+            style={{flexShrink:0,width:32,height:32,borderRadius:8,border:`1px solid ${C.green}`,background:`${C.green}22`,color:C.green,cursor:"pointer",fontSize:18,lineHeight:1,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.4:1}}>+</button>
+          <button onClick={removeLastDay} disabled={saving||numDays<=1} title="Remove last day"
+            style={{flexShrink:0,width:32,height:32,borderRadius:8,border:`1px solid ${numDays>1?C.pink:C.border}`,background:numDays>1?`${C.pink}22`:"transparent",color:numDays>1?C.pink:C.border,cursor:numDays>1?"pointer":"default",fontSize:18,lineHeight:1,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.4:1}}>−</button>
         </div>
 
         {/* ── Step: exercise list ── */}
@@ -2202,25 +2263,51 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
           <div style={{flex:1,overflowY:"auto",padding:"14px 20px"}}>
             {exs.length===0
               ? <Empty msg={`No exercises for Day ${activeDay} yet`}/>
-              : exs.map((ex,i)=>(
-                  <div key={i} data-exidx={i}
-                    draggable
-                    onDragStart={e=>handleDragStart(e,i)}
-                    onDragOver={e=>handleDragOver(e,i)}
-                    onDrop={handleDragEnd}
-                    onDragEnd={()=>{setDragIdx(null);setDragOverIdx(null);}}
-                    onClick={()=>!saving&&startEdit(i)}
-                    style={{background:dragOverIdx===i&&dragIdx!==i?`${C.cyan}12`:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:8,border:`1px solid ${dragOverIdx===i&&dragIdx!==i?C.cyan:C.border}`,cursor:"pointer",opacity:dragIdx===i?0.4:1,transition:"all 0.12s",userSelect:"none"}}>
-                    {/* drag handle */}
-                    <div onTouchStart={handleTouchDrag(i)} style={{color:C.border,fontSize:20,cursor:"grab",padding:"0 2px",flexShrink:0,touchAction:"none",lineHeight:1}}>⠿</div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{color:C.white,fontSize:14,fontWeight:700}}>{ex.name}</div>
-                      <div style={{color:C.pink,fontSize:12,fontWeight:700,marginTop:2}}>{exLabel(ex)}</div>
-                    </div>
-                    <button onClick={e=>{e.stopPropagation();!saving&&startEdit(i);}} title="Edit" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,color:C.cyan,cursor:"pointer",fontSize:13,padding:"5px 9px",lineHeight:1,flexShrink:0,opacity:saving?0.4:1}}>✏️</button>
-                    <button onClick={e=>{e.stopPropagation();remove(i);}} disabled={saving} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:17,padding:"4px"}}>✕</button>
-                  </div>
-                ))
+              : (()=>{
+                  // Group consecutive exercises that share a supersetGroup
+                  const SS_COLORS={"A":C.cyan,"B":C.amber,"C":C.pink,"D":C.green,"E":"#9B5DE5","F":"#F15BB5"};
+                  const getSsColor=(g)=>SS_COLORS[g]||C.cyan;
+                  let lastSsGroup=null;
+                  return exs.map((ex,i)=>{
+                    const ssGroup=ex.supersetGroup||null;
+                    const isFirstOfGroup=ssGroup&&ssGroup!==lastSsGroup;
+                    const prevWasSameGroup=i>0&&exs[i-1]?.supersetGroup===ssGroup;
+                    lastSsGroup=ssGroup;
+                    const ssColor=ssGroup?getSsColor(ssGroup):null;
+                    return(
+                      <div key={i}>
+                        {/* Superset group header — shown before first member */}
+                        {isFirstOfGroup&&(
+                          <div style={{display:"flex",alignItems:"center",gap:6,margin:"4px 0 2px",padding:"0 2px"}}>
+                            <div style={{height:1,flex:1,background:`${ssColor}44`}}/>
+                            <div style={{fontSize:10,fontWeight:800,color:ssColor,letterSpacing:1.2,textTransform:"uppercase"}}>⚡ Superset {ssGroup}</div>
+                            <div style={{height:1,flex:1,background:`${ssColor}44`}}/>
+                          </div>
+                        )}
+                        <div data-exidx={i}
+                          draggable
+                          onDragStart={e=>handleDragStart(e,i)}
+                          onDragOver={e=>handleDragOver(e,i)}
+                          onDrop={handleDragEnd}
+                          onDragEnd={()=>{setDragIdx(null);setDragOverIdx(null);}}
+                          onClick={()=>!saving&&startEdit(i)}
+                          style={{background:dragOverIdx===i&&dragIdx!==i?`${C.cyan}12`:ssGroup?`${ssColor}0D`:"rgba(255,255,255,0.04)",borderRadius:12,padding:"11px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:ssGroup&&exs[i+1]?.supersetGroup===ssGroup?2:8,border:`1px solid ${dragOverIdx===i&&dragIdx!==i?C.cyan:ssGroup?ssColor+"44":C.border}`,cursor:"pointer",opacity:dragIdx===i?0.4:1,transition:"all 0.12s",userSelect:"none"}}>
+                          {/* drag handle */}
+                          <div onTouchStart={handleTouchDrag(i)} style={{color:C.border,fontSize:20,cursor:"grab",padding:"0 2px",flexShrink:0,touchAction:"none",lineHeight:1}}>⠿</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <div style={{color:C.white,fontSize:14,fontWeight:700}}>{ex.name}</div>
+                              {ssGroup&&<span style={{fontSize:9,fontWeight:800,color:ssColor,background:`${ssColor}22`,padding:"1px 6px",borderRadius:6,letterSpacing:0.8}}>SS {ssGroup}</span>}
+                            </div>
+                            <div style={{color:C.pink,fontSize:12,fontWeight:700,marginTop:2}}>{exLabel(ex)}</div>
+                          </div>
+                          <button onClick={e=>{e.stopPropagation();!saving&&startEdit(i);}} title="Edit" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,color:C.cyan,cursor:"pointer",fontSize:13,padding:"5px 9px",lineHeight:1,flexShrink:0,opacity:saving?0.4:1}}>✏️</button>
+                          <button onClick={e=>{e.stopPropagation();remove(i);}} disabled={saving} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:17,padding:"4px"}}>✕</button>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()
             }
           </div>
           <div style={{flexShrink:0,padding:"12px 20px 28px",borderTop:`1px solid ${C.border}`}}>
@@ -2312,6 +2399,38 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,numDays=3})=>{
                 </div>
               </div>
             )}
+
+            {/* ── Superset ── */}
+            <div>
+              <div style={{color:C.muted,fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",marginBottom:8}}>Superset</div>
+              <div style={{background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                <div style={{color:C.white,fontSize:13,fontWeight:700,marginBottom:10}}>Group with another exercise?</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {/* "None" option */}
+                  <button onClick={()=>setDet(p=>({...p,supersetGroup:""}))}
+                    style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${!det.supersetGroup?C.cyan:C.border}`,background:!det.supersetGroup?`${C.cyan}22`:"transparent",color:!det.supersetGroup?C.cyan:C.muted,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>
+                    None
+                  </button>
+                  {/* Existing groups in this day */}
+                  {ssGroups.map(g=>(
+                    <button key={g} onClick={()=>setDet(p=>({...p,supersetGroup:g}))}
+                      style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${det.supersetGroup===g?"#"+["00C9E1","F59E0B","E8197A","22C55E","9B5DE5","F15BB5"][["A","B","C","D","E","F"].indexOf(g)]||C.cyan:C.border}`,background:det.supersetGroup===g?`${["#00C9E1","#F59E0B","#E8197A","#22C55E","#9B5DE5","#F15BB5"][["A","B","C","D","E","F"].indexOf(g)]||C.cyan}22`:"transparent",color:det.supersetGroup===g?(["#00C9E1","#F59E0B","#E8197A","#22C55E","#9B5DE5","#F15BB5"][["A","B","C","D","E","F"].indexOf(g)]||C.cyan):C.muted,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>
+                      ⚡ Superset {g}
+                    </button>
+                  ))}
+                  {/* New group button */}
+                  <button onClick={()=>setDet(p=>({...p,supersetGroup:nextSsLetter()}))}
+                    style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.green}44`,background:`${C.green}11`,color:C.green,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>
+                    + New group
+                  </button>
+                </div>
+                {det.supersetGroup&&(
+                  <div style={{marginTop:8,color:C.muted,fontSize:11}}>
+                    This exercise will be grouped in ⚡ Superset {det.supersetGroup} on Day {activeDay}.
+                  </div>
+                )}
+              </div>
+            </div>
 
             <div style={{marginTop:"auto",paddingBottom:12}}>
               <GBtn label={editIdx!==null?"💾 Save Changes":"Add to Program"} onClick={confirmSave} style={{width:"100%"}}/>
