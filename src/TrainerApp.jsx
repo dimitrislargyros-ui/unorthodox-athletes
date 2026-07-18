@@ -266,7 +266,7 @@ const BottomNav=({active,onNav,scheduleBadge=0})=>{
     {id:"programs", label:"Programs", Icon:IcoDumbbell},
   ];
   return(
-    <div className="ua-app" style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(8,8,8,0.92)",backdropFilter:"blur(24px) saturate(200%)",WebkitBackdropFilter:"blur(24px) saturate(200%)",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-around",alignItems:"flex-end",padding:"8px 0 max(env(safe-area-inset-bottom),20px)",zIndex:100}}>
+    <div style={{position:"fixed",bottom:0,left:0,right:0,background:"rgba(8,8,8,0.92)",backdropFilter:"blur(24px) saturate(200%)",WebkitBackdropFilter:"blur(24px) saturate(200%)",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-around",alignItems:"flex-end",padding:"8px 0 max(env(safe-area-inset-bottom),20px)",zIndex:100}}>
       {tabs.map(t=>{
         const isActive=active===t.id;
         const col=isActive?C.pink:C.muted;
@@ -2558,9 +2558,11 @@ export default function App(){
   };
 
   return(
-    <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
-      {renderScreen()}
+    <>
+      <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
+        {renderScreen()}
+      </div>
       <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
-    </div>
+    </>
   );
 }
