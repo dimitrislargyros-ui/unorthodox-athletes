@@ -2169,6 +2169,8 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
   };
 
   const remove=(idx)=>persist(exs.filter((_,i)=>i!==idx));
+  const moveUp=(idx)=>{if(idx===0)return;const n=[...exs];[n[idx-1],n[idx]]=[n[idx],n[idx-1]];persist(n);};
+  const moveDown=(idx)=>{if(idx===exs.length-1)return;const n=[...exs];[n[idx],n[idx+1]]=[n[idx+1],n[idx]];persist(n);};
 
   const doReorder=(from,to)=>{if(from===to)return;const n=[...exs];const[r]=n.splice(from,1);n.splice(to,0,r);persist(n);};
   const handleDragStart=(e,i)=>{dragRef.current={from:i,to:i};setDragIdx(i);setDragOverIdx(i);e.dataTransfer.effectAllowed='move';};
@@ -2318,8 +2320,11 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
                           onDragEnd={()=>{setDragIdx(null);setDragOverIdx(null);}}
                           onClick={()=>!saving&&startEdit(i)}
                           style={{background:dragOverIdx===i&&dragIdx!==i?`${C.cyan}12`:ssGroup?`${ssColor}0D`:"rgba(255,255,255,0.04)",borderRadius:12,padding:"11px 14px",display:"flex",alignItems:"center",gap:10,marginBottom:ssGroup&&exs[i+1]?.supersetGroup===ssGroup?2:8,border:`1px solid ${dragOverIdx===i&&dragIdx!==i?C.cyan:ssGroup?ssColor+"44":C.border}`,cursor:"pointer",opacity:dragIdx===i?0.4:1,transition:"all 0.12s",userSelect:"none"}}>
-                          {/* drag handle */}
-                          <div onTouchStart={handleTouchDrag(i)} style={{color:C.border,fontSize:20,cursor:"grab",padding:"0 2px",flexShrink:0,touchAction:"none",lineHeight:1}}>⠿</div>
+                          {/* up/down reorder buttons */}
+                          <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                            <button onClick={e=>{e.stopPropagation();moveUp(i);}} disabled={saving||i===0} style={{background:"none",border:"none",color:i===0?C.border:C.muted,cursor:i===0?"default":"pointer",fontSize:14,padding:"0 2px",lineHeight:1,fontFamily:"inherit"}}>▲</button>
+                            <button onClick={e=>{e.stopPropagation();moveDown(i);}} disabled={saving||i===exs.length-1} style={{background:"none",border:"none",color:i===exs.length-1?C.border:C.muted,cursor:i===exs.length-1?"default":"pointer",fontSize:14,padding:"0 2px",lineHeight:1,fontFamily:"inherit"}}>▼</button>
+                          </div>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{display:"flex",alignItems:"center",gap:6}}>
                               <div style={{color:C.white,fontSize:14,fontWeight:700}}>{ex.name}</div>
