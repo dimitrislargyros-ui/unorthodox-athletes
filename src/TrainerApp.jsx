@@ -470,7 +470,7 @@ const LoginScreen=({onLogin})=>{
 };
 
 // ── Today ──
-const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
+const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNameUpdated})=>{
   const [sessions,setSessions]=useState([]);
   const [loading,setLoad]=useState(true);
   const [announcements,setAnn]=useState([]);
@@ -482,6 +482,9 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
   const [annToast,setAnnToast]=useState(null);
   const showAnnToast=(msg,ok=false)=>{setAnnToast({msg,ok});setTimeout(()=>setAnnToast(null),3500);};
   const [dismissedSetup,setDismissedSetup]=useState(()=>new Set(JSON.parse(localStorage.getItem("ua_dismissed_setup")||"[]")));
+  const [editingTName,setEditingTName]=useState(false);
+  const [tNameVal,setTNameVal]=useState(trainerName||"");
+  const [savingTName,setSavingTName]=useState(false);
 
   useEffect(()=>{
     const today=todayISO();
@@ -538,6 +541,18 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
     setAnnPosting(false);
   };
 
+  const handleSaveTName=async()=>{
+    const trimmed=tNameVal.trim();
+    if(!trimmed||trimmed===(trainerName||"")){setEditingTName(false);return;}
+    setSavingTName(true);
+    try{
+      await dbPatch("profiles",`id=eq.${trainerId}`,{name:trimmed},token);
+      onTrainerNameUpdated&&onTrainerNameUpdated(trimmed);
+      setEditingTName(false);
+    }catch(e){showAnnToast("Error: "+e.message);}
+    setSavingTName(false);
+  };
+
   const handleDeleteAnn=(a)=>{
     setAnnConfirm({msg:"Delete this announcement?",okLabel:"Delete",onOk:async()=>{
       try{ await deleteAnnouncement(a.id,token); setAnn(p=>p.filter(x=>x.id!==a.id)); }
@@ -548,7 +563,27 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient})=>{
   return(
     <div style={{paddingBottom:80}}>
       <div style={{padding:"22px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div><div style={{color:C.muted,fontSize:13}}>{todayStr}</div><div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>{trainerName||"Coach"}</div></div>
+        <div>
+          <div style={{color:C.muted,fontSize:13}}>{todayStr}</div>
+          {editingTName?(
+            <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+              <input
+                value={tNameVal}
+                onChange={e=>setTNameVal(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter")handleSaveTName();if(e.key==="Escape"){setEditingTName(false);setTNameVal(trainerName||"");}}}
+                autoFocus
+                style={{background:C.surface2,border:`1px solid ${C.cyan}`,borderRadius:8,padding:"5px 10px",color:C.white,fontSize:18,fontWeight:800,outline:"none",fontFamily:"'Oswald',sans-serif",width:160}}
+              />
+              <button onClick={handleSaveTName} disabled={savingTName} style={{background:C.cyan,border:"none",borderRadius:8,padding:"5px 11px",color:C.bg,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{savingTName?"…":"✓"}</button>
+              <button onClick={()=>{setEditingTName(false);setTNameVal(trainerName||"");}} style={{background:"none",border:"none",color:C.muted,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+            </div>
+          ):(
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>{trainerName||"Coach"}</div>
+              <button onClick={()=>setEditingTName(true)} style={{background:"none",border:"none",color:C.border,fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,marginTop:2}}>✏️</button>
+            </div>
+          )}
+        </div>
         <Logo size={44}/>
       </div>
 
@@ -832,6 +867,9 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [newSpw,setNSpw]=useState("3");
   const [customTotal,setCustomTotal]=useState("");
   const [customSpw,setCustomSpw]=useState("");
+  const [editingName,setEditingName]=useState(false);
+  const [nameVal,setNameVal]=useState(client.name||"");
+  const [savingName,setSavingName]=useState(false);
   const [hasInjury,setHasInj]=useState(false);
   const [injuryNotes,setInjNotes]=useState("");
   const [pkgNotes,setPkgNotes]=useState("");
@@ -959,6 +997,19 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     setShowReport(true);
   };
 
+  const handleSaveName=async()=>{
+    const trimmed=nameVal.trim();
+    if(!trimmed||trimmed===client.name){setEditingName(false);return;}
+    setSavingName(true);
+    try{
+      const initials=trimmed.split(" ").filter(Boolean).map(w=>w[0].toUpperCase()).slice(0,2).join("");
+      await dbPatch("profiles",`id=eq.${client.id}`,{name:trimmed,initials},token);
+      onClientUpdated({...client,name:trimmed,initials});
+      setEditingName(false);
+    }catch(e){showUaToast("Error: "+e.message);}
+    setSavingName(false);
+  };
+
   const handleTogglePaid=async()=>{
     if(!pkg) return;
     const newPaid=!pkg.paid;
@@ -1068,7 +1119,24 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       <div style={{padding:"16px 20px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
         <Avatar initials={client.initials} size={72} avatarUrl={client.avatar_url}/>
         <div style={{textAlign:"center"}}>
-          <div style={{color:C.white,fontSize:20,fontWeight:800}}>{client.name}</div>
+          {editingName?(
+            <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"center"}}>
+              <input
+                value={nameVal}
+                onChange={e=>setNameVal(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter")handleSaveName();if(e.key==="Escape"){setEditingName(false);setNameVal(client.name||"");}}}
+                autoFocus
+                style={{background:C.surface2,border:`1px solid ${C.cyan}`,borderRadius:8,padding:"6px 10px",color:C.white,fontSize:17,fontWeight:800,outline:"none",fontFamily:"inherit",textAlign:"center",width:180}}
+              />
+              <button onClick={handleSaveName} disabled={savingName} style={{background:C.cyan,border:"none",borderRadius:8,padding:"6px 12px",color:C.bg,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{savingName?"…":"✓"}</button>
+              <button onClick={()=>{setEditingName(false);setNameVal(client.name||"");}} style={{background:"none",border:"none",color:C.muted,fontSize:16,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+            </div>
+          ):(
+            <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"center"}}>
+              <div style={{color:C.white,fontSize:20,fontWeight:800}}>{client.name}</div>
+              <button onClick={()=>setEditingName(true)} style={{background:"none",border:"none",color:C.muted,fontSize:14,cursor:"pointer",padding:"0 2px",lineHeight:1}}>✏️</button>
+            </div>
+          )}
           <div style={{color:C.muted,fontSize:13,marginTop:3}}>{client.email}</div>
           {client.created_at&&<div style={{color:C.muted,fontSize:12,marginTop:3}}>Member since {fmtMemberSince(client.created_at)}</div>}
         </div>
@@ -2699,7 +2767,7 @@ export default function App(){
   const renderScreen=()=>{
     if(selClient) return <ClientDetail client={selClient} trainerId={auth.userId} token={auth.token} onBack={()=>setSel(null)} onClientUpdated={handleClientUpdated}/>;
     switch(screen){
-      case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
+      case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onTrainerNameUpdated={name=>setAuth(p=>({...p,profile:{...p.profile,name}}))}/>;
       case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel}/>;
       case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
       case "programs": return <ProgramsScreen trainerId={auth.userId} token={auth.token}/>;
