@@ -997,6 +997,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
       setCancelReqSess({bookingId:s._bookingId||null,date:s.session_date,startMin:s.start_time_min});
       return;
     }
+    const dateLabel=`${s.session_date} ${s.start_time_min!=null?toTime(s.start_time_min):""}`.trim();
     setCancelReDlg({
       msg:"Cancel this booking and go to schedule to rebook?",
       okLabel:"Cancel & Rebook",
@@ -1012,6 +1013,13 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
             await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
             onPkgUpdate?.({...pkg,sessions_used:newUsed});
           }
+          // Notify trainer
+          getTrainerProfile(token).then(trainer=>{
+            if(!trainer) return;
+            const clientName=profile?.name||"Client";
+            postNotification({client_id:trainer.id,type:"cancel_request",message:`❌ ${clientName} ακύρωσε το ραντεβού της ${dateLabel}.`},token).catch(()=>{});
+            fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"❌ Ακύρωση ραντεβού",body:`${clientName} ακύρωσε: ${dateLabel}`})}).catch(()=>{});
+          }).catch(()=>{});
           onNav("schedule");
         }catch(e){ showHomeToast("Error: "+e.message); }
       }
@@ -1890,8 +1898,9 @@ const NotifBellSheet=({userId,token,onClose})=>{
   const [working,setWorking]=useState(false);
   const [msg,setMsg]=useState('');
   const hasPush=typeof PushManager!=='undefined';
+
   const enable=async()=>{
-    if(!('serviceWorker' in navigator)||!hasPush){setMsg('Push not supported. Install the app to Home Screen first.');return;}
+    if(!('serviceWorker' in navigator)||!hasPush){setMsg('Πρόσθεσε την εφαρμογή στην Αρχική Οθόνη (PWA) για ειδοποιήσεις.');return;}
     setWorking(true); setMsg('');
     try{
       const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
@@ -1901,17 +1910,35 @@ const NotifBellSheet=({userId,token,onClose})=>{
         const existing=await reg.pushManager.getSubscription();
         const sub=existing||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
         if(sub){
-          const cacheKey=`ua_push_ep_${userId}`;
-          sessionStorage.removeItem(cacheKey+'_session');
+          sessionStorage.removeItem(`ua_push_ep_${userId}_session`);
           await savePushSub(userId,sub.toJSON(),token);
           setMsg('✅ Ειδοποιήσεις ενεργοποιήθηκαν!');
         }
       } else if(perm==='denied'){
-        setMsg('❌ Αποκλείστηκαν. Άνοιξε ρυθμίσεις ιστότοπου για να τις επιτρέψεις.');
+        setMsg('❌ Αποκλείστηκαν. Άνοιξε τις ρυθμίσεις του browser για να τις επιτρέψεις.');
       }
-    }catch(e){setMsg('Error: '+e.message);}
+    }catch(e){setMsg('Σφάλμα: '+e.message);}
     setWorking(false);
   };
+
+  const disable=async()=>{
+    if(!('serviceWorker' in navigator)||!hasPush) return;
+    setWorking(true); setMsg('');
+    try{
+      const reg=await navigator.serviceWorker.getRegistration('/');
+      if(reg){
+        const sub=await reg.pushManager.getSubscription();
+        if(sub) await sub.unsubscribe();
+      }
+      // Remove push subscription from DB
+      await dbPatch("push_subscriptions",`user_id=eq.${userId}`,{endpoint:null,active:false},token).catch(()=>{});
+      setMsg('🔕 Ειδοποιήσεις απενεργοποιήθηκαν.');
+      // Note: browser permission stays 'granted' — user must clear from browser settings for full revoke
+      // We just stop sending pushes by clearing the subscription
+    }catch(e){setMsg('Σφάλμα: '+e.message);}
+    setWorking(false);
+  };
+
   const refresh=async()=>{
     if(!('serviceWorker' in navigator)||!hasPush) return;
     setWorking(true); setMsg('');
@@ -1920,48 +1947,63 @@ const NotifBellSheet=({userId,token,onClose})=>{
       const existing=await reg.pushManager.getSubscription();
       const sub=existing||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
       if(sub){
-        const cacheKey=`ua_push_ep_${userId}`;
-        sessionStorage.removeItem(cacheKey+'_session');
+        sessionStorage.removeItem(`ua_push_ep_${userId}_session`);
         await savePushSub(userId,sub.toJSON(),token);
         setMsg('✅ Η εγγραφή ανανεώθηκε!');
       }
-    }catch(e){setMsg('Error: '+e.message);}
+    }catch(e){setMsg('Σφάλμα: '+e.message);}
     setWorking(false);
   };
+
   const enabled=status==='granted';
   const denied=status==='denied';
+  const unsupported=status==='unsupported'||!hasPush;
+
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:500,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
       <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px"}} onClick={e=>e.stopPropagation()}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 18px"}}/>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-          <span style={{fontSize:24}}>{enabled?'🔔':'🔕'}</span>
-          <div style={{color:C.white,fontSize:17,fontWeight:800}}>Push Notifications</div>
+
+        {/* Status header */}
+        <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",background:enabled?C.green+"18":denied?C.pink+"18":"rgba(255,255,255,0.05)",borderRadius:12,marginBottom:20,border:`1px solid ${enabled?C.green+"44":denied?C.pink+"44":C.border}`}}>
+          <span style={{fontSize:28}}>{enabled?'🔔':denied?'🚫':'🔕'}</span>
+          <div>
+            <div style={{color:C.white,fontSize:15,fontWeight:800}}>{enabled?'Ειδοποιήσεις Ενεργές':denied?'Ειδοποιήσεις Αποκλεισμένες':'Ειδοποιήσεις Ανενεργές'}</div>
+            <div style={{color:enabled?C.green:denied?C.pink:C.muted,fontSize:12,marginTop:2,fontWeight:600}}>
+              {enabled?'Θα λαμβάνεις push ειδοποιήσεις':denied?'Αποκλείστηκαν από τον browser':'Δεν έχουν ενεργοποιηθεί ακόμα'}
+            </div>
+          </div>
         </div>
-        <div style={{color:enabled?C.green:denied?C.pink:C.muted,fontSize:13,fontWeight:700,marginBottom:16}}>
-          {enabled?'Ενεργές ✓':denied?'Αποκλεισμένες ✗':'Ανενεργές'}
-        </div>
-        {!hasPush&&<div style={{color:C.muted,fontSize:12,marginBottom:16}}>Πρόσθεσε την εφαρμογή στην Αρχική Οθόνη (PWA) για να ενεργοποιήσεις τις ειδοποιήσεις.</div>}
-        {denied&&<div style={{color:C.muted,fontSize:12,marginBottom:16}}>Για επανενεργοποίηση: άνοιξε τις ρυθμίσεις ιστότοπου στον browser και επίτρεψε τις ειδοποιήσεις, μετά πάτα Ανανέωση.</div>}
+
+        {unsupported&&<div style={{color:C.muted,fontSize:12,marginBottom:16,textAlign:"center",lineHeight:1.6}}>📲 Πρόσθεσε την εφαρμογή στην Αρχική Οθόνη (Add to Home Screen) για να ενεργοποιήσεις τις ειδοποιήσεις.</div>}
+        {denied&&<div style={{color:C.muted,fontSize:12,marginBottom:16,lineHeight:1.6}}>Για να τις επανενεργοποιήσεις: άνοιξε <strong style={{color:C.white}}>Ρυθμίσεις Browser → Ειδοποιήσεις</strong> και επίτρεψε για αυτόν τον ιστότοπο, μετά πάτα "Ανανέωση".</div>}
+
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {!enabled&&hasPush&&!denied&&(
-            <button onClick={enable} disabled={working} style={{background:C.cyan,border:"none",borderRadius:12,padding:"14px",color:C.bg,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
-              {working?'Περιμένε…':'🔔 Ενεργοποίηση'}
+          {/* Main action button */}
+          {!enabled&&!denied&&!unsupported&&(
+            <button onClick={enable} disabled={working} style={{background:`linear-gradient(135deg,${C.cyan},${C.green})`,border:"none",borderRadius:12,padding:"15px",color:C.bg,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+              {working?'Περιμένε…':'🔔 Ενεργοποίηση Ειδοποιήσεων'}
             </button>
           )}
           {enabled&&(
-            <button onClick={refresh} disabled={working} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.cyan,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
-              {working?'Περιμένε…':'🔄 Ανανέωση εγγραφής'}
+            <>
+              <button onClick={refresh} disabled={working} style={{background:C.surface2,border:`1px solid ${C.cyan}55`,borderRadius:12,padding:"13px",color:C.cyan,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+                {working?'Περιμένε…':'🔄 Ανανέωση εγγραφής'}
+              </button>
+              <button onClick={disable} disabled={working} style={{background:"none",border:`1px solid ${C.pink}55`,borderRadius:12,padding:"13px",color:C.pink,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+                {working?'Περιμένε…':'🔕 Απενεργοποίηση Ειδοποιήσεων'}
+              </button>
+            </>
+          )}
+          {denied&&!unsupported&&(
+            <button onClick={refresh} disabled={working} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px",color:C.cyan,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
+              {working?'Περιμένε…':'🔄 Ανανέωση (μετά αλλαγή ρυθμίσεων)'}
             </button>
           )}
-          {denied&&hasPush&&(
-            <button onClick={refresh} disabled={working} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.cyan,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
-              {working?'Περιμένε…':'🔄 Ανανέωση μετά από αλλαγή ρυθμίσεων'}
-            </button>
-          )}
-          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"12px",color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>Κλείσιμο</button>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"12px",color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>Κλείσιμο</button>
         </div>
-        {msg&&<div style={{color:msg.startsWith('✅')?C.green:C.pink,fontSize:13,marginTop:14,textAlign:"center",fontWeight:600}}>{msg}</div>}
+
+        {msg&&<div style={{color:msg.startsWith('✅')?C.green:msg.startsWith('🔕')?C.muted:C.pink,fontSize:13,marginTop:14,textAlign:"center",fontWeight:600,lineHeight:1.5}}>{msg}</div>}
       </div>
     </div>
   );
