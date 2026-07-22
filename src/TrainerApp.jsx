@@ -2920,10 +2920,35 @@ export default function App(){
   const ptrStartY=useRef(null);
   const rtToastTimer=useRef(null);
   const [rtToast,setRtToast]=useState(null);
+  const [cancelReqModal,setCancelReqModal]=useState(null); // pending cancel request to show modal for
+  const [cancelReqActing,setCancelReqActing]=useState(false);
   const showRtToast=(msg)=>{
     clearTimeout(rtToastTimer.current);
     setRtToast(msg);
     rtToastTimer.current=setTimeout(()=>setRtToast(null),4000);
+  };
+  const handleCancelReqAccept=async(r)=>{
+    setCancelReqActing(true);
+    try{
+      const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
+      if(r.booking_id) await cancelBookingRow(r.booking_id,auth.token).catch(()=>{});
+      await resolveCancelReq(r.id,"accepted",auth.token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your cancellation for ${label} was approved. You can rebook anytime.`},auth.token).catch(()=>{});
+      setCancelReqModal(null);
+      showRtToast("✓ Cancellation approved");
+    }catch(e){ showRtToast("Error: "+e.message); }
+    setCancelReqActing(false);
+  };
+  const handleCancelReqDecline=async(r)=>{
+    setCancelReqActing(true);
+    try{
+      const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
+      await resolveCancelReq(r.id,"declined",auth.token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your cancellation request for ${label} was declined. Please contact your trainer.`},auth.token).catch(()=>{});
+      setCancelReqModal(null);
+      showRtToast("Request declined");
+    }catch(e){ showRtToast("Error: "+e.message); }
+    setCancelReqActing(false);
   };
 
   // Poll pending custom-time requests at app level every 60s so badge updates
@@ -2961,7 +2986,16 @@ export default function App(){
     // New notification for trainer → update bell badge
     rt.subscribe('notifications','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
       setTrainerNotifs(prev=>prev.some(n=>n.id===row.id)?prev:[row,...prev]);
-      showRtToast(row.message);
+      if(row.type!=='cancel_request') showRtToast(row.message);
+    });
+
+    // Cancel requests → show modal immediately wherever trainer is
+    rt.subscribe('cancel_requests','INSERT',`trainer_id=eq.${auth.userId}`,(row)=>{
+      // Fetch client name from clients list or profiles
+      getClients(auth.token).then(allClients=>{
+        const client=allClients?.find(c=>c.id===row.client_id);
+        setCancelReqModal({...row,_clientName:client?.name||"Client"});
+      }).catch(()=>setCancelReqModal({...row,_clientName:"Client"}));
     });
 
     // Bookings changes → refresh today's schedule view
@@ -3132,6 +3166,38 @@ export default function App(){
       </div>
       <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
       {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onClose={()=>{setShowNotifPanel(false);getTrainerNotifications(auth.userId,auth.token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});}}/>}
+      {/* Cancel Request Modal — pops up wherever trainer is */}
+      {cancelReqModal&&(
+        <div style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.65)"}} onClick={e=>{if(e.target===e.currentTarget)setCancelReqModal(null);}}>
+          <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(0,0,0,0.6)"}}>
+            <div style={{width:40,height:4,borderRadius:2,background:C.border,margin:"0 auto 20px"}}/>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+              <div style={{width:44,height:44,borderRadius:12,background:C.amber+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>⚠️</div>
+              <div>
+                <div style={{color:C.white,fontSize:16,fontWeight:800}}>Cancellation Request</div>
+                <div style={{color:C.muted,fontSize:12,marginTop:2}}>Within 48 hours of session</div>
+              </div>
+            </div>
+            <div style={{background:C.surface2,borderRadius:12,padding:"14px 16px",marginBottom:20}}>
+              <div style={{color:C.white,fontSize:15,fontWeight:700,marginBottom:4}}>{cancelReqModal._clientName}</div>
+              <div style={{color:C.amber,fontSize:13,fontWeight:700}}>{new Date(cancelReqModal.book_date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"short"})}, {fmtDate(cancelReqModal.book_date)} · {toTime(cancelReqModal.start_time_min)}</div>
+              {cancelReqModal.message&&<div style={{color:C.muted,fontSize:12,marginTop:8,lineHeight:1.5}}>"{cancelReqModal.message}"</div>}
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button
+                onClick={()=>handleCancelReqDecline(cancelReqModal)}
+                disabled={cancelReqActing}
+                style={{flex:1,background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:12,padding:"14px",color:C.pink,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:cancelReqActing?0.6:1}}
+              >✕ Decline</button>
+              <button
+                onClick={()=>handleCancelReqAccept(cancelReqModal)}
+                disabled={cancelReqActing}
+                style={{flex:1,background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:12,padding:"14px",color:C.green,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:cancelReqActing?0.6:1}}
+              >{cancelReqActing?"…":"✓ Approve"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
