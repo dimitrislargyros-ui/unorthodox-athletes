@@ -137,7 +137,7 @@ const postNotification = async (d,tk) => {
 };
 const getTrainerNotifications=(uid,tk)=>dbGet("notifications",`client_id=eq.${uid}&order=created_at.desc&limit=60`,tk);
 const deleteNotification=(id,tk)=>dbDelete("notifications",`id=eq.${id}`,tk,"return=minimal");
-const savePushSub=(uid,sub,tk)=>dbPatch("push_subscriptions",`user_id=eq.${uid}`,{endpoint:sub.endpoint,p256dh:sub.keys?.p256dh,auth_key:sub.keys?.auth,active:true},tk).catch(()=>dbPost("push_subscriptions",{user_id:uid,endpoint:sub.endpoint,p256dh:sub.keys?.p256dh,auth_key:sub.keys?.auth,active:true},tk));
+const savePushSub=(uid,sub,tk)=>fetch(`${SB_URL}/rest/v1/push_subscriptions`,{method:'POST',headers:{apikey:SB_KEY,Authorization:`Bearer ${tk}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({client_id:uid,subscription:sub})}).then(r=>r.ok?console.log('[Trainer Push] sub saved'):r.text().then(t=>console.warn('[Trainer Push] save failed',r.status,t))).catch(()=>{});
 
 // ── Schedule periods ──
 const getAllPeriods      = (tk)             => dbGet("schedule_periods","order=start_date.desc",tk);
