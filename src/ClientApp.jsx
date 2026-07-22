@@ -2314,6 +2314,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
 export default function App(){
   const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[]});
   const [screen,setScreen]=useState("home");
+  const [scheduleInitWeek,setScheduleInitWeek]=useState(0);
   const [openSess,setOpenSess]=useState(null);
   const [showSignUp,setShowSignUp]=useState(false);
   const [notifications,setNotifications]=useState([]);
@@ -2557,7 +2558,6 @@ export default function App(){
     </div>
   );
 
-  const [scheduleInitWeek,setScheduleInitWeek]=useState(0);
   const handleNav=(s)=>{ if(s==="announcements") markAnnouncementsSeen(); if(s==="schedule") setScheduleInitWeek(0); setScreen(s); };
   const handleNavSchedule=(weekOffset)=>{ setScheduleInitWeek(weekOffset); setScreen("schedule"); };
 
