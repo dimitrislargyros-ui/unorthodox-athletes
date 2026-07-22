@@ -120,6 +120,34 @@ function makeRealtime(supabaseUrl, anonKey) {
   return rt;
 }
 
+const UA_AUTH_KEY = "ua_client_auth";
+
+// Raw token refresh — bypasses sb() to avoid circular calls
+const rawRefresh = async (refreshToken) => {
+  try {
+    const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method:"POST",
+      headers:{"apikey":SB_KEY,"Content-Type":"application/json"},
+      body: JSON.stringify({refresh_token:refreshToken}),
+    });
+    if(!r.ok) return null;
+    return await r.json();
+  } catch(e){ return null; }
+};
+
+// Try to silently refresh stored credentials; returns new token or null
+const tryRefreshAuth = async () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(UA_AUTH_KEY)||"{}");
+    if(!saved.refreshToken) return null;
+    const data = await rawRefresh(saved.refreshToken);
+    if(!data?.access_token) return null;
+    const updated = {token:data.access_token, userId:saved.userId, expiresAt:data.expires_at, refreshToken:data.refresh_token||saved.refreshToken};
+    localStorage.setItem(UA_AUTH_KEY, JSON.stringify(updated));
+    return updated;
+  } catch(e){ return null; }
+};
+
 const sb = async (path, method="GET", body=null, token=null, prefer="return=representation") => {
   const res = await fetch(`${SB_URL}${path}`, {
     method,
@@ -132,7 +160,12 @@ const sb = async (path, method="GET", body=null, token=null, prefer="return=repr
     body: body ? JSON.stringify(body) : undefined,
   });
   if(!res.ok){
-    if(res.status===401||res.status===403){ localStorage.removeItem("ua_client_auth"); window.location.reload(); return; }
+    if(res.status===401||res.status===403){
+      // Try a token refresh before giving up
+      const refreshed = await tryRefreshAuth();
+      if(refreshed){ window.location.reload(); return; }
+      localStorage.removeItem(UA_AUTH_KEY); window.location.reload(); return;
+    }
     throw new Error(await res.text());
   }
   const t = await res.text();
@@ -2251,10 +2284,18 @@ export default function App(){
   useEffect(()=>{
     const init=async()=>{
       try{
-        const saved=localStorage.getItem("ua_client_auth");
+        const saved=localStorage.getItem(UA_AUTH_KEY);
         if(saved){
-          const {token,userId,expiresAt}=JSON.parse(saved);
+          const {token,userId,expiresAt,refreshToken}=JSON.parse(saved);
           if(Date.now()<expiresAt*1000){ await loadData(token,userId); return; }
+          // Token expired — try silent refresh before showing login
+          if(refreshToken){
+            const data=await rawRefresh(refreshToken);
+            if(data?.access_token){
+              localStorage.setItem(UA_AUTH_KEY,JSON.stringify({token:data.access_token,userId,expiresAt:data.expires_at,refreshToken:data.refresh_token||refreshToken}));
+              await loadData(data.access_token,userId); return;
+            }
+          }
         }
       }catch(e){}
       setAuth(p=>({...p,loading:false}));
@@ -2421,7 +2462,7 @@ export default function App(){
     // auth.users row is created, so this must PATCH the existing row, not INSERT —
     // clients have no INSERT policy on profiles, only UPDATE-own-row.
     await updateProfile(user.id,{name:fullName,initials,username,...(phone&&{phone})},access_token).catch(()=>{});
-    localStorage.setItem("ua_client_auth",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
+    localStorage.setItem(UA_AUTH_KEY,JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at,refreshToken:data.refresh_token}));
     await loadData(access_token,user.id);
     return true;
   };
@@ -2430,14 +2471,14 @@ export default function App(){
     const data=await authLogin(email,pw);
     if(data.error) throw new Error(data.error_description||data.error);
     const {access_token,expires_at,user}=data;
-    localStorage.setItem("ua_client_auth",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
+    localStorage.setItem(UA_AUTH_KEY,JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at,refreshToken:data.refresh_token}));
     setAuth({loading:false,token:access_token,userId:user.id,profile:null,pkg:null,sessions:[],prs:[]});
     loadData(access_token,user.id);
   };
 
   const handleLogout=async()=>{
     try{ await authLogout(auth.token); }catch(e){}
-    localStorage.removeItem("ua_client_auth");
+    localStorage.removeItem(UA_AUTH_KEY);
     setAuth({loading:false,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[]});
     setScreen("home");
   };

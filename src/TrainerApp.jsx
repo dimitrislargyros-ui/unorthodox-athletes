@@ -43,10 +43,35 @@ const SESS_MIN = 90;
 const SB_URL = "https://hxyqvryuniqmvpjljrry.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4eXF2cnl1bmlxbXZwamxqcnJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyOTQ0NTAsImV4cCI6MjA5Nzg3MDQ1MH0.eSoak4YVf7vqFwYlYebayMS3CCiEjLhZ5olEAnkDJlU";
 
+const UA_TRAINER_AUTH_KEY = "ua_trainer_auth";
+
+const rawRefresh = async (refreshToken) => {
+  try {
+    const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=refresh_token`,{method:"POST",headers:{"apikey":SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({refresh_token:refreshToken})});
+    if(!r.ok) return null;
+    return await r.json();
+  } catch(e){ return null; }
+};
+
+const tryRefreshAuth = async () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(UA_TRAINER_AUTH_KEY)||"{}");
+    if(!saved.refreshToken) return null;
+    const data = await rawRefresh(saved.refreshToken);
+    if(!data?.access_token) return null;
+    localStorage.setItem(UA_TRAINER_AUTH_KEY,JSON.stringify({token:data.access_token,userId:saved.userId,expiresAt:data.expires_at,refreshToken:data.refresh_token||saved.refreshToken}));
+    return data;
+  } catch(e){ return null; }
+};
+
 const sb = async (path,method="GET",body=null,token=null,prefer="return=representation") => {
   const res = await fetch(`${SB_URL}${path}`,{method,headers:{"apikey":SB_KEY,"Authorization":`Bearer ${token||SB_KEY}`,"Content-Type":"application/json","Prefer":prefer},body:body?JSON.stringify(body):undefined});
   if(!res.ok){
-    if(res.status===401||res.status===403){ localStorage.removeItem("ua_trainer_auth"); window.location.reload(); return; }
+    if(res.status===401||res.status===403){
+      const refreshed = await tryRefreshAuth();
+      if(refreshed){ window.location.reload(); return; }
+      localStorage.removeItem(UA_TRAINER_AUTH_KEY); window.location.reload(); return;
+    }
     throw new Error(await res.text());
   }
   const t=await res.text(); return t?JSON.parse(t):null;
@@ -2712,10 +2737,18 @@ export default function App(){
   useEffect(()=>{
     const init=async()=>{
       try{
-        const saved=localStorage.getItem("ua_trainer_auth");
+        const saved=localStorage.getItem(UA_TRAINER_AUTH_KEY);
         if(saved){
-          const {token,userId,expiresAt}=JSON.parse(saved);
+          const {token,userId,expiresAt,refreshToken}=JSON.parse(saved);
           if(Date.now()<expiresAt*1000){ await loadData(token,userId); return; }
+          // Token expired — try silent refresh
+          if(refreshToken){
+            const data=await rawRefresh(refreshToken);
+            if(data?.access_token){
+              localStorage.setItem(UA_TRAINER_AUTH_KEY,JSON.stringify({token:data.access_token,userId,expiresAt:data.expires_at,refreshToken:data.refresh_token||refreshToken}));
+              await loadData(data.access_token,userId); return;
+            }
+          }
         }
       }catch(e){}
       setAuth(p=>({...p,loading:false}));
@@ -2726,7 +2759,7 @@ export default function App(){
   const loadData=async(token,userId)=>{
     try{
       const [profile,allClients,pkgs]=await Promise.all([getProfile(userId,token),getClients(token),getAllPkgs(token)]);
-      if(profile?.role!=="trainer"){ localStorage.removeItem("ua_trainer_auth"); setAuth({loading:false,token:null,userId:null,profile:null}); return; }
+      if(profile?.role!=="trainer"){ localStorage.removeItem(UA_TRAINER_AUTH_KEY); setAuth({loading:false,token:null,userId:null,profile:null}); return; }
       // Auto-deactivate packages whose end_date has passed
       const today=todayISO();
       const expiredPkgs=(pkgs||[]).filter(p=>p.end_date&&p.end_date<today);
@@ -2746,13 +2779,13 @@ export default function App(){
     const {access_token,expires_at,user}=data;
     const profile=await getProfile(user.id,access_token).catch(()=>null);
     if(profile?.role!=="trainer") throw new Error("NOT_TRAINER");
-    localStorage.setItem("ua_trainer_auth",JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at}));
+    localStorage.setItem(UA_TRAINER_AUTH_KEY,JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at,refreshToken:data.refresh_token}));
     await loadData(access_token,user.id);
   };
 
   const handleLogout=async()=>{
     try{ await authLogout(auth.token); }catch(e){}
-    localStorage.removeItem("ua_trainer_auth");
+    localStorage.removeItem(UA_TRAINER_AUTH_KEY);
     setAuth({loading:false,token:null,userId:null,profile:null});
     setClients([]); setScreen("today"); setSel(null);
   };
