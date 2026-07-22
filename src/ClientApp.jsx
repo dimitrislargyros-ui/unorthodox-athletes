@@ -2482,6 +2482,10 @@ export default function App(){
     // New notification for this client → update bell + show modal or toast
     rt.subscribe('notifications','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
       setNotifications(prev=>prev.some(n=>n.id===row.id)?prev:[row,...prev]);
+      // When trainer approves/declines cancellation, refresh bookings immediately
+      if(row.type==='cancel_accepted'||row.type==='cancel_declined'){
+        setBookingsVer(v=>v+1);
+      }
       const MODAL=['payment_confirmed','package_renewed','payment_reminder'];
       if(MODAL.includes(row.type)&&!getSeenEvents().has(String(row.id))){
         setImportantEvent(row);

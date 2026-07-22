@@ -2932,6 +2932,11 @@ export default function App(){
     setRtToast(msg);
     rtToastTimer.current=setTimeout(()=>setRtToast(null),4000);
   };
+  // Remove all cancel_request notifications from panel after resolving
+  const cleanCancelReqNotifs=()=>{
+    setTrainerNotifs(prev=>prev.filter(n=>n.type!=="cancel_request"));
+    dbDelete("notifications",`client_id=eq.${auth.userId}&type=eq.cancel_request`,auth.token).catch(()=>{});
+  };
   const handleCancelReqAccept=async(r)=>{
     setCancelReqActing(true);
     try{
@@ -2939,6 +2944,7 @@ export default function App(){
       if(r.booking_id) await cancelBookingRow(r.booking_id,auth.token).catch(()=>{});
       await resolveCancelReq(r.id,"accepted",auth.token).catch(()=>{});
       await postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your cancellation for ${label} was approved. You can rebook anytime.`},auth.token).catch(()=>{});
+      cleanCancelReqNotifs();
       setCancelReqModal(null);
       showRtToast("✓ Cancellation approved");
     }catch(e){ showRtToast("Error: "+e.message); }
@@ -2950,6 +2956,7 @@ export default function App(){
       const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
       await resolveCancelReq(r.id,"declined",auth.token).catch(()=>{});
       await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your cancellation request for ${label} was declined. Please contact your trainer.`},auth.token).catch(()=>{});
+      cleanCancelReqNotifs();
       setCancelReqModal(null);
       showRtToast("Request declined");
     }catch(e){ showRtToast("Error: "+e.message); }
