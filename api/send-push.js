@@ -159,12 +159,15 @@ export default async function handler(req, res) {
     }).catch(() => {});
   }
 
+  // Use service key to bypass RLS when reading push subscriptions
+  const dbKey = process.env.SUPABASE_SERVICE_KEY || SUPABASE_KEY;
+
   // Fetch subscriptions — either for one client or all (broadcast)
   const url = broadcast
     ? `${SUPABASE_URL}/rest/v1/push_subscriptions?select=id,subscription,client_id`
     : `${SUPABASE_URL}/rest/v1/push_subscriptions?client_id=eq.${client_id}&select=id,subscription`;
   const subRes = await fetch(url,
-    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    { headers: { apikey: dbKey, Authorization: `Bearer ${dbKey}` } }
   );
   const subs = await subRes.json();
   if (!Array.isArray(subs) || !subs.length) return res.status(200).json({ sent: 0 });
@@ -185,7 +188,7 @@ export default async function handler(req, res) {
   if (dupIds.length) {
     fetch(
       `${SUPABASE_URL}/rest/v1/push_subscriptions?id=in.(${dupIds.join(',')})`,
-      { method: 'DELETE', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      { method: 'DELETE', headers: { apikey: dbKey, Authorization: `Bearer ${dbKey}` } }
     ).catch(() => {});
   }
 
@@ -207,7 +210,7 @@ export default async function handler(req, res) {
   if (expiredIds.length) {
     fetch(
       `${SUPABASE_URL}/rest/v1/push_subscriptions?id=in.(${expiredIds.join(',')})`,
-      { method: 'DELETE', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      { method: 'DELETE', headers: { apikey: dbKey, Authorization: `Bearer ${dbKey}` } }
     ).catch(() => {});
   }
 
