@@ -926,7 +926,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
 };
 
 // ── Home ──
-const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,userId,onPkgUpdate,onOpenNotif,notifCount})=>{
+const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,userId,onPkgUpdate,onOpenNotif,notifCount,bookingsVer})=>{
   const [now,setNow]=useState(new Date());
   const [todaySlots,setTodaySlots]=useState([]);
   const [myTodayBook,setMyBook]=useState(null);
@@ -956,7 +956,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
       setMyWeekBooks(wkBooks||[]);
       if(booked) setTodaySlotCount((dayBooks||[]).filter(b=>b.slot_id===booked.slot_id).length);
     }).catch(()=>{});
-  },[token,userId]);
+  },[token,userId,bookingsVer]);
 
   const today=todayISO();
   const left=pkg?pkg.sessions_total-pkg.sessions_used:0;
@@ -1352,7 +1352,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
 };
 
 // ── Schedule ──
-const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeekOffset})=>{
+const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeekOffset,bookingsVer})=>{
   const [weekOffset,setWeekOffset]=useState(initialWeekOffset||0);
   const [dayIdx,setDay]=useState(todayDow());
   const [slots,setSlots]=useState([]);
@@ -1433,6 +1433,19 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
       setMyWaitlist(wl||[]);
     }).catch(()=>{}).finally(()=>setLoad(false));
   },[dayIdx,weekOffset]);
+
+  // Re-fetch bookings when a booking is cancelled externally (e.g. trainer approves cancel request)
+  useEffect(()=>{
+    if(!bookingsVer) return;
+    const ws=weekDates[0].iso,we=weekDates[6].iso;
+    dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,token)
+      .then(r=>setWeekBookDates(new Set((r||[]).map(b=>b.book_date)))).catch(()=>{});
+    const todayIso=todayISO();
+    dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${todayIso}&status=eq.booked&select=book_date,schedule_slots(start_time_min)`,token)
+      .then(r=>setAllFutureBooks(r||[])).catch(()=>{});
+    if(!isSun&&!isPastDay)
+      getMyBooks(userId,selDay.iso,token).then(mb=>setMyB(mb||[])).catch(()=>{});
+  },[bookingsVer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const adjustPkgUsed=async(delta)=>{
     if(!pkg) return;
@@ -2325,6 +2338,7 @@ export default function App(){
   const [importantEvent,setImportantEvent]=useState(null); // prominent modal for payment/package
   const [rtToast,setRtToast]=useState(null);               // top toast for realtime events
   const rtToastTimer=useRef(null);
+  const [bookingsVer,setBookingsVer]=useState(0);          // bumped when a booking is cancelled externally
   // Pull-to-refresh
   const [ptrY,setPtrY]=useState(0);
   const [ptrActive,setPtrActive]=useState(false);
@@ -2499,9 +2513,10 @@ export default function App(){
     // Bookings changes (capacity updates) → trigger a full data refresh so HomeScreen updates
     // This also fires when another client books/cancels, updating counts in real-time
     rt.subscribe('bookings','*',null,(row)=>{
-      // If it's our own booking, refresh everything
+      // If it's our own booking and it was cancelled externally, bump version to trigger re-fetch
       if(row.client_id===auth.userId){
-        loadData(auth.token,auth.userId).catch(()=>{});
+        if(row.status==='cancelled') setBookingsVer(v=>v+1);
+        else loadData(auth.token,auth.userId).catch(()=>{});
       }
     });
 
@@ -2563,8 +2578,8 @@ export default function App(){
 
   const renderScreen=()=>{
     switch(screen){
-      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length}/>;
-      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek}/>;
+      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length} bookingsVer={bookingsVer}/>;
+      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} bookingsVer={bookingsVer}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;
