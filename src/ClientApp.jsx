@@ -1358,7 +1358,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
 };
 
 // ── Schedule ──
-const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
+const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
   const [weekOffset,setWeekOffset]=useState(0);
   const [dayIdx,setDay]=useState(todayDow());
   const [slots,setSlots]=useState([]);
@@ -1505,7 +1505,19 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
     if(cnt>=GYM_CAP){ const next=slots.find(s=>s.id!==slot.id&&(counts[s.id]||0)<GYM_CAP); setToast({slot,next}); return; }
     try{
       const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk;
-      if(created){ setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1})); if(isCurrentWeek) setMyWeekBookDates(p=>new Set(p).add(selDay.iso)); setWeekBookDates(p=>new Set(p).add(selDay.iso)); adjustPkgUsed(1); }
+      if(created){
+        setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));
+        if(isCurrentWeek) setMyWeekBookDates(p=>new Set(p).add(selDay.iso));
+        setWeekBookDates(p=>new Set(p).add(selDay.iso)); adjustPkgUsed(1);
+        // Notify trainer of new booking
+        getTrainerProfile(token).then(trainer=>{
+          if(!trainer) return;
+          const clientName=profile?.name||"Client";
+          const dateLabel=`${selDay.iso} ${toTime(slot.start_time_min)}`;
+          postNotification({client_id:trainer.id,type:"booking_made",message:`📅 ${clientName} έκλεισε ραντεβού: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(slot.start_time_min)}`},token).catch(()=>{});
+          fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"📅 Νέο ραντεβού",body:`${clientName}: ${fmtDate(selDay.iso)} ${toTime(slot.start_time_min)}`})}).catch(()=>{});
+        }).catch(()=>{});
+      }
     }catch(e){ showSchedErr("Error: "+e.message); }
   };
 
@@ -2498,7 +2510,7 @@ export default function App(){
   const renderScreen=()=>{
     switch(screen){
       case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length}/>;
-      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))}/>;
+      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;

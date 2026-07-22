@@ -44,6 +44,8 @@ const SB_URL = "https://hxyqvryuniqmvpjljrry.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4eXF2cnl1bmlxbXZwamxqcnJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyOTQ0NTAsImV4cCI6MjA5Nzg3MDQ1MH0.eSoak4YVf7vqFwYlYebayMS3CCiEjLhZ5olEAnkDJlU";
 
 const UA_TRAINER_AUTH_KEY = "ua_trainer_auth";
+const VAPID_PUBLIC_KEY = 'BNKaPdypI6pDPj7QQgVHhAAGxQgyjVpNcFIGu6N58WgZG05y9UTG4pwFIMu_9yDa8hMjhqtyUmJvE_84jASmVu0';
+function urlBase64ToUint8Array(b64url){const pad=b64url.length%4;const b64=(pad?b64url+'='.repeat(4-pad):b64url).replace(/-/g,'+').replace(/_/g,'/');const raw=atob(b64);return Uint8Array.from([...raw],c=>c.charCodeAt(0));}
 
 const rawRefresh = async (refreshToken) => {
   try {
@@ -132,6 +134,9 @@ const postNotification = async (d,tk) => {
   // Save to DB for in-app notification badge (may fail due to RLS — non-blocking)
   await dbPost("notifications",d,tk).catch(()=>{});
 };
+const getTrainerNotifications=(uid,tk)=>dbGet("notifications",`client_id=eq.${uid}&order=created_at.desc&limit=60`,tk);
+const deleteNotification=(id,tk)=>dbDelete("notifications",`id=eq.${id}`,tk,"return=minimal");
+const savePushSub=(uid,sub,tk)=>dbPatch("push_subscriptions",`user_id=eq.${uid}`,{endpoint:sub.endpoint,p256dh:sub.keys?.p256dh,auth_key:sub.keys?.auth,active:true},tk).catch(()=>dbPost("push_subscriptions",{user_id:uid,endpoint:sub.endpoint,p256dh:sub.keys?.p256dh,auth_key:sub.keys?.auth,active:true},tk));
 
 // ── Schedule periods ──
 const getAllPeriods      = (tk)             => dbGet("schedule_periods","order=start_date.desc",tk);
@@ -277,6 +282,54 @@ const computeStatusMap=(items,now)=>{
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
 };
+// ── Trainer Notification Panel ──
+const typeIcon=(type)=>type==="booking_made"?"📅":type==="cancel_request"?"⚠️":type==="cancel_accepted"?"✅":type==="cancel_declined"?"🚫":type==="session_scheduled"?"📋":type==="payment_confirmed"?"✅":type==="payment_reminder"?"💳":"🔔";
+const TrainerNotifPanel=({userId,token,count,onClose})=>{
+  const [notifs,setNotifs]=useState([]);
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{
+    getTrainerNotifications(userId,token).then(r=>setNotifs(r||[])).catch(()=>{}).finally(()=>setLoading(false));
+  },[]);
+  const handleDelete=async(id)=>{
+    setNotifs(p=>p.filter(n=>n.id!==id));
+    deleteNotification(id,token).catch(()=>{});
+  };
+  const handleClearAll=async()=>{
+    const ids=notifs.map(n=>n.id);
+    setNotifs([]);
+    ids.forEach(id=>deleteNotification(id,token).catch(()=>{}));
+  };
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{color:C.white,fontSize:17,fontWeight:800}}>Ειδοποιήσεις</div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {notifs.length>0&&<button onClick={handleClearAll} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:11}}>Διαγραφή όλων</button>}
+            <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+          </div>
+        </div>
+        {loading?<div style={{textAlign:"center",padding:24,color:C.muted}}>Loading…</div>:
+         notifs.length===0?<div style={{textAlign:"center",padding:24,color:C.muted,fontSize:14}}>Καμία ειδοποίηση</div>:
+         notifs.map(n=>(
+           <div key={n.id} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+             <div style={{display:"flex",gap:10,flex:1,minWidth:0}}>
+               <span style={{fontSize:18,flexShrink:0}}>{typeIcon(n.type)}</span>
+               <div style={{minWidth:0}}>
+                 <div style={{color:C.white,fontSize:13,lineHeight:1.4}}>{n.message}</div>
+                 {n.created_at&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{new Date(n.created_at).toLocaleDateString("el-GR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>}
+               </div>
+             </div>
+             <button onClick={()=>handleDelete(n.id)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,padding:"2px 4px",flexShrink:0,lineHeight:1}}>✕</button>
+           </div>
+         ))
+        }
+      </div>
+    </div>
+  );
+};
+
 // ── SVG icons for Trainer BottomNav ──
 const IcoToday=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><circle cx="12" cy="16" r="1.5" fill={c} stroke="none"/><path d="M12 13v1"/></svg>);
 const IcoClients=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="7" r="3.5"/><path d="M2 20c0-3.5 3.1-6 7-6"/><circle cx="17" cy="8" r="2.5"/><path d="M22 20c0-2.8-2.3-5-5-5a5 5 0 00-2 .4"/></svg>);
@@ -495,7 +548,7 @@ const LoginScreen=({onLogin})=>{
 };
 
 // ── Today ──
-const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNameUpdated})=>{
+const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNameUpdated,notifCount,onOpenNotif})=>{
   const [sessions,setSessions]=useState([]);
   const [loading,setLoad]=useState(true);
   const [announcements,setAnn]=useState([]);
@@ -609,7 +662,16 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
             </div>
           )}
         </div>
-        <Logo size={44}/>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={onOpenNotif} style={{background:"none",border:"none",cursor:"pointer",position:"relative",padding:4}}>
+            <svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            {notifCount>0&&<span style={{position:"absolute",top:0,right:0,background:C.pink,borderRadius:"50%",minWidth:16,height:16,fontSize:9,fontWeight:800,color:C.white,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 0 0 2px ${C.bg}`,padding:"0 3px"}}>{notifCount>9?"9+":notifCount}</span>}
+          </button>
+          <Logo size={44}/>
+        </div>
       </div>
 
       {/* Summary */}
@@ -2723,6 +2785,8 @@ export default function App(){
   const [screen,setScreen]=useState("today");
   const [selClient,setSel]=useState(null);
   const [scheduleBadge,setScheduleBadge]=useState(0);
+  const [trainerNotifs,setTrainerNotifs]=useState([]);
+  const [showNotifPanel,setShowNotifPanel]=useState(false);
 
   // Poll pending custom-time requests at app level every 60s so badge updates
   // regardless of which screen the trainer is on.
@@ -2733,6 +2797,15 @@ export default function App(){
     const t=setInterval(poll,60000);
     return ()=>clearInterval(t);
   },[auth.token]);
+
+  // Poll trainer's own notifications every 60s for badge count
+  useEffect(()=>{
+    if(!auth.token||!auth.userId) return;
+    const poll=()=>getTrainerNotifications(auth.userId,auth.token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});
+    poll();
+    const t=setInterval(poll,60000);
+    return ()=>clearInterval(t);
+  },[auth.token,auth.userId]);
 
   useEffect(()=>{
     const init=async()=>{
@@ -2770,7 +2843,23 @@ export default function App(){
       const enriched=(allClients||[]).map(c=>({...c,_pkg:(pkgs||[]).find(p=>p.client_id===c.id&&!activePkgIds.has(p.id))||null}));
       setClients(enriched);
       setAuth({loading:false,token,userId,profile});
+      // Load trainer's notifications
+      getTrainerNotifications(userId,token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});
+      // Register push notifications for trainer
+      registerTrainerPush(userId,token).catch(()=>{});
     }catch(e){ setAuth(p=>({...p,loading:false})); }
+  };
+
+  const registerTrainerPush=async(userId,token)=>{
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)) return;
+    try{
+      const reg=await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      let sub=await reg.pushManager.getSubscription();
+      if(!sub){ if(Notification.permission==="default") await Notification.requestPermission(); if(Notification.permission!=="granted") return; }
+      sub=sub||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+      await savePushSub(userId,sub.toJSON(),token);
+    }catch(e){ console.log('[Trainer Push] registration failed',e); }
   };
 
   const handleLogin=async(email,pw)=>{
@@ -2800,7 +2889,7 @@ export default function App(){
   const renderScreen=()=>{
     if(selClient) return <ClientDetail client={selClient} trainerId={auth.userId} token={auth.token} onBack={()=>setSel(null)} onClientUpdated={handleClientUpdated}/>;
     switch(screen){
-      case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onTrainerNameUpdated={name=>setAuth(p=>({...p,profile:{...p.profile,name}}))}/>;
+      case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onTrainerNameUpdated={name=>setAuth(p=>({...p,profile:{...p.profile,name}}))} notifCount={trainerNotifs.length} onOpenNotif={()=>setShowNotifPanel(true)}/>;
       case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel}/>;
       case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
       case "programs": return <ProgramsScreen trainerId={auth.userId} token={auth.token}/>;
@@ -2814,6 +2903,7 @@ export default function App(){
         {renderScreen()}
       </div>
       <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
+      {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onClose={()=>{setShowNotifPanel(false);getTrainerNotifications(auth.userId,auth.token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});}}/>}
     </>
   );
 }
