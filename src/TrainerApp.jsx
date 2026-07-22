@@ -348,10 +348,10 @@ const computeStatusMap=(items,now)=>{
 };
 // ── Trainer Notification Panel ──
 const typeIcon=(type)=>{
-  const m={booking_made:"📅",cancel_request:"❌",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳"};
+  const m={booking_made:"📅",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳"};
   return m[type]||"🔔";
 };
-const TrainerNotifPanel=({userId,token,count,onClose})=>{
+const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq})=>{
   const [notifs,setNotifs]=useState([]);
   const [loading,setLoading]=useState(true);
   useEffect(()=>{
@@ -386,6 +386,9 @@ const TrainerNotifPanel=({userId,token,count,onClose})=>{
                <div style={{minWidth:0}}>
                  <div style={{color:C.white,fontSize:13,lineHeight:1.4}}>{n.message}</div>
                  {n.created_at&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{new Date(n.created_at).toLocaleDateString("el-GR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>}
+                 {n.type==="cancel_request"&&onDecideCancelReq&&(
+                   <button onClick={()=>{onDecideCancelReq();onClose();}} style={{marginTop:6,background:`${C.pink}18`,border:`1px solid ${C.pink}44`,borderRadius:8,padding:"4px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Decide →</button>
+                 )}
                </div>
              </div>
              <button onClick={()=>handleDelete(n.id)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,padding:"2px 4px",flexShrink:0,lineHeight:1}}>✕</button>
@@ -1978,9 +1981,9 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       )}
 
       <div style={{padding:"0 20px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <button onClick={()=>setWeekOffset(p=>p-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>‹</button>
-        <span style={{color:isCurrentWeek?C.pink:C.muted,fontSize:13,fontWeight:700}}>{weekLabel}</span>
-        <button onClick={()=>setWeekOffset(p=>p+1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>›</button>
+        <button onClick={()=>{setWeekOffset(p=>p-1);setDay(0);}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>‹</button>
+<span style={{color:isCurrentWeek?C.pink:C.muted,fontSize:13,fontWeight:700}}>{weekLabel}</span>
+        <button onClick={()=>{setWeekOffset(p=>p+1);setDay(0);}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>›</button>
       </div>
       {!isCurrentWeek&&(
         <div style={{padding:"0 20px 6px",display:"flex",justifyContent:"center"}}>
@@ -2950,6 +2953,14 @@ export default function App(){
     }catch(e){ showRtToast("Error: "+e.message); }
     setCancelReqActing(false);
   };
+  const handleDecideCancelReq=()=>{
+    getCancelRequests(auth.userId,auth.token).then(rows=>{
+      if(!rows||!rows.length) return showRtToast("No pending requests");
+      const r=rows[0];
+      const clientName=r.profiles?.name||"Client";
+      setCancelReqModal({...r,_clientName:clientName});
+    }).catch(()=>showRtToast("Error loading requests"));
+  };
 
   // Poll pending custom-time requests at app level every 60s so badge updates
   // regardless of which screen the trainer is on.
@@ -3165,7 +3176,7 @@ export default function App(){
         {renderScreen()}
       </div>
       <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
-      {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onClose={()=>{setShowNotifPanel(false);getTrainerNotifications(auth.userId,auth.token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});}}/>}
+      {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideCancelReq={handleDecideCancelReq} onClose={()=>{setShowNotifPanel(false);getTrainerNotifications(auth.userId,auth.token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});}}/>}
       {/* Cancel Request Modal — pops up wherever trainer is */}
       {cancelReqModal&&(
         <div style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.65)"}} onClick={e=>{if(e.target===e.currentTarget)setCancelReqModal(null);}}>
