@@ -926,7 +926,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
 };
 
 // ── Home ──
-const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUpdate,onOpenNotif,notifCount})=>{
+const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,userId,onPkgUpdate,onOpenNotif,notifCount})=>{
   const [now,setNow]=useState(new Date());
   const [todaySlots,setTodaySlots]=useState([]);
   const [myTodayBook,setMyBook]=useState(null);
@@ -1279,7 +1279,14 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
                   {dn&&pkg?.workout_templates&&(
                     <button onClick={()=>setWodDay(dn)} style={{background:`${C.cyan}18`,border:`1px solid ${C.cyan}55`,borderRadius:8,padding:"4px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>📋 WOD</button>
                   )}
-                  <button onClick={()=>cancelAndReschedule(s)} style={{background:"none",border:`1px solid ${C.pink}55`,borderRadius:8,padding:"4px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Change</button>
+                  <button onClick={()=>{
+                    const d=new Date(s.session_date+"T12:00:00");
+                    const dow=d.getDay()===0?6:d.getDay()-1;
+                    const mon=new Date(d.getTime()-dow*86400000);
+                    const thisMon=new Date(WDATES_BASE[0].iso+"T12:00:00");
+                    const wkOff=Math.round((mon-thisMon)/(7*24*3600*1000));
+                    onNavSchedule?.(wkOff);
+                  }} style={{background:`${C.cyan}18`,border:`1px solid ${C.cyan}44`,borderRadius:8,padding:"4px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Check ›</button>
                 </div>
               </div>
             );
@@ -1288,10 +1295,10 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
       )}
 
       {/* Secondary Book CTA — shown when hero exists and still have days to book */}
-      {heroItem&&pkg&&left>0&&!weekFull&&(
+      {heroItem&&pkg&&left>0&&(
         <div style={{padding:"14px 20px 0"}}>
-          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:"none",border:`2px solid ${C.cyan}`,borderRadius:14,padding:"14px 18px",color:C.cyan,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            <span>📅</span> Book Day {nextBookDayNum} →
+          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:"none",border:`2px solid ${weekFull?C.green:C.cyan}`,borderRadius:14,padding:"14px 18px",color:weekFull?C.green:C.cyan,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <span>📅</span> {weekFull?`Book Day ${nextBookDayNum} → Next Week`:`Book Day ${nextBookDayNum} →`}
           </button>
         </div>
       )}
@@ -1345,8 +1352,8 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
 };
 
 // ── Schedule ──
-const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
-  const [weekOffset,setWeekOffset]=useState(0);
+const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeekOffset})=>{
+  const [weekOffset,setWeekOffset]=useState(initialWeekOffset||0);
   const [dayIdx,setDay]=useState(todayDow());
   const [slots,setSlots]=useState([]);
   const [counts,setCounts]=useState({});
@@ -1612,6 +1619,20 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
 
   const pastDaySessions=sessions.filter(s=>s.session_date===selDay.iso&&(s.status==="completed"||s.status==="booked"));
   const weekLabel=weekOffset===0?"This week":`Week of ${fmtDate(weekDates[0].iso)}`;
+
+  // Day# per date for the strip — ordered by date across all known sessions + bookings
+  const allOrderedStripDates=(()=>{
+    const dates=new Set([
+      ...sessions.filter(s=>s.status==="completed"||s.status==="booked").map(s=>s.session_date),
+      ...Array.from(weekBookDates),
+      ...allFutureBooks.map(b=>b.book_date),
+    ]);
+    return [...dates].sort();
+  })();
+  const dayNumForStripDate=(iso)=>{
+    const idx=allOrderedStripDates.indexOf(iso);
+    return idx>=0?idx%spw+1:null;
+  };
   const nowMin=(()=>{const d=new Date();return d.getHours()*60+d.getMinutes();})();
   const visibleSlots=selDay.iso===todayStr?slots.filter(s=>s.start_time_min>=nowMin||myBooks.some(b=>b.slot_id===s.id&&b.status==="booked")):slots;
 
@@ -1674,13 +1695,14 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
           const hasSess=sessionDaySet.has(d.iso);
           const isBooked=weekBookDates.has(d.iso);
           const isActive=dayIdx===i;
+          const stripDayNum=(hasSess||isBooked)?dayNumForStripDate(d.iso):null;
           return(
-            <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"7px 2px",borderRadius:11,cursor:"pointer",border:`1px solid ${isActive?"transparent":isToday?C.amber+"77":isBooked?C.cyan+"44":"transparent"}`,background:isActive?C.cyan:isToday?C.amber+"18":isBooked?C.cyan+"12":C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+            <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"7px 2px",borderRadius:11,cursor:"pointer",border:`1px solid ${isActive?"transparent":isToday?C.amber+"77":isBooked?C.cyan+"44":hasSess?C.cyan+"22":"transparent"}`,background:isActive?C.cyan:isToday?C.amber+"18":isBooked?C.cyan+"12":hasSess?C.cyan+"08":C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
               <span style={{color:isActive?C.bg:isToday?C.amber:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
               <span style={{color:isActive?C.bg:isToday?C.amber:i===6?C.muted:C.white,fontSize:13,fontWeight:900}}>{d.label}</span>
-              {isBooked&&!isActive
-                ?<span style={{color:C.cyan,fontSize:8,fontWeight:800}}>✓</span>
-                :(hasSess||isToday)&&<span style={{width:4,height:4,borderRadius:"50%",background:isActive?C.bg:isToday?C.amber:C.cyan,display:"block"}}/>
+              {stripDayNum&&!isActive
+                ?<span style={{color:isBooked?C.cyan:C.muted,fontSize:8,fontWeight:800}}>D{stripDayNum}{isBooked?"✓":""}</span>
+                :isToday&&!hasSess&&!isBooked&&<span style={{width:4,height:4,borderRadius:"50%",background:isActive?C.bg:C.amber,display:"block"}}/>
               }
             </button>
           );
@@ -2535,12 +2557,14 @@ export default function App(){
     </div>
   );
 
-  const handleNav=(s)=>{ if(s==="announcements") markAnnouncementsSeen(); setScreen(s); };
+  const [scheduleInitWeek,setScheduleInitWeek]=useState(0);
+  const handleNav=(s)=>{ if(s==="announcements") markAnnouncementsSeen(); if(s==="schedule") setScheduleInitWeek(0); setScreen(s); };
+  const handleNavSchedule=(weekOffset)=>{ setScheduleInitWeek(weekOffset); setScreen("schedule"); };
 
   const renderScreen=()=>{
     switch(screen){
-      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length}/>;
-      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile}/>;
+      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length}/>;
+      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;
