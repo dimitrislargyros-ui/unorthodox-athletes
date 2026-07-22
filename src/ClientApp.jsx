@@ -2482,8 +2482,9 @@ export default function App(){
     // New notification for this client → update bell + show modal or toast
     rt.subscribe('notifications','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
       setNotifications(prev=>prev.some(n=>n.id===row.id)?prev:[row,...prev]);
-      // When trainer approves/declines cancellation, refresh bookings immediately
+      // When trainer approves/declines cancellation, force-refresh everything immediately
       if(row.type==='cancel_accepted'||row.type==='cancel_declined'){
+        loadData(auth.token,auth.userId).catch(()=>{});
         setBookingsVer(v=>v+1);
       }
       const MODAL=['payment_confirmed','package_renewed','payment_reminder'];
@@ -2514,13 +2515,12 @@ export default function App(){
       setAuth(prev=>({...prev,sessions:[row,...(prev.sessions||[])]}));
     });
 
-    // Bookings changes (capacity updates) → trigger a full data refresh so HomeScreen updates
-    // This also fires when another client books/cancels, updating counts in real-time
-    rt.subscribe('bookings','*',null,(row)=>{
-      // If it's our own booking and it was cancelled externally, bump version to trigger re-fetch
-      if(row.client_id===auth.userId){
-        if(row.status==='cancelled') setBookingsVer(v=>v+1);
-        else loadData(auth.token,auth.userId).catch(()=>{});
+    // Own booking cancelled externally (trainer) → immediate refresh
+    // Filter is required for Supabase RLS to deliver the UPDATE event
+    rt.subscribe('bookings','UPDATE',`client_id=eq.${auth.userId}`,(row)=>{
+      if(row.status==='cancelled'){
+        loadData(auth.token,auth.userId).catch(()=>{});
+        setBookingsVer(v=>v+1);
       }
     });
 
