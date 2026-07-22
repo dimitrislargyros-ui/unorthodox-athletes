@@ -1044,16 +1044,12 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
   },[heroIsToday,heroItem?.start_time_min]);
 
   const heroCd=heroItem&&!inTraining?countdownHMS(heroItem.start_time_min,heroItem.session_date):null;
-  // Day numbering: weekly-scoped — Day 1/2/3 resets every Monday
-  const donePerWk={};sessions.filter(s=>s.status==="completed").forEach(s=>{const wk=weekMon(s.session_date);donePerWk[wk]=(donePerWk[wk]||0)+1;});
+  // Day numbering: global sequential — Day 1/2/3 cycles across ALL sessions, never resets weekly
+  // completedCount = sessions already done; allUpcoming[i] is i steps ahead of that baseline
+  const completedCount=sessions.filter(s=>s.status==="completed").length;
   const dayNumForIndex=(i)=>{
     if(!pkg) return null;
-    const sess=allUpcoming[i];
-    if(!sess) return (weekCount%spw)+1; // "next booking" CTA: next available slot this week
-    const wk=weekMon(sess.session_date);
-    const done=donePerWk[wk]||0;
-    const before=allUpcoming.slice(0,i).filter(u=>weekMon(u.session_date)===wk).length;
-    return (done+before)%spw+1;
+    return (completedCount+i)%spw+1;
   };
   const heroDayNum=heroItem?dayNumForIndex(0):null;
   const nextBookDayNum=dayNumForIndex(allUpcoming.length);
@@ -1346,6 +1342,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
   const [reqSending,setReqSending]=useState(false);
   const [cancelReqSlot,setCancelReqSlot]=useState(null); // {bookingId,date,startMin}
   const [activePeriod,setActivePeriod]=useState(null);
+  const [allFutureBooks,setAllFutureBooks]=useState([]); // all upcoming bookings for global day# calc
   const spw=pkg?.sessions_per_week||3;
 
   const weekDates=Array.from({length:7},(_,i)=>{
@@ -1377,6 +1374,10 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
     dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,token)
       .then(r=>setMyWeekBookDates(new Set((r||[]).map(b=>b.book_date)))).catch(()=>{});
     getActivePeriodForToday(token).then(p=>setActivePeriod(p||null)).catch(()=>{});
+    // Fetch ALL future bookings once for global day# computation
+    const todayIso=todayISO();
+    dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${todayIso}&status=eq.booked&select=book_date,schedule_slots(start_time_min)`,token)
+      .then(r=>setAllFutureBooks(r||[])).catch(()=>{});
   },[]);
 
   useEffect(()=>{
@@ -1516,9 +1517,16 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate})=>{
         setWaitlistRank(idx>=0?idx+1:null);
       }).catch(()=>{});
     },[onWaitlist?.id]);
-    // Count booked/completed days in the viewed week up to and including selDay
-    // sessionDaySet already combines sessions prop + weekBookDates (updated on booking)
-    const bookedDayNum=booked?(([...sessionDaySet].filter(d=>d>=weekDates[0].iso&&d<=selDay.iso).length)||null):null;
+    // Global sequential day# — count ALL sessions/bookings before this slot
+    const bookedDayNum=booked?(()=>{
+      const completedBefore=sessions.filter(s=>s.status==="completed").length;
+      // Booked sessions (trainer-logged) in sessions table before this date
+      const sessBookedBefore=sessions.filter(s=>s.status==="booked"&&(s.session_date<selDay.iso||(s.session_date===selDay.iso&&(s.start_time_min||0)<slot.start_time_min))).length;
+      // Bookings in bookings table before this slot (from allFutureBooks)
+      const booksBefore=allFutureBooks.filter(b=>b.book_date<selDay.iso||(b.book_date===selDay.iso&&(b.schedule_slots?.start_time_min||0)<slot.start_time_min)).length;
+      const globalIdx=completedBefore+sessBookedBefore+booksBefore;
+      return globalIdx%spw+1;
+    })():null;
     return(
       <Card glow={booked?C.cyan:null} style={{marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
