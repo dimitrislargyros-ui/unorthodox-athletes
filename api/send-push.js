@@ -140,8 +140,24 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid JSON' });
   }
 
-  const { client_id, broadcast, title, body: msgBody } = body;
+  const { client_id, broadcast, title, body: msgBody, notification } = body;
   if (!client_id && !broadcast) return res.status(400).json({ error: 'client_id or broadcast required' });
+
+  // Save in-app notification server-side to bypass RLS (clients can't insert for other users)
+  // Uses SUPABASE_SERVICE_KEY env var which skips RLS entirely.
+  if (notification && notification.client_id) {
+    const svcKey = process.env.SUPABASE_SERVICE_KEY || SUPABASE_KEY;
+    fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+      method: 'POST',
+      headers: {
+        apikey: svcKey,
+        Authorization: `Bearer ${svcKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(notification),
+    }).catch(() => {});
+  }
 
   // Fetch subscriptions — either for one client or all (broadcast)
   const url = broadcast

@@ -266,10 +266,12 @@ const savePushSub = async (client_id, subscription, tk) => {
   }
 };
 const postNotification = async (d,tk) => {
-  await dbPost("notifications",d,tk);
-  // Include title+body so the push shows the actual message text
-  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message})})
-    .then(r=>r.json()).then(j=>console.log('[UA Push] send-push result:',j)).catch(e=>console.error('[UA Push] send-push error:',e));
+  // Save in-app notification + send push in one server call.
+  // The server uses SUPABASE_SERVICE_KEY to bypass RLS, so cross-user
+  // notifications (client→trainer) work correctly.
+  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message,notification:d})
+  }).then(r=>r.json()).then(j=>console.log('[UA Push] result:',j)).catch(e=>console.error('[UA Push] error:',e));
 };
 
 // Converts VAPID public key from base64url to Uint8Array for PushManager
@@ -411,10 +413,8 @@ const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
       const label=`${fmtDate(bookDate)} at ${toTime(startMin)}`;
       // Save cancel request row (requires cancel_requests table)
       await postCancelRequest({client_id:userId,trainer_id:trainer.id,booking_id:bookingId||null,book_date:bookDate,start_time_min:startMin,status:"pending"},token).catch(()=>{});
-      // Push notification to trainer
-      await fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"🔔 Cancellation Request",body:`${myProfile?.name||"Client"} requests cancellation: ${label}`})}).catch(()=>{});
-      // Notify trainer in-app
-      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} has requested to cancel their session on ${label}.`},token).catch(()=>{});
+      // Notify trainer in-app + push (single server call handles both)
+      await postNotification({client_id:trainer.id,type:"cancel_request",message:`❌ ${myProfile?.name||"Client"} ζήτησε ακύρωση: ${label}`},token).catch(()=>{});
       setSent(true);
     }catch(e){ setErr("Failed to send. Please try again."); }
     setSending(false);
@@ -1055,7 +1055,6 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
             if(!trainer) return;
             const clientName=profile?.name||"Client";
             postNotification({client_id:trainer.id,type:"cancel_request",message:`❌ ${clientName} ακύρωσε το ραντεβού της ${dateLabel}.`},token).catch(()=>{});
-            fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"❌ Ακύρωση ραντεβού",body:`${clientName} ακύρωσε: ${dateLabel}`})}).catch(()=>{});
           }).catch(()=>{});
           onNav("schedule");
         }catch(e){ showHomeToast("Error: "+e.message); }
@@ -1454,7 +1453,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
           if(!trainer) return;
           const clientName=profile?.name||"Client";
           postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`⚠️ ${clientName} έχει απομείνει μόνο ${newLeft} session${newLeft>1?"s":""} στο πακέτο. Σκέψου ανανέωση.`},token).catch(()=>{});
-          fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"⚠️ Λίγα sessions απέμειναν",body:`${clientName}: ${newLeft} session${newLeft>1?"s":""} απέμειναν`})}).catch(()=>{});
         }).catch(()=>{});
       }
     }catch(e){}
@@ -1522,7 +1520,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
           const clientName=profile?.name||"Client";
           const dateLabel=`${selDay.iso} ${toTime(slot.start_time_min)}`;
           postNotification({client_id:trainer.id,type:"booking_made",message:`📅 ${clientName} έκλεισε ραντεβού: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(slot.start_time_min)}`},token).catch(()=>{});
-          fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"📅 Νέο ραντεβού",body:`${clientName}: ${fmtDate(selDay.iso)} ${toTime(slot.start_time_min)}`})}).catch(()=>{});
         }).catch(()=>{});
       }
     }catch(e){ showSchedErr("Error: "+e.message); }
@@ -1559,7 +1556,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
         if(!trainer) return;
         const clientName=profile?.name||"Client";
         postNotification({client_id:trainer.id,type:"slot_request",message:`🕐 ${clientName} ζήτησε αλλαγή ώρας: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(customStart)}`},token).catch(()=>{});
-        fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"🕐 Αίτημα ώρας",body:`${clientName}: ${fmtDate(selDay.iso)} ${toTime(customStart)}`})}).catch(()=>{});
       }).catch(()=>{});
     }catch(e){ showSchedErr("Error: "+e.message); }
     setReqSending(false);
@@ -2493,7 +2489,6 @@ export default function App(){
     getTrainerProfile(access_token).then(trainer=>{
       if(!trainer) return;
       postNotification({client_id:trainer.id,type:"new_client",message:`🆕 Νέος client εγγράφηκε: ${fullName}${phone?` (${phone})`:""}`},access_token).catch(()=>{});
-      fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"🆕 Νέος client",body:`${fullName} μόλις εγγράφηκε`})}).catch(()=>{});
     }).catch(()=>{});
     await loadData(access_token,user.id);
     return true;

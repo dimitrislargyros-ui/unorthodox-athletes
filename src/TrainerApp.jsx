@@ -129,10 +129,11 @@ const cancelBookingRow    = (id,tk)              => dbPatch("bookings",`id=eq.${
 const cancelSessionRow    = (id,tk)              => dbPatch("sessions",`id=eq.${id}`,{status:"cancelled"},tk);
 const decrementPkgUsed    = (pkgId,currentUsed,tk)=> dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max((currentUsed||0)-1,0)},tk);
 const postNotification = async (d,tk) => {
-  // Send push first — fire and forget, include message so notification shows text
-  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message})}).catch(()=>{});
-  // Save to DB for in-app notification badge (may fail due to RLS — non-blocking)
-  await dbPost("notifications",d,tk).catch(()=>{});
+  // Save in-app notification + send push in one server call.
+  // Server uses SUPABASE_SERVICE_KEY to bypass RLS for cross-user inserts.
+  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message,notification:d})
+  }).catch(()=>{});
 };
 const getTrainerNotifications=(uid,tk)=>dbGet("notifications",`client_id=eq.${uid}&order=created_at.desc&limit=60`,tk);
 const deleteNotification=(id,tk)=>dbDelete("notifications",`id=eq.${id}`,tk,"return=minimal");
