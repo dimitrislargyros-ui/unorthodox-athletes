@@ -44,6 +44,69 @@ const SB_URL = "https://hxyqvryuniqmvpjljrry.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4eXF2cnl1bmlxbXZwamxqcnJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyOTQ0NTAsImV4cCI6MjA5Nzg3MDQ1MH0.eSoak4YVf7vqFwYlYebayMS3CCiEjLhZ5olEAnkDJlU";
 
 const UA_TRAINER_AUTH_KEY = "ua_trainer_auth";
+
+// ── Supabase Realtime — minimal Phoenix WebSocket client ──
+function makeRealtime(supabaseUrl, anonKey) {
+  let ws = null, _ref = 0, heartbeatTimer = null, reconnTimer = null, _jwt = null;
+  const _subs = [];
+  const _nextRef = () => String(++_ref);
+  const _send = (msg) => { if (ws?.readyState === 1) ws.send(JSON.stringify(msg)); };
+  const _joinAll = () => {
+    _subs.forEach((s, i) => {
+      const r = _nextRef();
+      _send({
+        topic: `realtime:ua_tr_${i}`,
+        event: 'phx_join',
+        payload: {
+          config: {
+            broadcast: { self: false },
+            presence: { key: '' },
+            postgres_changes: [{
+              event: s.event || '*',
+              schema: 'public',
+              table: s.table,
+              ...(s.filter ? { filter: s.filter } : {}),
+            }],
+          },
+          access_token: _jwt || anonKey,
+        },
+        ref: r, join_ref: r,
+      });
+    });
+  };
+  const rt = {};
+  rt.subscribe = (table, event, filter, callback) => { _subs.push({ table, event, filter, callback }); };
+  rt.connect = (userJwt) => {
+    _jwt = userJwt;
+    if (ws) { ws.onclose = null; ws.close(); }
+    clearInterval(heartbeatTimer); clearTimeout(reconnTimer);
+    const url = `${supabaseUrl.replace('https://', 'wss://')}/realtime/v1/websocket?vsn=1.0.0&apikey=${anonKey}`;
+    ws = new WebSocket(url);
+    ws.onopen = () => {
+      heartbeatTimer = setInterval(() => _send({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: _nextRef() }), 25000);
+      _joinAll();
+    };
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.event !== 'postgres_changes') return;
+        const data = msg.payload?.data;
+        if (!data) return;
+        _subs.forEach(s => {
+          if (s.table === data.table && (s.event === '*' || s.event === data.type))
+            s.callback(data.new, data.old, data.type);
+        });
+      } catch {}
+    };
+    ws.onclose = () => { clearInterval(heartbeatTimer); reconnTimer = setTimeout(() => rt.connect(_jwt), 5000); };
+    ws.onerror = () => {};
+  };
+  rt.disconnect = () => {
+    clearInterval(heartbeatTimer); clearTimeout(reconnTimer);
+    if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  };
+  return rt;
+}
 const VAPID_PUBLIC_KEY = 'BNKaPdypI6pDPj7QQgVHhAAGxQgyjVpNcFIGu6N58WgZG05y9UTG4pwFIMu_9yDa8hMjhqtyUmJvE_84jASmVu0';
 function urlBase64ToUint8Array(b64url){const pad=b64url.length%4;const b64=(pad?b64url+'='.repeat(4-pad):b64url).replace(/-/g,'+').replace(/_/g,'/');const raw=atob(b64);return Uint8Array.from([...raw],c=>c.charCodeAt(0));}
 
@@ -1030,7 +1093,16 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const handleRenew=async()=>{
     const doRenew=async()=>{
       try{
-        await deactivatePkgs(client.id,token);
+        // Snapshot current active package before deactivating (package history tracking)
+        if(pkg){
+          await dbPatch("packages",`id=eq.${pkg.id}`,{
+            deactivated_at: new Date().toISOString(),
+            deactivation_reason: "renewed",
+            is_active: false,
+          },token).catch(()=>{});
+        } else {
+          await deactivatePkgs(client.id,token);
+        }
         const total=parseInt(newPkgTotal),spwNum=parseInt(newSpw)||3;
         const weeks=Math.ceil(total/spwNum);
         const end=new Date(); end.setDate(end.getDate()+weeks*7);
@@ -1038,6 +1110,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         const created=Array.isArray(res)?res[0]:res;
         created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
         setPkg(created); setShowPkg(false); setCustomTotal(""); setCustomSpw("");
+        // Update local allPkgs: mark old as inactive (with snapshot), prepend new
+        setAllPkgs(prev=>{
+          const deactivatedAt=new Date().toISOString();
+          return [created,...prev.map(p=>p.is_active?{...p,is_active:false,deactivated_at:deactivatedAt,deactivation_reason:"renewed"}:p)];
+        });
         onClientUpdated({...client,_pkg:created});
         const progName=programs.find(p=>p.id===newPkgProgramId)?.name;
         await postNotification({client_id:client.id,type:"package_renewed",message:`🎯 ${progName?progName+" p":"P"}ackage assigned: ${newPkgTotal} sessions · ${newSpw}x/week. Let's get to work!`},token).catch(()=>{});
@@ -1402,6 +1479,39 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           </div>
         ):<Card><Empty msg="No active package"/></Card>}
       </div>
+
+      {/* Package History */}
+      {(()=>{
+        const pastPkgs=(allPkgs||[]).filter(p=>!p.is_active);
+        if(pastPkgs.length===0) return null;
+        return(
+          <div style={{padding:"14px 20px 0"}}>
+            <SL>Package History</SL>
+            {pastPkgs.map((p,i)=>{
+              const reasonLabel=p.deactivation_reason==="renewed"?"Renewed":p.deactivation_reason==="cancelled"?"Cancelled":p.deactivation_reason||"Ended";
+              const usedAt=p.sessions_used??"-";
+              return(
+                <div key={p.id||i} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{color:C.white,fontSize:13,fontWeight:700}}>{p.sessions_total}-Session Pack · {p.sessions_per_week||3}x/week</div>
+                      {p.workout_templates?.name&&<div style={{color:C.cyan,fontSize:11,fontWeight:700,marginTop:2}}>🏋️ {p.workout_templates.name}</div>}
+                      <div style={{color:C.muted,fontSize:11,marginTop:3}}>{fmtDate(p.start_date)} → {fmtDate(p.end_date)}</div>
+                      {p.deactivated_at&&<div style={{color:C.muted,fontSize:10,marginTop:2}}>Closed: {fmtDate(p.deactivated_at.split("T")[0])}</div>}
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:4,justifyContent:"flex-end"}}>
+                        <span style={{background:C.muted+"22",border:`1px solid ${C.muted}44`,borderRadius:20,padding:"1px 8px",color:C.muted,fontSize:10,fontWeight:800}}>{reasonLabel}</span>
+                      </div>
+                      <div style={{color:C.muted,fontSize:11,marginTop:4}}>{usedAt}/{p.sessions_total} used</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Sessions */}
       <div style={{padding:"14px 20px 0"}}>
@@ -2803,6 +2913,18 @@ export default function App(){
   const [scheduleBadge,setScheduleBadge]=useState(0);
   const [trainerNotifs,setTrainerNotifs]=useState([]);
   const [showNotifPanel,setShowNotifPanel]=useState(false);
+  // Pull-to-refresh
+  const [ptrY,setPtrY]=useState(0);
+  const [ptrActive,setPtrActive]=useState(false);
+  const [refreshing,setRefreshing]=useState(false);
+  const ptrStartY=useRef(null);
+  const rtToastTimer=useRef(null);
+  const [rtToast,setRtToast]=useState(null);
+  const showRtToast=(msg)=>{
+    clearTimeout(rtToastTimer.current);
+    setRtToast(msg);
+    rtToastTimer.current=setTimeout(()=>setRtToast(null),4000);
+  };
 
   // Poll pending custom-time requests at app level every 60s so badge updates
   // regardless of which screen the trainer is on.
@@ -2822,6 +2944,45 @@ export default function App(){
     const t=setInterval(poll,60000);
     return ()=>clearInterval(t);
   },[auth.token,auth.userId]);
+
+  // ── Supabase Realtime — live updates while trainer app is open ──
+  useEffect(()=>{
+    if(!auth.token||!auth.userId) return;
+    const rt=makeRealtime(SB_URL,SB_KEY);
+
+    // New client profile (INSERT) → refresh clients list
+    rt.subscribe('profiles','INSERT',null,(row)=>{
+      if(row.role==='client'){
+        showRtToast(`🆕 New client registered: ${row.name||row.email||"Unknown"}`);
+        loadData(auth.token,auth.userId).catch(()=>{});
+      }
+    });
+
+    // New notification for trainer → update bell badge
+    rt.subscribe('notifications','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
+      setTrainerNotifs(prev=>prev.some(n=>n.id===row.id)?prev:[row,...prev]);
+      showRtToast(row.message);
+    });
+
+    // Bookings changes → refresh today's schedule view
+    rt.subscribe('bookings','*',null,(row)=>{
+      // Trigger a lightweight refresh of client list to keep pkg counts updated
+      getClients(auth.token).then(allClients=>{
+        setClients(prev=>prev.map(c=>{ const fresh=allClients?.find(a=>a.id===c.id); return fresh?{...fresh,_pkg:c._pkg}:c; }));
+      }).catch(()=>{});
+    });
+
+    // Package changes → update client's pkg in list
+    rt.subscribe('packages','*',null,(row)=>{
+      setClients(prev=>prev.map(c=>{
+        if(c.id!==row.client_id) return c;
+        return {...c,_pkg:row.is_active?row:null};
+      }));
+    });
+
+    rt.connect(auth.token);
+    return ()=>{ rt.disconnect(); clearTimeout(rtToastTimer.current); };
+  },[auth.token,auth.userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(()=>{
     const init=async()=>{
@@ -2913,9 +3074,60 @@ export default function App(){
     }
   };
 
+  const handlePtrStart=(e)=>{
+    if(refreshing) return;
+    const el=e.currentTarget;
+    if(el.scrollTop>0) return;
+    ptrStartY.current=e.touches[0].clientY;
+  };
+  const handlePtrMove=(e)=>{
+    if(ptrStartY.current==null||refreshing) return;
+    const dy=e.touches[0].clientY-ptrStartY.current;
+    if(dy<0){ ptrStartY.current=null; setPtrY(0); setPtrActive(false); return; }
+    const capped=Math.min(dy*0.45,60);
+    setPtrY(capped);
+    setPtrActive(capped>30);
+    if(capped>5) e.preventDefault();
+  };
+  const handlePtrEnd=async()=>{
+    if(ptrActive&&auth.token&&auth.userId){
+      setRefreshing(true);
+      await loadData(auth.token,auth.userId).catch(()=>{});
+      setRefreshing(false);
+    }
+    ptrStartY.current=null;
+    setPtrY(0);
+    setPtrActive(false);
+  };
+
   return(
     <>
-      <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
+      <div
+        className="ua-app"
+        style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh",overflowY:"auto",position:"relative"}}
+        onTouchStart={handlePtrStart}
+        onTouchMove={handlePtrMove}
+        onTouchEnd={handlePtrEnd}
+      >
+        {/* Pull-to-refresh indicator */}
+        {(ptrY>0||refreshing)&&(
+          <div style={{position:"fixed",top:0,left:0,right:0,zIndex:700,display:"flex",justifyContent:"center",transition:"opacity .2s",opacity:ptrY>10||refreshing?1:0}}>
+            <div style={{background:C.surface,border:`1px solid ${C.cyan}44`,borderRadius:"0 0 16px 16px",padding:"6px 18px 10px",display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 18px rgba(0,0,0,0.4)",transform:`translateY(${refreshing?0:ptrY-10}px)`,transition:refreshing?"none":"transform .05s"}}>
+              {refreshing
+                ?<div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${C.cyan}`,borderTopColor:"transparent",animation:"ua-spin .8s linear infinite"}}/>
+                :<div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${C.cyan}55`,borderTopColor:C.cyan,transform:`rotate(${ptrY*3}deg)`,transition:"transform .05s"}}/>
+              }
+              <span style={{color:C.cyan,fontSize:12,fontWeight:700}}>{refreshing?"Refreshing…":ptrActive?"Release to refresh":"Pull to refresh"}</span>
+            </div>
+          </div>
+        )}
+        {/* Realtime top toast */}
+        {rtToast&&(
+          <div style={{position:'fixed',top:18,left:'50%',transform:'translateX(-50%)',background:C.surface,border:`1px solid ${C.cyan}55`,color:C.white,padding:'10px 18px',borderRadius:14,zIndex:650,fontWeight:700,fontSize:13,boxShadow:'0 6px 28px rgba(0,0,0,0.55)',display:'flex',alignItems:'center',gap:8,maxWidth:'calc(100vw - 32px)',pointerEvents:'none'}}>
+            <span style={{fontSize:16}}>🔔</span>
+            <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{rtToast}</span>
+          </div>
+        )}
         {renderScreen()}
       </div>
       <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>

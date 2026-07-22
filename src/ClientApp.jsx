@@ -993,8 +993,6 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
     const tb=new Date(b.session_date+"T00:00:00").getTime()+b.start_time_min*60000;
     return ta-tb;
   });
-  const recent=sessions.filter(s=>s.status==="completed").slice(0,3);
-
   const weekStart=WDATES_BASE[0].iso;
   const weekEnd=WDATES_BASE[5].iso;
   const thisWeekSessions=sessions.filter(s=>
@@ -1226,8 +1224,26 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
       ):pkg&&weekFull?(
         <div style={{padding:"14px 20px 0"}}>
           <div style={{background:C.green+"18",border:`1px solid ${C.green}44`,borderRadius:14,padding:"16px 18px"}}>
-            <div style={{color:C.green,fontSize:15,fontWeight:800,marginBottom:6}}>Week Complete 💪</div>
-            <div style={{color:C.muted,fontSize:13,lineHeight:1.5}}>{weekCount} of {spw} sessions done this week. Time to rest — for an extra session, message your trainer.</div>
+            <div style={{color:C.green,fontSize:15,fontWeight:800,marginBottom:8}}>Week Complete 💪</div>
+            <div style={{color:C.muted,fontSize:12,marginBottom:10,lineHeight:1.5}}>All {spw} sessions booked for this week. Rest up!</div>
+            {/* Show each booked day this week */}
+            <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
+              {[...(()=>{
+                const all=[
+                  ...thisWeekSessions.map(s=>({date:s.session_date,min:s.start_time_min})),
+                  ...(myWeekBooks||[]).map(b=>({date:b.book_date,min:b.schedule_slots?.start_time_min})),
+                ];
+                const seen=new Set();
+                return all.filter(x=>{if(seen.has(x.date))return false;seen.add(x.date);return true;});
+              })()].sort((a,b)=>a.date.localeCompare(b.date)).map((d,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{background:C.green+"33",border:`1px solid ${C.green}55`,borderRadius:20,padding:"2px 9px",color:C.green,fontSize:11,fontWeight:800}}>Day {completedCount+i>0?(completedCount+i)%spw+1:i+1}</span>
+                  <span style={{color:C.white,fontSize:12,fontWeight:700}}>{weekDayShort(d.date)} {fmtDate(d.date)}{d.min!=null?` · ${toTime(d.min)}`:""}</span>
+                  <span style={{color:C.green,fontSize:11}}>✓</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={()=>onNav("schedule")} style={{width:"100%",background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:10,padding:"10px",color:C.green,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📅 Book Day {nextBookDayNum} → Next Week</button>
           </div>
         </div>
       ):pkg&&left>0?(
@@ -1312,34 +1328,6 @@ const HomeScreen=({profile,pkg,sessions,onNav,onOpenSession,token,userId,onPkgUp
         </div>
       )}
 
-      {/* Recent sessions */}
-      <div style={{padding:"14px 20px 0"}}>
-        <SL>Recent Sessions</SL>
-        {recent.length===0?<Empty msg="No completed sessions yet"/>:
-          recent.map((s,i)=>{
-            const dn=computeDayNum(s,sessions,spw);
-            return(
-              <button key={i} onClick={()=>onOpenSession(s)} style={{width:"100%",textAlign:"left",cursor:"pointer",fontFamily:"inherit",padding:0,border:"none",display:"block",marginBottom:8}}>
-                <Card>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:12}}>
-                      <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💪</div>
-                      <div>
-                        <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>{sessLabel(pkg?.workout_templates?.name)}</div>
-                          {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
-                        </div>
-                        <div style={{color:C.muted,fontSize:12}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
-                      </div>
-                    </div>
-                    <StatusBadge status="completed"/>
-                  </div>
-                </Card>
-              </button>
-            );
-          })
-        }
-      </div>
       <UaToast toast={homeToast} c={C}/>
       <UaConfirm dialog={cancelReDlg} setDialog={setCancelReDlg} c={C}/>
       {cancelReqSess&&(
@@ -1577,15 +1565,23 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
       }).catch(()=>{});
     },[onWaitlist?.id]);
     // Global sequential day# — count ALL sessions/bookings before this slot
-    const bookedDayNum=booked?(()=>{
+    const computeGlobalDayNum=(()=>{
       const completedBefore=sessions.filter(s=>s.status==="completed").length;
-      // Booked sessions (trainer-logged) in sessions table before this date
       const sessBookedBefore=sessions.filter(s=>s.status==="booked"&&(s.session_date<selDay.iso||(s.session_date===selDay.iso&&(s.start_time_min||0)<slot.start_time_min))).length;
-      // Bookings in bookings table before this slot (from allFutureBooks)
       const booksBefore=allFutureBooks.filter(b=>b.book_date<selDay.iso||(b.book_date===selDay.iso&&(b.schedule_slots?.start_time_min||0)<slot.start_time_min)).length;
       const globalIdx=completedBefore+sessBookedBefore+booksBefore;
       return globalIdx%spw+1;
-    })():null;
+    });
+    const bookedDayNum=booked?computeGlobalDayNum():null;
+    // Day number that WOULD be assigned when booking this slot (before booking)
+    const nextSlotDayNum=booked?null:computeGlobalDayNum();
+    // Disallow "Change" within 2 hours of the OTHER booked slot's start time
+    const otherBookedSlot=hasOtherBook?slots.find(s=>s.id===myDayBook.slot_id):null;
+    const otherMsToStart=otherBookedSlot?(()=>{
+      const [yr,mo,dy]=selDay.iso.split('-').map(Number);
+      return new Date(yr,mo-1,dy,Math.floor(otherBookedSlot.start_time_min/60),otherBookedSlot.start_time_min%60,0)-Date.now();
+    })():Infinity;
+    const changeBlocked=hasOtherBook&&otherMsToStart<2*3600000;
     return(
       <Card glow={booked?C.cyan:null} style={{marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -1600,8 +1596,8 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
                 {onWaitlist?(waitlistRank?`#${waitlistRank} on waitlist`:"On Waitlist ✓"):"Join Waitlist"}
               </button>
               :hasOtherBook
-                ?<GBtn label="Change →" onClick={()=>handleBook(slot)} sm/>
-                :<GBtn label="Book" onClick={()=>handleBook(slot)} sm/>
+                ?(!changeBlocked&&<GBtn label="Change →" onClick={()=>handleBook(slot)} sm/>)
+                :<GBtn label={`Book Day ${nextSlotDayNum} →`} onClick={()=>handleBook(slot)} sm/>
           }
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1676,12 +1672,16 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
         {weekDates.map((d,i)=>{
           const isToday=d.iso===todayStr;
           const hasSess=sessionDaySet.has(d.iso);
+          const isBooked=weekBookDates.has(d.iso);
           const isActive=dayIdx===i;
           return(
-            <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"9px 2px",borderRadius:11,cursor:"pointer",border:`1px solid ${isActive?"transparent":isToday?C.amber+"77":"transparent"}`,background:isActive?C.cyan:isToday?C.amber+"18":C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+            <button key={i} onClick={()=>setDay(i)} style={{flex:1,padding:"7px 2px",borderRadius:11,cursor:"pointer",border:`1px solid ${isActive?"transparent":isToday?C.amber+"77":isBooked?C.cyan+"44":"transparent"}`,background:isActive?C.cyan:isToday?C.amber+"18":isBooked?C.cyan+"12":C.surface,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
               <span style={{color:isActive?C.bg:isToday?C.amber:C.muted,fontSize:9,fontWeight:700}}>{WDAYS[i]}</span>
-              <span style={{color:isActive?C.bg:isToday?C.amber:i===6?C.muted:C.white,fontSize:14,fontWeight:900}}>{d.label}</span>
-              {(hasSess||isToday)&&<span style={{width:4,height:4,borderRadius:"50%",background:isActive?C.bg:isToday?C.amber:C.cyan,display:"block"}}/>}
+              <span style={{color:isActive?C.bg:isToday?C.amber:i===6?C.muted:C.white,fontSize:13,fontWeight:900}}>{d.label}</span>
+              {isBooked&&!isActive
+                ?<span style={{color:C.cyan,fontSize:8,fontWeight:800}}>✓</span>
+                :(hasSess||isToday)&&<span style={{width:4,height:4,borderRadius:"50%",background:isActive?C.bg:isToday?C.amber:C.cyan,display:"block"}}/>
+              }
             </button>
           );
         })}
@@ -2302,6 +2302,12 @@ export default function App(){
   const [importantEvent,setImportantEvent]=useState(null); // prominent modal for payment/package
   const [rtToast,setRtToast]=useState(null);               // top toast for realtime events
   const rtToastTimer=useRef(null);
+  // Pull-to-refresh
+  const [ptrY,setPtrY]=useState(0);
+  const [ptrActive,setPtrActive]=useState(false);
+  const [refreshing,setRefreshing]=useState(false);
+  const ptrStartY=useRef(null);
+  const ptrScrollEl=useRef(null);
 
   useEffect(()=>{
     const init=async()=>{
@@ -2467,6 +2473,15 @@ export default function App(){
       setAuth(prev=>({...prev,sessions:[row,...(prev.sessions||[])]}));
     });
 
+    // Bookings changes (capacity updates) → trigger a full data refresh so HomeScreen updates
+    // This also fires when another client books/cancels, updating counts in real-time
+    rt.subscribe('bookings','*',null,(row)=>{
+      // If it's our own booking, refresh everything
+      if(row.client_id===auth.userId){
+        loadData(auth.token,auth.userId).catch(()=>{});
+      }
+    });
+
     rt.connect(auth.token);
     return ()=>{ rt.disconnect(); clearTimeout(rtToastTimer.current); };
   },[auth.userId,auth.token]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2532,9 +2547,54 @@ export default function App(){
     }
   };
 
+  const handlePtrStart=(e)=>{
+    if(refreshing) return;
+    const el=e.currentTarget;
+    if(el.scrollTop>0) return; // only trigger at top of scroll
+    ptrStartY.current=e.touches[0].clientY;
+    ptrScrollEl.current=el;
+  };
+  const handlePtrMove=(e)=>{
+    if(ptrStartY.current==null||refreshing) return;
+    const dy=e.touches[0].clientY-ptrStartY.current;
+    if(dy<0){ ptrStartY.current=null; setPtrY(0); setPtrActive(false); return; }
+    const capped=Math.min(dy*0.45,60);
+    setPtrY(capped);
+    setPtrActive(capped>30);
+    if(capped>5) e.preventDefault();
+  };
+  const handlePtrEnd=async()=>{
+    if(ptrActive&&auth.token&&auth.userId){
+      setRefreshing(true);
+      await loadData(auth.token,auth.userId).catch(()=>{});
+      setRefreshing(false);
+    }
+    ptrStartY.current=null;
+    setPtrY(0);
+    setPtrActive(false);
+  };
+
   return(
     <>
-      <div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}>
+      <div
+        className="ua-app"
+        style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh",overflowY:"auto",position:"relative"}}
+        onTouchStart={handlePtrStart}
+        onTouchMove={handlePtrMove}
+        onTouchEnd={handlePtrEnd}
+      >
+        {/* Pull-to-refresh indicator */}
+        {(ptrY>0||refreshing)&&(
+          <div style={{position:"fixed",top:0,left:0,right:0,zIndex:700,display:"flex",justifyContent:"center",transition:"opacity .2s",opacity:ptrY>10||refreshing?1:0}}>
+            <div style={{background:C.surface,border:`1px solid ${C.cyan}44`,borderRadius:"0 0 16px 16px",padding:"6px 18px 10px",display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 18px rgba(0,0,0,0.4)",transform:`translateY(${refreshing?0:ptrY-10}px)`,transition:refreshing?"none":"transform .05s"}}>
+              {refreshing
+                ?<div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${C.cyan}`,borderTopColor:"transparent",animation:"ua-spin .8s linear infinite"}}/>
+                :<div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${C.cyan}55`,borderTopColor:C.cyan,transform:`rotate(${ptrY*3}deg)`,transition:"transform .05s"}}/>
+              }
+              <span style={{color:C.cyan,fontSize:12,fontWeight:700}}>{refreshing?"Refreshing…":ptrActive?"Release to refresh":"Pull to refresh"}</span>
+            </div>
+          </div>
+        )}
         {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
         {/* Notification panel */}
         {showNotifPanel&&<NotifPanel notifications={notifications} onDelete={async(id)=>{await deleteNotif(id);}} onClose={()=>setShowNotifPanel(false)}/>}
