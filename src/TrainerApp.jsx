@@ -1340,13 +1340,23 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                   <button onClick={()=>{setCustomTotal("");setCustomSpw("");setNPT("10");setNSpw("3");}} style={{background:"none",border:"none",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>← Back to presets</button>
                 </div>
                 <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
+                  {/* Total Sessions stepper */}
                   <div style={{flex:1}}>
-                    <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Total Sessions</div>
-                    <input type="number" min="1" max="999" value={customTotal} onChange={e=>{setCustomTotal(e.target.value);setNPT(e.target.value);}} placeholder="π.χ. 1" style={{width:"100%",background:C.bg,border:"1px solid #C89AFF",borderRadius:8,padding:"10px 12px",color:"#C89AFF",fontSize:18,fontWeight:700,outline:"none",fontFamily:"inherit",boxSizing:"border-box",textAlign:"center"}} autoFocus/>
+                    <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Total Sessions <span style={{color:C.muted,fontWeight:400}}>(1–500)</span></div>
+                    <div style={{display:"flex",alignItems:"center",background:C.bg,border:"1px solid #C89AFF",borderRadius:8,overflow:"hidden"}}>
+                      <button onClick={()=>{const v=Math.max(1,(parseInt(customTotal)||1)-1);setCustomTotal(String(v));setNPT(String(v));}} style={{background:"none",border:"none",borderRight:`1px solid #C89AFF44`,color:"#C89AFF",fontSize:22,fontWeight:700,cursor:"pointer",padding:"8px 14px",fontFamily:"inherit",lineHeight:1,flexShrink:0}}>−</button>
+                      <input type="number" min="1" max="500" value={customTotal} onChange={e=>{const v=Math.max(1,Math.min(500,parseInt(e.target.value)||1));setCustomTotal(String(v));setNPT(String(v));}} style={{flex:1,background:"none",border:"none",color:"#C89AFF",fontSize:18,fontWeight:700,outline:"none",fontFamily:"inherit",textAlign:"center",padding:"10px 0",minWidth:0,MozAppearance:"textfield",WebkitAppearance:"none"}} autoFocus/>
+                      <button onClick={()=>{const v=Math.min(500,(parseInt(customTotal)||1)+1);setCustomTotal(String(v));setNPT(String(v));}} style={{background:"none",border:"none",borderLeft:`1px solid #C89AFF44`,color:"#C89AFF",fontSize:22,fontWeight:700,cursor:"pointer",padding:"8px 14px",fontFamily:"inherit",lineHeight:1,flexShrink:0}}>+</button>
+                    </div>
                   </div>
+                  {/* Sessions/Week stepper */}
                   <div style={{flex:1}}>
-                    <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Sessions / Week</div>
-                    <input type="number" min="1" max="14" value={customSpw} onChange={e=>{setCustomSpw(e.target.value);setNSpw(e.target.value);}} placeholder="π.χ. 1" style={{width:"100%",background:C.bg,border:"1px solid #C89AFF",borderRadius:8,padding:"10px 12px",color:"#C89AFF",fontSize:18,fontWeight:700,outline:"none",fontFamily:"inherit",boxSizing:"border-box",textAlign:"center"}}/>
+                    <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Sessions / Week <span style={{color:C.muted,fontWeight:400}}>(1–7)</span></div>
+                    <div style={{display:"flex",alignItems:"center",background:C.bg,border:"1px solid #C89AFF",borderRadius:8,overflow:"hidden"}}>
+                      <button onClick={()=>{const v=Math.max(1,(parseInt(customSpw)||1)-1);setCustomSpw(String(v));setNSpw(String(v));}} style={{background:"none",border:"none",borderRight:`1px solid #C89AFF44`,color:"#C89AFF",fontSize:22,fontWeight:700,cursor:"pointer",padding:"8px 14px",fontFamily:"inherit",lineHeight:1,flexShrink:0}}>−</button>
+                      <input type="number" min="1" max="7" value={customSpw} onChange={e=>{const v=Math.max(1,Math.min(7,parseInt(e.target.value)||1));setCustomSpw(String(v));setNSpw(String(v));}} style={{flex:1,background:"none",border:"none",color:"#C89AFF",fontSize:18,fontWeight:700,outline:"none",fontFamily:"inherit",textAlign:"center",padding:"10px 0",minWidth:0,MozAppearance:"textfield",WebkitAppearance:"none"}}/>
+                      <button onClick={()=>{const v=Math.min(7,(parseInt(customSpw)||1)+1);setCustomSpw(String(v));setNSpw(String(v));}} style={{background:"none",border:"none",borderLeft:`1px solid #C89AFF44`,color:"#C89AFF",fontSize:22,fontWeight:700,cursor:"pointer",padding:"8px 14px",fontFamily:"inherit",lineHeight:1,flexShrink:0}}>+</button>
+                    </div>
                   </div>
                 </div>
               </div>
