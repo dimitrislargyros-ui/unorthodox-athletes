@@ -1449,6 +1449,13 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
       const newLeft=pkg.sessions_total-newUsed;
       if(delta>0&&(newLeft===2||newLeft===1)){
         await postNotification({client_id:userId,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+        // Also notify trainer
+        getTrainerProfile(token).then(trainer=>{
+          if(!trainer) return;
+          const clientName=profile?.name||"Client";
+          postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`⚠️ ${clientName} έχει απομείνει μόνο ${newLeft} session${newLeft>1?"s":""} στο πακέτο. Σκέψου ανανέωση.`},token).catch(()=>{});
+          fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"⚠️ Λίγα sessions απέμειναν",body:`${clientName}: ${newLeft} session${newLeft>1?"s":""} απέμειναν`})}).catch(()=>{});
+        }).catch(()=>{});
       }
     }catch(e){}
   };
@@ -1547,6 +1554,13 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile})=>{
     try{
       await postSlotRequest({client_id:userId,requested_date:selDay.iso,requested_time_min:customStart,status:"pending"},token);
       setReqSent(true);
+      // Notify trainer of custom time request
+      getTrainerProfile(token).then(trainer=>{
+        if(!trainer) return;
+        const clientName=profile?.name||"Client";
+        postNotification({client_id:trainer.id,type:"slot_request",message:`🕐 ${clientName} ζήτησε αλλαγή ώρας: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(customStart)}`},token).catch(()=>{});
+        fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"🕐 Αίτημα ώρας",body:`${clientName}: ${fmtDate(selDay.iso)} ${toTime(customStart)}`})}).catch(()=>{});
+      }).catch(()=>{});
     }catch(e){ showSchedErr("Error: "+e.message); }
     setReqSending(false);
   };
@@ -2475,6 +2489,12 @@ export default function App(){
     // clients have no INSERT policy on profiles, only UPDATE-own-row.
     await updateProfile(user.id,{name:fullName,initials,username,...(phone&&{phone})},access_token).catch(()=>{});
     localStorage.setItem(UA_AUTH_KEY,JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at,refreshToken:data.refresh_token}));
+    // Notify trainer of new client signup
+    getTrainerProfile(access_token).then(trainer=>{
+      if(!trainer) return;
+      postNotification({client_id:trainer.id,type:"new_client",message:`🆕 Νέος client εγγράφηκε: ${fullName}${phone?` (${phone})`:""}`},access_token).catch(()=>{});
+      fetch("/api/send-push",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:trainer.id,title:"🆕 Νέος client",body:`${fullName} μόλις εγγράφηκε`})}).catch(()=>{});
+    }).catch(()=>{});
     await loadData(access_token,user.id);
     return true;
   };

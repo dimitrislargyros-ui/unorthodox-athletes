@@ -283,7 +283,10 @@ const computeStatusMap=(items,now)=>{
   return map;
 };
 // ── Trainer Notification Panel ──
-const typeIcon=(type)=>type==="booking_made"?"📅":type==="cancel_request"?"⚠️":type==="cancel_accepted"?"✅":type==="cancel_declined"?"🚫":type==="session_scheduled"?"📋":type==="payment_confirmed"?"✅":type==="payment_reminder"?"💳":"🔔";
+const typeIcon=(type)=>{
+  const m={booking_made:"📅",cancel_request:"❌",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳"};
+  return m[type]||"🔔";
+};
 const TrainerNotifPanel=({userId,token,count,onClose})=>{
   const [notifs,setNotifs]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -1069,6 +1072,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         const newLeft=pkg.sessions_total-newUsed;
         if(newLeft===2||newLeft===1){
           await postNotification({client_id:client.id,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+          // Trainer also gets reminded in their notification panel
+          await postNotification({client_id:trainerId,type:"low_sessions_trainer",message:`⚠️ ${client.name||"Client"} έχει απομείνει μόνο ${newLeft} session${newLeft>1?"s":""} στο πακέτο. Σκέψου ανανέωση.`},token).catch(()=>{});
         }
       }
       const full={...created,session_notes:[],exercises:[]};
