@@ -569,7 +569,7 @@ const SessionSheet=({session,token,onClose})=>{
 };
 
 // ── Notification Modal ──
-const HistorySheet=({sessions,spw,onClose,label="Personal Training"})=>{
+const HistorySheet=({sessions,spw,onClose,onOpen,label="Personal Training"})=>{
   const completed=sessions.filter(s=>s.status==="completed");
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
@@ -583,13 +583,17 @@ const HistorySheet=({sessions,spw,onClose,label="Personal Training"})=>{
           completed.map((s,i)=>{
             const dn=computeDayNum(s,sessions,spw);
             return(
-              <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <button key={i} onClick={()=>onOpen&&onOpen(s)}
+                style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${C.border}`,padding:"12px 0",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:onOpen?"pointer":"default",fontFamily:"inherit",textAlign:"left"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
                   <div style={{color:C.white,fontSize:14,fontWeight:600}}>{label}</div>
                   {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                 </div>
-                <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
-              </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
+                  {onOpen&&<div style={{color:C.muted,fontSize:16}}>›</div>}
+                </div>
+              </button>
             );
           })
         }
@@ -2029,6 +2033,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
   const [avatarUrl,setAvatarUrl]=useState(profile?.avatar_url||null);
   const [uploading,setUploading]=useState(false);
   const [showHistorySheet,setShowHistorySheet]=useState(false);
+  const [openSess,setOpenSess]=useState(null);
   const [profToast,setProfToast]=useState(null);
   const [showBellSheet,setShowBellSheet]=useState(false);
   const notifEnabled=typeof Notification!=='undefined'&&Notification.permission==='granted';
@@ -2177,13 +2182,17 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
             {visible.map((s,i)=>{
               const dn=computeDayNum(s,sessions,spw);
               return(
-                <div key={i} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <button key={i} onClick={()=>setOpenSess(s)}
+                  style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${C.border}`,padding:"12px 0",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
                     <div style={{color:C.white,fontSize:14,fontWeight:600}}>{sessLabel(pkg?.workout_templates?.name)}</div>
                     {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                   </div>
-                  <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
-                </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
+                    <div style={{color:C.muted,fontSize:16}}>›</div>
+                  </div>
+                </button>
               );
             })}
             {completed.length>3&&
@@ -2192,7 +2201,8 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
           </>);
         })()}
       </div>
-      {showHistorySheet&&<HistorySheet sessions={sessions} spw={spw} label={sessLabel(pkg?.workout_templates?.name)} onClose={()=>setShowHistorySheet(false)}/>}
+      {showHistorySheet&&<HistorySheet sessions={sessions} spw={spw} label={sessLabel(pkg?.workout_templates?.name)} onClose={()=>setShowHistorySheet(false)} onOpen={s=>{setShowHistorySheet(false);setOpenSess(s);}}/>}
+      {openSess&&<SessionSheet session={{...openSess,_pkg_spw:spw}} token={token} onClose={()=>setOpenSess(null)}/>}
 
       <div style={{padding:"0 20px 16px"}}>
         <SL>App Theme</SL>
