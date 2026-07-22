@@ -2925,6 +2925,8 @@ export default function App(){
   const [rtToast,setRtToast]=useState(null);
   const [cancelReqModal,setCancelReqModal]=useState(null); // pending cancel request to show modal for
   const [cancelReqActing,setCancelReqActing]=useState(false);
+  const [slotReqBanner,setSlotReqBanner]=useState(null); // slot_request popup banner
+  const slotBannerTimer=useRef(null);
   const showRtToast=(msg)=>{
     clearTimeout(rtToastTimer.current);
     setRtToast(msg);
@@ -2954,12 +2956,13 @@ export default function App(){
     setCancelReqActing(false);
   };
   const handleDecideCancelReq=()=>{
-    getCancelRequests(auth.userId,auth.token).then(rows=>{
-      if(!rows||!rows.length) return showRtToast("No pending requests");
-      const r=rows[0];
-      const clientName=r.profiles?.name||"Client";
-      setCancelReqModal({...r,_clientName:clientName});
-    }).catch(()=>showRtToast("Error loading requests"));
+    dbGet("cancel_requests",`trainer_id=eq.${auth.userId}&status=eq.pending&order=created_at.asc`,auth.token)
+      .then(rows=>{
+        if(!rows||!rows.length) return showRtToast("No pending requests");
+        const r=rows[0];
+        const client=clients.find(c=>c.id===r.client_id);
+        setCancelReqModal({...r,_clientName:client?.name||"Client"});
+      }).catch(e=>showRtToast("Error: "+e.message));
   };
 
   // Poll pending custom-time requests at app level every 60s so badge updates
@@ -2997,7 +3000,14 @@ export default function App(){
     // New notification for trainer → update bell badge
     rt.subscribe('notifications','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
       setTrainerNotifs(prev=>prev.some(n=>n.id===row.id)?prev:[row,...prev]);
-      if(row.type!=='cancel_request') showRtToast(row.message);
+      if(row.type==='slot_request'){
+        // Show sticky banner with link to Schedule
+        clearTimeout(slotBannerTimer.current);
+        setSlotReqBanner(row.message);
+        slotBannerTimer.current=setTimeout(()=>setSlotReqBanner(null),10000);
+      } else if(row.type!=='cancel_request'){
+        showRtToast(row.message);
+      }
     });
 
     // Cancel requests → show modal immediately wherever trainer is
@@ -3067,6 +3077,14 @@ export default function App(){
       setAuth({loading:false,token,userId,profile});
       // Load trainer's notifications
       getTrainerNotifications(userId,token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});
+      // Auto-popup any pending cancel request on load
+      dbGet("cancel_requests",`trainer_id=eq.${userId}&status=eq.pending&order=created_at.asc`,token)
+        .then(rows=>{
+          if(!rows||!rows.length) return;
+          const r=rows[0];
+          const client=(enriched||[]).find(c=>c.id===r.client_id);
+          setCancelReqModal({...r,_clientName:client?.name||"Client"});
+        }).catch(()=>{});
       // Register push notifications for trainer
       registerTrainerPush(userId,token).catch(()=>{});
     }catch(e){ setAuth(p=>({...p,loading:false})); }
@@ -3207,6 +3225,18 @@ export default function App(){
               >{cancelReqActing?"…":"✓ Approve"}</button>
             </div>
           </div>
+        </div>
+      )}
+      {/* Slot Request Banner — tappable, navigates to Schedule */}
+      {slotReqBanner&&(
+        <div onClick={()=>{setSlotReqBanner(null);handleNav("schedule");}} style={{position:"fixed",top:0,left:0,right:0,zIndex:950,background:C.surface,borderBottom:`2px solid ${C.cyan}`,padding:"14px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",boxShadow:"0 4px 24px rgba(0,0,0,0.5)"}}>
+          <span style={{fontSize:22,flexShrink:0}}>🕐</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{color:C.cyan,fontSize:12,fontWeight:800,marginBottom:2}}>ΑΙΤΗΜΑ ΑΛΛΑΓΗΣ ΩΡΑΣ</div>
+            <div style={{color:C.white,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{slotReqBanner}</div>
+          </div>
+          <div style={{color:C.cyan,fontSize:20,fontWeight:700,flexShrink:0}}>›</div>
+          <button onClick={e=>{e.stopPropagation();setSlotReqBanner(null);}} style={{background:"none",border:"none",color:C.muted,fontSize:16,cursor:"pointer",padding:"2px 4px",flexShrink:0}}>✕</button>
         </div>
       )}
     </>
