@@ -36,14 +36,14 @@ const LOGO_SRC = '/logo.png';
 const GYM_CAP = 8;
 // ── Themes ──
 const THEMES={
-  cyber:     {bg:"#0A0A0A",surface:"#161616",surface2:"#252525",cyan:"#00C9E1",pink:"#E8197A",white:"#FFFFFF",muted:"#666666",border:"#2A2A2A",green:"#22C55E",amber:"#F59E0B"},
-  emerald:   {bg:"#060F09",surface:"#0E1A12",surface2:"#18281C",cyan:"#10B981",pink:"#F43F5E",white:"#FFFFFF",muted:"#4A6050",border:"#1E301E",green:"#22C55E",amber:"#F59E0B"},
-  electric:  {bg:"#07071A",surface:"#0E0E2C",surface2:"#181838",cyan:"#4361EE",pink:"#F72585",white:"#FFFFFF",muted:"#5A5A88",border:"#22224A",green:"#22C55E",amber:"#F59E0B"},
-  volt:      {bg:"#090900",surface:"#131200",surface2:"#1E1C00",cyan:"#FFE500",pink:"#FF4500",white:"#FFFFFF",muted:"#5A5800",border:"#282600",green:"#AAFF00",amber:"#FF8C00"},
-  rosegold:  {bg:"#0F0807",surface:"#1C1210",surface2:"#281A18",cyan:"#E8916A",pink:"#C2185B",white:"#FFFFFF",muted:"#6A4040",border:"#301A18",green:"#E8916A",amber:"#D4A04A"},
-  coral:     {bg:"#0A0606",surface:"#160C0C",surface2:"#221212",cyan:"#FF6B6B",pink:"#845EC2",white:"#FFFFFF",muted:"#5A3838",border:"#2A1010",green:"#22C55E",amber:"#F59E0B"},
-  lavender:  {bg:"#0A0810",surface:"#140E1E",surface2:"#1E1530",cyan:"#B39DDB",pink:"#F06292",white:"#FFFFFF",muted:"#5A4878",border:"#241A38",green:"#80CBC4",amber:"#FFD54F"},
-  cherry:    {bg:"#0A0608",surface:"#160A12",surface2:"#221018",cyan:"#FFB7C5",pink:"#C2185B",white:"#FFFFFF",muted:"#5A3850",border:"#2A1020",green:"#F48FB1",amber:"#FF80AB"},
+  cyber:    {bg:"#08090F",surface:"#101828",surface2:"#1A2540",cyan:"#00E5FF",pink:"#FF0066",white:"#FFFFFF",muted:"#4A6080",border:"#1E3050",green:"#00E676",amber:"#FFAB00"},
+  emerald:  {bg:"#050E08",surface:"#0B2016",surface2:"#122C20",cyan:"#00E676",pink:"#FF3355",white:"#FFFFFF",muted:"#2A6042",border:"#103020",green:"#69FF47",amber:"#FFAB00"},
+  electric: {bg:"#07081C",surface:"#0F1030",surface2:"#181848",cyan:"#5B7FFF",pink:"#FF00CC",white:"#FFFFFF",muted:"#3A4090",border:"#1A1A50",green:"#00E5B8",amber:"#FFAB00"},
+  volt:     {bg:"#0A0900",surface:"#181400",surface2:"#242000",cyan:"#FFE000",pink:"#FF6200",white:"#FFFFFF",muted:"#706000",border:"#302800",green:"#C8FF00",amber:"#FF9500"},
+  rosegold: {bg:"#0E0A04",surface:"#1E1408",surface2:"#2A1E0E",cyan:"#C9A030",pink:"#E03060",white:"#FFFFFF",muted:"#7A5828",border:"#301C08",green:"#C9A030",amber:"#B07818"},
+  coral:    {bg:"#100506",surface:"#200808",surface2:"#2E0E0E",cyan:"#FF2040",pink:"#A040FF",white:"#FFFFFF",muted:"#803040",border:"#2C1010",green:"#FF5A30",amber:"#FF8A20"},
+  lavender: {bg:"#09080E",surface:"#111020",surface2:"#1A1830",cyan:"#C080FF",pink:"#FF60A0",white:"#FFFFFF",muted:"#5848A0",border:"#201838",green:"#80FFEA",amber:"#FFD060"},
+  cherry:   {bg:"#100608",surface:"#1E0A12",surface2:"#2A1020",cyan:"#FF80B0",pink:"#FF0070",white:"#FFFFFF",muted:"#803060",border:"#2C1020",green:"#FF90C0",amber:"#FF4090"},
 };
 const THEME_KEY="ua_theme";
 const getTheme=()=>THEMES[localStorage.getItem(THEME_KEY)||"cyber"]||THEMES.cyber;
@@ -2322,23 +2322,34 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
 
       <div style={{padding:"0 20px 16px"}}>
         <SL>App Theme</SL>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"14px 10px",paddingTop:4}}>
           {[
-            {key:"cyber",    label:"Cyber",       a:"#00C9E1",b:"#E8197A"},
-            {key:"emerald",  label:"Emerald",     a:"#10B981",b:"#F43F5E"},
-            {key:"electric", label:"Electric",    a:"#4361EE",b:"#F72585"},
-            {key:"volt",     label:"Volt",        a:"#FFE500",b:"#FF4500"},
-            {key:"rosegold", label:"Rose Gold",   a:"#E8916A",b:"#C2185B"},
-            {key:"coral",    label:"Coral",       a:"#FF6B6B",b:"#845EC2"},
-            {key:"lavender", label:"Lavender",    a:"#B39DDB",b:"#F06292"},
-            {key:"cherry",   label:"Cherry",      a:"#FFB7C5",b:"#C2185B"},
+            {key:"cyber",    label:"Cyber",     a:"#00E5FF",b:"#FF0066"},
+            {key:"emerald",  label:"Emerald",   a:"#00E676",b:"#FF3355"},
+            {key:"electric", label:"Electric",  a:"#5B7FFF",b:"#FF00CC"},
+            {key:"volt",     label:"Volt",      a:"#FFE000",b:"#FF6200"},
+            {key:"rosegold", label:"Rose Gold", a:"#C9A030",b:"#E03060"},
+            {key:"coral",    label:"Coral",     a:"#FF2040",b:"#A040FF"},
+            {key:"lavender", label:"Lavender",  a:"#C080FF",b:"#FF60A0"},
+            {key:"cherry",   label:"Cherry",    a:"#FF80B0",b:"#FF0070"},
           ].map(t=>{
             const active=(localStorage.getItem(THEME_KEY)||"cyber")===t.key;
             return(
               <button key={t.key} onClick={()=>{localStorage.setItem(THEME_KEY,t.key);window.location.reload();}}
-                style={{background:active?`linear-gradient(135deg,${t.a}33,${t.b}33)`:"rgba(255,255,255,0.04)",border:`2px solid ${active?t.a:C.border}`,borderRadius:12,padding:"10px 14px",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:5,minWidth:60}}>
-                <div style={{width:28,height:14,borderRadius:7,background:`linear-gradient(90deg,${t.a},${t.b})`}}/>
-                <div style={{color:active?t.a:C.muted,fontSize:10,fontWeight:700}}>{t.label}</div>
+                style={{background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"2px 0"}}>
+                <div style={{
+                  width:52,height:52,borderRadius:"50%",
+                  background:`linear-gradient(135deg,${t.a},${t.b})`,
+                  boxShadow:active
+                    ?`0 0 0 2px ${C.bg}, 0 0 0 4px ${t.a}, 0 0 16px ${t.a}88`
+                    :`0 2px 8px rgba(0,0,0,0.5)`,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  transition:"box-shadow 0.2s, transform 0.2s",
+                  transform:active?"scale(1.12)":"scale(1)",
+                }}>
+                  {active&&<span style={{color:"#fff",fontSize:20,fontWeight:900,textShadow:"0 1px 4px rgba(0,0,0,0.7)"}}>✓</span>}
+                </div>
+                <div style={{color:active?t.a:C.muted,fontSize:10,fontWeight:active?800:600,letterSpacing:0.3,textAlign:"center"}}>{t.label}</div>
               </button>
             );
           })}
