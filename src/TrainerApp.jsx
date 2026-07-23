@@ -348,7 +348,7 @@ const computeStatusMap=(items,now)=>{
 };
 // ── Trainer Notification Panel ──
 const typeIcon=(type)=>{
-  const m={booking_made:"📅",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳"};
+  const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳"};
   return m[type]||"🔔";
 };
 const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq})=>{
@@ -1554,7 +1554,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               const isHidden=hiddenSessIds.has(s.id);
               const badgeStatus=statusMap[s.id];
               const isCancellable=badgeStatus==="upcoming"||badgeStatus==="booked";
-              const icon=isBooking?"📅":s._type==="cancelled"?"🚫":s._type==="completed"?"💪":"⏳";
+              const icon=isBooking?"🗓":s._type==="cancelled"?"🚫":s._type==="completed"?"💪":"⏳";
               const iconBg=isBooking?C.amber+"22":s._type==="cancelled"?C.muted+"22":s._type==="completed"?C.cyan+"22":C.pink+"22";
               return(
               <div key={s.id||i} style={{opacity:isHidden?0.45:1,marginBottom:8}}>
@@ -1699,7 +1699,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         const newUsed=(cl._pkg.sessions_used||0)+1;
         await dbPatch("packages",`id=eq.${cl._pkg.id}`,{sessions_used:newUsed},token).catch(()=>{});
       }
-      const notifMsg=`📅 Your trainer scheduled a session for you on ${fmtDate(selDay.iso)} at ${toTime(forceLogSlot.start_time_min)}.`;
+      const notifMsg=`🗓 Your trainer scheduled a session for you on ${fmtDate(selDay.iso)} at ${toTime(forceLogSlot.start_time_min)}.`;
       await postNotification({client_id:cl.id,type:"session_scheduled",message:notifMsg},token).catch(()=>{});
       showToast(`✓ Session logged for ${cl.name||"client"}`,true);
       setForceLogSlot(null); setForceLogClientId(""); setForceLogSearch("");
@@ -1915,7 +1915,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       <div style={{padding:"0 20px 10px"}}>
         <div style={{background:activePeriod?C.cyan+"18":C.surface2,border:`1px solid ${activePeriod?C.cyan+"44":C.border}`,borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:15}}>📅</span>
+            <span style={{fontSize:15}}>🗓</span>
             <div>
               <div style={{color:activePeriod?C.cyan:C.muted,fontSize:12,fontWeight:800}}>{activePeriod?`Current Period: ${activePeriod.name}`:"Standard Schedule — no active period"}</div>
               {activePeriod&&<div style={{color:C.muted,fontSize:11,marginTop:1}}>{fmtDate(activePeriod.start_date)} – {fmtDate(activePeriod.end_date)}</div>}
@@ -2111,7 +2111,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
             <div style={{display:"flex",gap:8,marginBottom:12}}>
               {[0,30].map(m=><button key={m} onClick={()=>setPickM(m)} style={{flex:1,background:pickM===m?C.cyan+"33":C.surface,border:`1px solid ${pickM===m?C.cyan:C.border}`,borderRadius:7,padding:"8px",color:pickM===m?C.cyan:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>:{m===0?"00":"30"}</button>)}
             </div>
-            {selectedStart!=null&&<div style={{background:C.surface,borderRadius:8,padding:"10px",textAlign:"center",marginBottom:12}}><div style={{color:conflict?C.amber:C.white,fontSize:14,fontWeight:700}}>{conflict?"⚠️ Slot already exists":`📅 ${toSlot(selectedStart)}`}</div></div>}
+            {selectedStart!=null&&<div style={{background:C.surface,borderRadius:8,padding:"10px",textAlign:"center",marginBottom:12}}><div style={{color:conflict?C.amber:C.white,fontSize:14,fontWeight:700}}>{conflict?"⚠️ Slot already exists":`🗓 ${toSlot(selectedStart)}`}</div></div>}
             <GBtn label={selectedStart&&!conflict?`+ Add ${toSlot(selectedStart)}`:"Select a time above"} onClick={handleAdd} disabled={!selectedStart||!!conflict} style={{width:"100%"}}/>
           </div>
         </div>
@@ -2195,7 +2195,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
                 <div style={{display:"flex",gap:8,marginBottom:10}}>
                   {[0,30].map(m=><button key={m} onClick={()=>setStdPickM(m)} style={{flex:1,background:stdPickM===m?C.cyan+"33":C.surface2,border:`1px solid ${stdPickM===m?C.cyan:C.border}`,borderRadius:7,padding:"7px",color:stdPickM===m?C.cyan:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>:{m===0?"00":"30"}</button>)}
                 </div>
-                {stdPickStart!=null&&<div style={{background:C.surface,borderRadius:8,padding:"8px",textAlign:"center",marginBottom:8}}><div style={{color:stdConflict?C.amber:C.white,fontSize:13,fontWeight:700}}>{stdConflict?"⚠️ Slot already exists":`📅 ${toSlot(stdPickStart)}`}</div></div>}
+                {stdPickStart!=null&&<div style={{background:C.surface,borderRadius:8,padding:"8px",textAlign:"center",marginBottom:8}}><div style={{color:stdConflict?C.amber:C.white,fontSize:13,fontWeight:700}}>{stdConflict?"⚠️ Slot already exists":`🗓 ${toSlot(stdPickStart)}`}</div></div>}
                 <GBtn sm label={stdPickStart&&!stdConflict?`+ Add ${toSlot(stdPickStart)}`:"Pick a time above"} onClick={handleStdAdd} disabled={!stdPickStart||!!stdConflict} style={{width:"100%"}}/>
               </div>
             )}
@@ -2372,7 +2372,8 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
   const [days,setDays]=useState(()=>toDayPlan(prog.exercises||[],initNumDays));
   const [activeDay,setActiveDay]=useState(1);
   const [saving,setSaving]=useState(false);
-  const [step,setStep]=useState("list"); // "list" | "pick" | "detail"
+  const [step,setStep]=useState("list"); // "list" | "pick" | "detail" | "paste"
+  const [pasteText,setPasteText]=useState(()=>prog.exercises?.find?.(d=>d.day===1)?.note||"");
   const [pickSearch,setPickSearch]=useState("");
   const [pickedName,setPickedName]=useState("");
   const [editIdx,setEditIdx]=useState(null); // null=new, number=editing existing
@@ -2405,6 +2406,10 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
   const filtered=pickSearch?all.filter(e=>e.toLowerCase().includes(pickSearch.toLowerCase())):all;
 
   const exs=days.find(d=>d.day===activeDay)?.exercises||[];
+  const dayNote=days.find(d=>d.day===activeDay)?.note||"";
+  // Sync pasteText when switching days
+  const prevActiveDayRef=useRef(activeDay);
+  if(prevActiveDayRef.current!==activeDay){prevActiveDayRef.current=activeDay;setPasteText(dayNote);}
 
   // Get all superset groups used in the active day
   const ssGroups=useMemo(()=>{
@@ -2414,6 +2419,17 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
 
   const persist=async(newExsForDay)=>{
     const newDays=days.map(d=>d.day===activeDay?{...d,exercises:newExsForDay}:d);
+    setSaving(true);
+    try{
+      await updateTemplate(prog.id,{exercises:newDays},token);
+      setDays(newDays);
+      onUpdate({...prog,exercises:newDays});
+    }catch(e){showPmToast("Error: "+e.message);}
+    setSaving(false);
+  };
+
+  const persistNote=async(note)=>{
+    const newDays=days.map(d=>d.day===activeDay?{...d,note}:d);
     setSaving(true);
     try{
       await updateTemplate(prog.id,{exercises:newDays},token);
@@ -2555,7 +2571,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
               const cnt=d.exercises?.length||0;
               const active=activeDay===d.day;
               return(
-                <button key={d.day} onClick={()=>{setActiveDay(d.day);setStep("list");}}
+                <button key={d.day} onClick={()=>{setActiveDay(d.day);setPasteText(d.note||"");setStep("list");}}
                   style={{flexShrink:0,minWidth:56,padding:"7px 6px",borderRadius:10,border:`1px solid ${active?C.cyan:C.border}`,background:active?`${C.cyan}22`:"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
                   <div style={{color:active?C.cyan:C.muted,fontSize:12,fontWeight:800}}>Day {d.day}</div>
                   <div style={{color:active?C.cyan+"99":C.border,fontSize:10,fontWeight:600,marginTop:1}}>{cnt} ex</div>
@@ -2625,8 +2641,20 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
                 })()
             }
           </div>
-          <div style={{flexShrink:0,padding:"12px 20px 28px",borderTop:`1px solid ${C.border}`}}>
-            <GBtn label={saving?"Saving…":"+ Add Exercise"} onClick={startAdd} style={{width:"100%"}} disabled={saving}/>
+          {dayNote&&(
+            <div style={{margin:"0 20px 0",flexShrink:0}}>
+              <div style={{background:`${C.amber}11`,border:`1px solid ${C.amber}33`,borderRadius:10,padding:"10px 14px",marginBottom:6}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                  <div style={{color:C.amber,fontSize:10,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase"}}>📝 Text Note</div>
+                  <button onClick={()=>{setPasteText(dayNote);setStep("paste");}} style={{background:"none",border:"none",color:C.amber,fontSize:12,cursor:"pointer",padding:0,fontFamily:"inherit",fontWeight:700}}>Edit</button>
+                </div>
+                <div style={{color:C.muted,fontSize:12,lineHeight:1.55,whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom,black 60%,transparent 100%)"}}>{dayNote}</div>
+              </div>
+            </div>
+          )}
+          <div style={{flexShrink:0,padding:"12px 20px 28px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
+            <GBtn label={saving?"Saving…":"+ Add Exercise"} onClick={startAdd} style={{flex:1}} disabled={saving}/>
+            <button onClick={()=>{setPasteText(dayNote);setStep("paste");}} style={{flexShrink:0,background:`${C.amber}18`,border:`1px solid ${C.amber}44`,borderRadius:10,padding:"10px 14px",color:C.amber,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📝</button>
           </div>
         </>)}
 
@@ -2749,6 +2777,26 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
 
             <div style={{marginTop:"auto",paddingBottom:12}}>
               <GBtn label={editIdx!==null?"💾 Save Changes":"Add to Program"} onClick={confirmSave} style={{width:"100%"}}/>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step: paste / type text note ── */}
+        {step==="paste"&&(
+          <div style={{flex:1,display:"flex",flexDirection:"column",padding:"20px",gap:14}}>
+            <div style={{color:C.amber,fontSize:10,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase"}}>📝 Text Note — Day {activeDay}</div>
+            <div style={{color:C.muted,fontSize:12,lineHeight:1.5}}>Paste or type program text here. Shown as a note block alongside exercises.</div>
+            <textarea
+              autoFocus
+              value={pasteText}
+              onChange={e=>setPasteText(e.target.value)}
+              placeholder={"e.g.\nSquat 4x8 @70%\nRDL 3x10\nLeg Press 3x12\n..."}
+              style={{flex:1,minHeight:180,background:"rgba(255,255,255,0.06)",border:`1px solid ${C.amber}44`,borderRadius:12,padding:"12px 14px",color:C.white,fontSize:13,lineHeight:1.6,fontFamily:"inherit",outline:"none",resize:"none"}}
+            />
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setStep("list")} style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px",color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+              <button onClick={async()=>{await persistNote(pasteText);setStep("list");}} disabled={saving} style={{flex:2,background:`linear-gradient(135deg,${C.amber},${C.pink})`,border:"none",borderRadius:10,padding:"11px",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:saving?0.6:1}}>{saving?"Saving…":"💾 Save Note"}</button>
+              {pasteText&&<button onClick={async()=>{setPasteText("");await persistNote("");setStep("list");}} disabled={saving} style={{flexShrink:0,background:`${C.pink}18`,border:`1px solid ${C.pink}44`,borderRadius:10,padding:"11px 14px",color:C.pink,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🗑</button>}
             </div>
           </div>
         )}
@@ -2941,9 +2989,17 @@ export default function App(){
     setCancelReqActing(true);
     try{
       const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
-      if(r.booking_id) await cancelBookingRow(r.booking_id,auth.token).catch(()=>{});
       await resolveCancelReq(r.id,"accepted",auth.token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your cancellation for ${label} was approved. You can rebook anytime.`},auth.token).catch(()=>{});
+      // Pass booking info in the notification payload so the server cancels it
+      // using the service key (bypasses all RLS — 100% reliable)
+      await postNotification({
+        client_id:r.client_id,
+        type:"cancel_accepted",
+        message:`Your cancellation for ${label} was approved. You can rebook anytime.`,
+        booking_id:r.booking_id||null,
+        booking_client_id:r.client_id,
+        booking_date:r.book_date,
+      },auth.token).catch(()=>{});
       cleanCancelReqNotifs();
       setCancelReqModal(null);
       showRtToast("✓ Cancellation approved");
@@ -3084,8 +3140,9 @@ export default function App(){
       setAuth({loading:false,token,userId,profile});
       // Load trainer's notifications
       getTrainerNotifications(userId,token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});
-      // Auto-popup any pending cancel request on load
-      dbGet("cancel_requests",`trainer_id=eq.${userId}&status=eq.pending&order=created_at.asc`,token)
+      // Auto-popup any pending cancel request created in the last 3 days
+      const cutoff=new Date(Date.now()-3*24*3600*1000).toISOString();
+      dbGet("cancel_requests",`trainer_id=eq.${userId}&status=eq.pending&created_at=gte.${cutoff}&order=created_at.asc`,token)
         .then(rows=>{
           if(!rows||!rows.length) return;
           const r=rows[0];

@@ -36,11 +36,14 @@ const LOGO_SRC = '/logo.png';
 const GYM_CAP = 8;
 // ── Themes ──
 const THEMES={
-  cyber:{bg:"#0A0A0A",surface:"#161616",surface2:"#252525",cyan:"#00C9E1",pink:"#E8197A",white:"#FFFFFF",muted:"#666666",border:"#2A2A2A",green:"#22C55E",amber:"#F59E0B"},
-  electric:{bg:"#07071A",surface:"#0E0E2C",surface2:"#181838",cyan:"#4361EE",pink:"#F72585",white:"#FFFFFF",muted:"#5A5A88",border:"#22224A",green:"#22C55E",amber:"#F59E0B"},
-  emerald:{bg:"#060F09",surface:"#0E1A12",surface2:"#18281C",cyan:"#10B981",pink:"#F43F5E",white:"#FFFFFF",muted:"#4A6050",border:"#1E301E",green:"#22C55E",amber:"#F59E0B"},
-  violet:{bg:"#0C0916",surface:"#150D20",surface2:"#20152E",cyan:"#8B5CF6",pink:"#EC4899",white:"#FFFFFF",muted:"#5A4878",border:"#251D3E",green:"#22C55E",amber:"#F59E0B"},
-  gold:{bg:"#100900",surface:"#1C1000",surface2:"#281A00",cyan:"#F59E0B",pink:"#EF4444",white:"#FFFFFF",muted:"#70540A",border:"#302000",green:"#22C55E",amber:"#F59E0B"},
+  cyber:     {bg:"#0A0A0A",surface:"#161616",surface2:"#252525",cyan:"#00C9E1",pink:"#E8197A",white:"#FFFFFF",muted:"#666666",border:"#2A2A2A",green:"#22C55E",amber:"#F59E0B"},
+  emerald:   {bg:"#060F09",surface:"#0E1A12",surface2:"#18281C",cyan:"#10B981",pink:"#F43F5E",white:"#FFFFFF",muted:"#4A6050",border:"#1E301E",green:"#22C55E",amber:"#F59E0B"},
+  electric:  {bg:"#07071A",surface:"#0E0E2C",surface2:"#181838",cyan:"#4361EE",pink:"#F72585",white:"#FFFFFF",muted:"#5A5A88",border:"#22224A",green:"#22C55E",amber:"#F59E0B"},
+  volt:      {bg:"#090900",surface:"#131200",surface2:"#1E1C00",cyan:"#FFE500",pink:"#FF4500",white:"#FFFFFF",muted:"#5A5800",border:"#282600",green:"#AAFF00",amber:"#FF8C00"},
+  rosegold:  {bg:"#0F0807",surface:"#1C1210",surface2:"#281A18",cyan:"#E8916A",pink:"#C2185B",white:"#FFFFFF",muted:"#6A4040",border:"#301A18",green:"#E8916A",amber:"#D4A04A"},
+  coral:     {bg:"#0A0606",surface:"#160C0C",surface2:"#221212",cyan:"#FF6B6B",pink:"#845EC2",white:"#FFFFFF",muted:"#5A3838",border:"#2A1010",green:"#22C55E",amber:"#F59E0B"},
+  lavender:  {bg:"#0A0810",surface:"#140E1E",surface2:"#1E1530",cyan:"#B39DDB",pink:"#F06292",white:"#FFFFFF",muted:"#5A4878",border:"#241A38",green:"#80CBC4",amber:"#FFD54F"},
+  cherry:    {bg:"#0A0608",surface:"#160A12",surface2:"#221018",cyan:"#FFB7C5",pink:"#C2185B",white:"#FFFFFF",muted:"#5A3850",border:"#2A1020",green:"#F48FB1",amber:"#FF80AB"},
 };
 const THEME_KEY="ua_theme";
 const getTheme=()=>THEMES[localStorage.getItem(THEME_KEY)||"cyber"]||THEMES.cyber;
@@ -364,7 +367,7 @@ const ImportantEventModal=({event:ev,onClose})=>{
     payment_confirmed:{icon:'✅',title:'Payment Confirmed!',color:C.green},
     package_renewed:  {icon:'🎯',title:'New Package Assigned!',color:C.cyan},
     payment_reminder: {icon:'💳',title:'Payment Reminder',color:C.pink},
-    session_scheduled:{icon:'📅',title:'Session Booked!',color:C.cyan},
+    session_scheduled:{icon:'🗓',title:'Session Booked!',color:C.cyan},
     session_cancelled:{icon:'🚫',title:'Session Cancelled',color:C.pink},
     waitlist_promoted:{icon:'🎉',title:'Spot Available!',color:C.green},
     slot_request_approved:{icon:'✅',title:'Request Approved!',color:C.green},
@@ -414,7 +417,7 @@ const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
       // Save cancel request row (requires cancel_requests table)
       await postCancelRequest({client_id:userId,trainer_id:trainer.id,booking_id:bookingId||null,book_date:bookDate,start_time_min:startMin,status:"pending"},token).catch(()=>{});
       // Notify trainer in-app + push (single server call handles both)
-      await postNotification({client_id:trainer.id,type:"cancel_request",message:`❌ ${myProfile?.name||"Client"} ζήτησε ακύρωση: ${label}`},token).catch(()=>{});
+      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} ζήτησε ακύρωση: ${label}`},token).catch(()=>{});
       setSent(true);
     }catch(e){ setErr("Failed to send. Please try again."); }
     setSending(false);
@@ -643,7 +646,7 @@ const SwipeNotifRow=({n,onDelete})=>{
   const [gone,setGone]=useState(false);
   const startX=useRef(null);
   const THRESHOLD=75; // px to snap open
-  const typeIcon=n.type==="session_scheduled"?"📅":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":"🔔";
+  const typeIcon=n.type==="session_scheduled"?"🗓":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":"🔔";
 
   const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; setDragging(true); };
   const onTouchMove=(e)=>{
@@ -1052,7 +1055,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
           getTrainerProfile(token).then(trainer=>{
             if(!trainer) return;
             const clientName=profile?.name||"Client";
-            postNotification({client_id:trainer.id,type:"cancel_request",message:`❌ ${clientName} ακύρωσε το ραντεβού της ${dateLabel}.`},token).catch(()=>{});
+            postNotification({client_id:trainer.id,type:"cancel_request",message:`${clientName} ακύρωσε το ραντεβού: ${dateLabel}.`},token).catch(()=>{});
           }).catch(()=>{});
           onNav("schedule");
         }catch(e){ showHomeToast("Error: "+e.message); }
@@ -1087,6 +1090,25 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
   };
   const heroDayNum=heroItem?dayNumForIndex(0):null;
   const nextBookDayNum=dayNumForIndex(allUpcoming.length);
+
+  // Compute target date for "Book Day X" nav = day after last future booking
+  const nextBookNavTarget=(()=>{
+    if(!allUpcoming.length) return null;
+    const last=allUpcoming[allUpcoming.length-1];
+    const d=new Date(last.session_date+"T12:00:00");
+    return new Date(d.getTime()+86400000); // +1 day
+  })();
+  const nextBookNavWeek=nextBookNavTarget?(()=>{
+    const dow=nextBookNavTarget.getDay()===0?6:nextBookNavTarget.getDay()-1;
+    const mon=new Date(nextBookNavTarget.getTime()-dow*86400000);
+    const thisMon=new Date(WDATES_BASE[0].iso+"T12:00:00");
+    return Math.round((mon-thisMon)/(7*24*3600*1000));
+  })():0;
+  const nextBookNavDay=nextBookNavTarget?(nextBookNavTarget.getDay()===0?6:nextBookNavTarget.getDay()-1):0;
+  const nextBookNavLabel=nextBookNavTarget
+    ?nextBookNavTarget.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"})
+    :null;
+  const doBookNav=()=>onNavSchedule?.(nextBookNavWeek,nextBookNavDay);
 
   const statusPool=[
     ...sessions.filter(s=>s.status==="booked"||s.status==="completed"),
@@ -1243,12 +1265,15 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
                 </div>
               ))}
             </div>
-            <button onClick={()=>onNav("schedule")} style={{width:"100%",background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:10,padding:"10px",color:C.green,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📅 Book Day {nextBookDayNum} → Next Week</button>
+            <button onClick={doBookNav} style={{width:"100%",background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:10,padding:"10px",color:C.green,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🗓 Book Day {nextBookDayNum}{nextBookNavLabel?` · ${nextBookNavLabel}`:` → Next Week`} →</button>
           </div>
         </div>
       ):pkg&&left>0?(
         <div style={{padding:"14px 20px 0"}}>
-          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:18,padding:"22px 20px",color:C.white,fontSize:18,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>Book Day {nextBookDayNum} →</button>
+          <button onClick={doBookNav} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:18,padding:"22px 20px",color:C.white,fontSize:18,fontWeight:900,cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+            <span>Book Day {nextBookDayNum} →</span>
+            {nextBookNavLabel&&<span style={{fontSize:12,fontWeight:600,opacity:0.85}}>{nextBookNavLabel}</span>}
+          </button>
         </div>
       ):pkg&&left<=0?(
         <div style={{padding:"14px 20px 0"}}>
@@ -1297,8 +1322,9 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
       {/* Secondary Book CTA — shown when hero exists and still have days to book */}
       {heroItem&&pkg&&left>0&&(
         <div style={{padding:"14px 20px 0"}}>
-          <button onClick={()=>onNav("schedule")} style={{width:"100%",background:"none",border:`2px solid ${weekFull?C.green:C.cyan}`,borderRadius:14,padding:"14px 18px",color:weekFull?C.green:C.cyan,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            <span>📅</span> {weekFull?`Book Day ${nextBookDayNum} → Next Week`:`Book Day ${nextBookDayNum} →`}
+          <button onClick={doBookNav} style={{width:"100%",background:"none",border:`2px solid ${weekFull?C.green:C.cyan}`,borderRadius:14,padding:"14px 18px",color:weekFull?C.green:C.cyan,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            <span>🗓</span>
+            <span>Book Day {nextBookDayNum}{nextBookNavLabel?` · ${nextBookNavLabel}`:weekFull?" → Next Week":""} →</span>
           </button>
         </div>
       )}
@@ -1329,7 +1355,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
       {pkg&&(
         <div style={{padding:"14px 20px 0",display:"flex",flexDirection:"column",gap:8}}>
           <button onClick={()=>onNav("schedule")} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",fontFamily:"inherit"}}>
-            <div style={{color:C.white,fontSize:14,fontWeight:700}}>📅 View Full Schedule</div>
+            <div style={{color:C.white,fontSize:14,fontWeight:700}}>🗓 View Full Schedule</div>
             <span style={{color:C.cyan,fontSize:14,fontWeight:700}}>›</span>
           </button>
         </div>
@@ -1352,9 +1378,9 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
 };
 
 // ── Schedule ──
-const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeekOffset,bookingsVer})=>{
+const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeekOffset,initialDayIdx,bookingsVer})=>{
   const [weekOffset,setWeekOffset]=useState(initialWeekOffset||0);
-  const [dayIdx,setDay]=useState(todayDow());
+  const [dayIdx,setDay]=useState(initialDayIdx!=null?initialDayIdx:todayDow());
   const [slots,setSlots]=useState([]);
   const [counts,setCounts]=useState({});
   const [myBooks,setMyB]=useState([]);
@@ -1460,7 +1486,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
         getTrainerProfile(token).then(trainer=>{
           if(!trainer) return;
           const clientName=profile?.name||"Client";
-          postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`⚠️ ${clientName} έχει απομείνει μόνο ${newLeft} session${newLeft>1?"s":""} στο πακέτο. Σκέψου ανανέωση.`},token).catch(()=>{});
+          postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`${clientName} έχει απομείνει μόνο ${newLeft} session${newLeft>1?"s":""} στο πακέτο. Σκέψου ανανέωση.`},token).catch(()=>{});
         }).catch(()=>{});
       }
     }catch(e){}
@@ -1527,7 +1553,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
           if(!trainer) return;
           const clientName=profile?.name||"Client";
           const dateLabel=`${selDay.iso} ${toTime(slot.start_time_min)}`;
-          postNotification({client_id:trainer.id,type:"booking_made",message:`📅 ${clientName} έκλεισε ραντεβού: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(slot.start_time_min)}`},token).catch(()=>{});
+          postNotification({client_id:trainer.id,type:"booking_made",message:`${clientName} έκλεισε ραντεβού: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(slot.start_time_min)}`},token).catch(()=>{});
         }).catch(()=>{});
       }
     }catch(e){ showSchedErr("Error: "+e.message); }
@@ -1563,7 +1589,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
       getTrainerProfile(token).then(trainer=>{
         if(!trainer) return;
         const clientName=profile?.name||"Client";
-        postNotification({client_id:trainer.id,type:"slot_request",message:`🕐 ${clientName} ζήτησε αλλαγή ώρας: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(customStart)}`},token).catch(()=>{});
+        postNotification({client_id:trainer.id,type:"slot_request",message:`${clientName} ζήτησε αλλαγή ώρας: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(customStart)}`},token).catch(()=>{});
       }).catch(()=>{});
     }catch(e){ showSchedErr("Error: "+e.message); }
     setReqSending(false);
@@ -1793,7 +1819,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
                 <div style={{display:"flex",gap:8,marginBottom:12}}>
                   {[0,30].map(m=><button key={m} onClick={()=>setPickM(m)} style={{flex:1,background:pickM===m?C.cyan+"33":C.surface,border:`1px solid ${pickM===m?C.cyan:C.border}`,borderRadius:7,padding:"8px",color:pickM===m?C.cyan:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>:{m===0?"00":"30"}</button>)}
                 </div>
-                {customStart!=null&&<div style={{background:C.surface,borderRadius:8,padding:"10px",textAlign:"center",marginBottom:10}}><div style={{color:customConflict?C.amber:C.white,fontSize:14,fontWeight:700}}>{customConflict?"⚠️ Slot already exists":`📅 ${toSlot(customStart)}`}</div></div>}
+                {customStart!=null&&<div style={{background:C.surface,borderRadius:8,padding:"10px",textAlign:"center",marginBottom:10}}><div style={{color:customConflict?C.amber:C.white,fontSize:14,fontWeight:700}}>{customConflict?"⚠️ Slot already exists":`🗓 ${toSlot(customStart)}`}</div></div>}
                 {customStart!=null&&!customConflict&&(
                   reqSent
                     ?<div style={{textAlign:"center",padding:"10px",color:C.green,fontWeight:700,fontSize:13}}>✓ Request sent to your trainer!</div>
@@ -2298,11 +2324,14 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
         <SL>App Theme</SL>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {[
-            {key:"cyber",label:"Cyber",a:"#00C9E1",b:"#E8197A"},
-            {key:"electric",label:"Electric",a:"#4361EE",b:"#F72585"},
-            {key:"emerald",label:"Emerald",a:"#10B981",b:"#F43F5E"},
-            {key:"violet",label:"Violet",a:"#8B5CF6",b:"#EC4899"},
-            {key:"gold",label:"Gold",a:"#F59E0B",b:"#EF4444"},
+            {key:"cyber",    label:"Cyber",       a:"#00C9E1",b:"#E8197A"},
+            {key:"emerald",  label:"Emerald",     a:"#10B981",b:"#F43F5E"},
+            {key:"electric", label:"Electric",    a:"#4361EE",b:"#F72585"},
+            {key:"volt",     label:"Volt",        a:"#FFE500",b:"#FF4500"},
+            {key:"rosegold", label:"Rose Gold",   a:"#E8916A",b:"#C2185B"},
+            {key:"coral",    label:"Coral",       a:"#FF6B6B",b:"#845EC2"},
+            {key:"lavender", label:"Lavender",    a:"#B39DDB",b:"#F06292"},
+            {key:"cherry",   label:"Cherry",      a:"#FFB7C5",b:"#C2185B"},
           ].map(t=>{
             const active=(localStorage.getItem(THEME_KEY)||"cyber")===t.key;
             return(
@@ -2328,6 +2357,7 @@ export default function App(){
   const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[]});
   const [screen,setScreen]=useState("home");
   const [scheduleInitWeek,setScheduleInitWeek]=useState(0);
+  const [scheduleInitDay,setScheduleInitDay]=useState(null);
   const [openSess,setOpenSess]=useState(null);
   const [showSignUp,setShowSignUp]=useState(false);
   const [notifications,setNotifications]=useState([]);
@@ -2482,8 +2512,9 @@ export default function App(){
     // New notification for this client → update bell + show modal or toast
     rt.subscribe('notifications','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
       setNotifications(prev=>prev.some(n=>n.id===row.id)?prev:[row,...prev]);
-      // When trainer approves/declines cancellation, force-refresh everything immediately
-      if(row.type==='cancel_accepted'||row.type==='cancel_declined'){
+      // Booking state changed — bump bookingsVer so schedule dots + upcoming list refresh
+      const BOOKING_REFRESH=['cancel_accepted','cancel_declined','session_cancelled','slot_request_approved'];
+      if(BOOKING_REFRESH.includes(row.type)){
         loadData(auth.token,auth.userId).catch(()=>{});
         setBookingsVer(v=>v+1);
       }
@@ -2545,7 +2576,7 @@ export default function App(){
     // Notify trainer of new client signup
     getTrainerProfile(access_token).then(trainer=>{
       if(!trainer) return;
-      postNotification({client_id:trainer.id,type:"new_client",message:`🆕 Νέος client εγγράφηκε: ${fullName}${phone?` (${phone})`:""}`},access_token).catch(()=>{});
+      postNotification({client_id:trainer.id,type:"new_client",message:`Νέος client εγγράφηκε: ${fullName}${phone?` (${phone})`:""}`},access_token).catch(()=>{});
     }).catch(()=>{});
     await loadData(access_token,user.id);
     return true;
@@ -2577,13 +2608,13 @@ export default function App(){
     </div>
   );
 
-  const handleNav=(s)=>{ if(s==="announcements") markAnnouncementsSeen(); if(s==="schedule") setScheduleInitWeek(0); setScreen(s); };
-  const handleNavSchedule=(weekOffset)=>{ setScheduleInitWeek(weekOffset); setScreen("schedule"); };
+  const handleNav=(s)=>{ if(s==="announcements") markAnnouncementsSeen(); if(s==="schedule"){setScheduleInitWeek(0);setScheduleInitDay(null);} setScreen(s); };
+  const handleNavSchedule=(weekOffset,dayIdx=null)=>{ setScheduleInitWeek(weekOffset); setScheduleInitDay(dayIdx); setScreen("schedule"); };
 
   const renderScreen=()=>{
     switch(screen){
       case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length} bookingsVer={bookingsVer}/>;
-      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} bookingsVer={bookingsVer}/>;
+      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} initialDayIdx={scheduleInitDay} bookingsVer={bookingsVer}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;

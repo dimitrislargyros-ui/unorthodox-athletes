@@ -147,6 +147,32 @@ export default async function handler(req, res) {
   // Uses SUPABASE_SERVICE_KEY env var which skips RLS entirely.
   if (notification && notification.client_id) {
     const svcKey = process.env.SUPABASE_SERVICE_KEY || SUPABASE_KEY;
+
+    // When trainer approves a cancellation, cancel the booking FIRST (with service key,
+    // bypassing RLS), then insert the notification so the client re-fetches AFTER the
+    // booking row is already cancelled — no race condition.
+    if (notification.type === 'cancel_accepted') {
+      const bookingFilter = notification.booking_id
+        ? `id=eq.${notification.booking_id}`
+        : notification.booking_client_id && notification.booking_date
+          ? `client_id=eq.${notification.booking_client_id}&book_date=eq.${notification.booking_date}&status=eq.booked`
+          : null;
+      if (bookingFilter) {
+        await fetch(`${SUPABASE_URL}/rest/v1/bookings?${bookingFilter}`, {
+          method: 'PATCH',
+          headers: {
+            apikey: svcKey,
+            Authorization: `Bearer ${svcKey}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify({ status: 'cancelled' }),
+        }).catch(() => {});
+      }
+    }
+
+    // Now insert the notification — client realtime fires here and re-fetches bookings
+    // (which are already cancelled by the step above).
     fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
       method: 'POST',
       headers: {
