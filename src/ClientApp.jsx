@@ -46,29 +46,11 @@ const THEMES={
   cherry:   {bg:"#100608",surface:"#1E0A12",surface2:"#2A1020",cyan:"#FF80B0",pink:"#FF0070",white:"#FFFFFF",muted:"#803060",border:"#2C1020",green:"#FF90C0",amber:"#FF4090"},
 };
 const THEME_KEY="ua_theme";
-const LIGHT_KEY="ua_light";
-// Light-mode surface overrides per theme — keeps accent colours vivid, swaps backgrounds to light
-const LIGHT_SURFACES={
-  cyber:    {bg:"#EBF8FF",surface:"#FFFFFF",surface2:"#F0F8FF",border:"#C8E4F0"},
-  emerald:  {bg:"#EAFFF4",surface:"#FFFFFF",surface2:"#F0FFF8",border:"#B8E8D0"},
-  electric: {bg:"#EEEEFF",surface:"#FFFFFF",surface2:"#F2F4FF",border:"#C8CCF0"},
-  volt:     {bg:"#FFFDE0",surface:"#FFFFFF",surface2:"#FEFCE8",border:"#E8E0A0"},
-  rosegold: {bg:"#FFF8EE",surface:"#FFFFFF",surface2:"#FFF4E8",border:"#E8D4A8"},
-  coral:    {bg:"#FFF0F0",surface:"#FFFFFF",surface2:"#FFF4F4",border:"#F4C0C0"},
-  lavender: {bg:"#F6F0FF",surface:"#FFFFFF",surface2:"#F8F4FF",border:"#D8C8F4"},
-  cherry:   {bg:"#FFF0F6",surface:"#FFFFFF",surface2:"#FFF4F8",border:"#F4C8D8"},
-};
-const LIGHT_TEXT={white:"#111111",muted:"#777777"};
 const getTheme=()=>{
   const key=localStorage.getItem(THEME_KEY)||"cyber";
-  const base=THEMES[key]||THEMES.cyber;
-  if(localStorage.getItem(LIGHT_KEY)==="1")
-    return {...base,...(LIGHT_SURFACES[key]||{}),...LIGHT_TEXT};
-  return base;
+  return THEMES[key]||THEMES.cyber;
 };
 const C=getTheme();
-const isLightMode=localStorage.getItem(LIGHT_KEY)==="1";
-const toggleLightMode=()=>{localStorage.setItem(LIGHT_KEY,isLightMode?"0":"1");window.location.reload();};
 // Track which ImportantEventModal notifications the user has already dismissed,
 // so a theme change (which triggers window.location.reload) doesn't re-show them.
 const SEEN_EVENTS_KEY="ua_seen_events";
@@ -2342,27 +2324,8 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
       {openSess&&<SessionSheet session={{...openSess,_pkg_spw:spw}} token={token} onClose={()=>setOpenSess(null)}/>}
 
       <div style={{padding:"0 20px 16px"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-          <SL style={{margin:0}}>App Theme</SL>
-          {/* Day / Night toggle */}
-          <button onClick={toggleLightMode} style={{background:"none",border:`1.5px solid ${C.border}`,borderRadius:20,padding:"5px 12px",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:6}}>
-            <div style={{
-              width:36,height:20,borderRadius:10,
-              background:isLightMode?`linear-gradient(135deg,${C.cyan},${C.pink})`:"rgba(255,255,255,0.12)",
-              position:"relative",transition:"background 0.25s",
-            }}>
-              <div style={{
-                position:"absolute",top:2,left:isLightMode?18:2,
-                width:16,height:16,borderRadius:"50%",
-                background:isLightMode?"#fff":C.muted,
-                transition:"left 0.25s",
-                boxShadow:"0 1px 4px rgba(0,0,0,0.3)",
-              }}/>
-            </div>
-            <span style={{fontSize:13,color:isLightMode?C.cyan:C.muted,fontWeight:700}}>{isLightMode?"☀️ Day":"🌙 Night"}</span>
-          </button>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"14px 10px",paddingTop:4}}>
+        <SL>App Theme</SL>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"12px 8px",paddingTop:4}}>
           {[
             {key:"cyber",    label:"Cyber",     a:"#00E5FF",b:"#FF0066"},
             {key:"emerald",  label:"Emerald",   a:"#00E676",b:"#FF3355"},
@@ -2376,18 +2339,18 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
             const active=(localStorage.getItem(THEME_KEY)||"cyber")===t.key;
             return(
               <button key={t.key} onClick={()=>{localStorage.setItem(THEME_KEY,t.key);window.location.reload();}}
-                style={{background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:7,padding:"2px 0"}}>
+                style={{background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:6,padding:"2px 0"}}>
                 <div style={{
-                  width:52,height:52,borderRadius:"50%",
+                  width:40,height:40,borderRadius:"50%",
                   background:`linear-gradient(135deg,${t.a},${t.b})`,
                   boxShadow:active
-                    ?`0 0 0 2px ${C.bg}, 0 0 0 4px ${t.a}, 0 0 16px ${t.a}88`
+                    ?`0 0 0 2px ${C.bg}, 0 0 0 3px ${t.a}, 0 0 12px ${t.a}88`
                     :`0 2px 8px rgba(0,0,0,0.5)`,
                   display:"flex",alignItems:"center",justifyContent:"center",
                   transition:"box-shadow 0.2s, transform 0.2s",
-                  transform:active?"scale(1.12)":"scale(1)",
+                  transform:active?"scale(1.1)":"scale(1)",
                 }}>
-                  {active&&<span style={{color:"#fff",fontSize:20,fontWeight:900,textShadow:"0 1px 4px rgba(0,0,0,0.7)"}}>✓</span>}
+                  {active&&<span style={{color:"#fff",fontSize:16,fontWeight:900,textShadow:"0 1px 4px rgba(0,0,0,0.7)"}}>✓</span>}
                 </div>
                 <div style={{color:active?t.a:C.muted,fontSize:10,fontWeight:active?800:600,letterSpacing:0.3,textAlign:"center"}}>{t.label}</div>
               </button>

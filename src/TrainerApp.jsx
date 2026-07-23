@@ -1051,6 +1051,12 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const hiddenKey=`ua_hidden_sess_${client.id}`;
   const [hiddenSessIds,setHiddenSessIds]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem(hiddenKey)||"[]"));}catch{return new Set();}});
   const [showHidden,setShowHidden]=useState(false);
+  const [pkgHistLimit,setPkgHistLimit]=useState(3);
+  const [sessHistLimit,setSessHistLimit]=useState(5);
+  const [selectedPastPkg,setSelectedPastPkg]=useState(null);
+  const [pastPkgPaid,setPastPkgPaid]=useState(false);
+  const [pastPkgNotes,setPastPkgNotes]=useState("");
+  const [savingPastPkg,setSavingPastPkg]=useState(false);
   const hideSession=(id)=>{ const n=new Set(hiddenSessIds); n.add(id); setHiddenSessIds(n); localStorage.setItem(hiddenKey,JSON.stringify([...n])); };
   const unhideSession=(id)=>{ const n=new Set(hiddenSessIds); n.delete(id); setHiddenSessIds(n); localStorage.setItem(hiddenKey,JSON.stringify([...n])); };
   const spw=pkg?.sessions_per_week||3;
@@ -1487,31 +1493,36 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       {(()=>{
         const pastPkgs=(allPkgs||[]).filter(p=>!p.is_active);
         if(pastPkgs.length===0) return null;
+        const shown=pastPkgs.slice(0,pkgHistLimit);
+        const hasMore=pastPkgs.length>pkgHistLimit;
         return(
           <div style={{padding:"14px 20px 0"}}>
             <SL>Package History</SL>
-            {pastPkgs.map((p,i)=>{
+            {shown.map((p,i)=>{
               const reasonLabel=p.deactivation_reason==="renewed"?"Renewed":p.deactivation_reason==="cancelled"?"Cancelled":p.deactivation_reason||"Ended";
               const usedAt=p.sessions_used??"-";
               return(
-                <div key={p.id||i} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",marginBottom:8}}>
+                <div key={p.id||i} onClick={()=>{setSelectedPastPkg(p);setPastPkgPaid(!!p.paid);setPastPkgNotes(p.package_notes||"");}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                     <div>
                       <div style={{color:C.white,fontSize:13,fontWeight:700}}>{p.sessions_total}-Session Pack · {p.sessions_per_week||3}x/week</div>
                       {p.workout_templates?.name&&<div style={{color:C.cyan,fontSize:11,fontWeight:700,marginTop:2}}>🏋️ {p.workout_templates.name}</div>}
                       <div style={{color:C.muted,fontSize:11,marginTop:3}}>{fmtDate(p.start_date)} → {fmtDate(p.end_date)}</div>
                       {p.deactivated_at&&<div style={{color:C.muted,fontSize:10,marginTop:2}}>Closed: {fmtDate(p.deactivated_at.split("T")[0])}</div>}
+                      {p.package_notes&&<div style={{color:C.cyan,fontSize:11,marginTop:3}}>📋 {p.package_notes}</div>}
                     </div>
                     <div style={{textAlign:"right"}}>
                       <div style={{display:"flex",alignItems:"center",gap:4,justifyContent:"flex-end"}}>
                         <span style={{background:C.muted+"22",border:`1px solid ${C.muted}44`,borderRadius:20,padding:"1px 8px",color:C.muted,fontSize:10,fontWeight:800}}>{reasonLabel}</span>
                       </div>
                       <div style={{color:C.muted,fontSize:11,marginTop:4}}>{usedAt}/{p.sessions_total} used</div>
+                      {p.paid!=null&&<div style={{color:p.paid?C.green:C.amber,fontSize:10,fontWeight:700,marginTop:3}}>{p.paid?"✓ Paid":"⚠ Unpaid"}</div>}
                     </div>
                   </div>
                 </div>
               );
             })}
+            {hasMore&&<button onClick={()=>setPkgHistLimit(l=>l+10)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 16px",color:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",width:"100%",marginBottom:4}}>Load More ({pastPkgs.length-pkgHistLimit} more)</button>}
           </div>
         );
       })()}
@@ -1543,13 +1554,15 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           const reversed=[...timeline].reverse();
           const visible=reversed.filter(s=>showHidden||!hiddenSessIds.has(s.id));
           const hiddenCount=reversed.filter(s=>hiddenSessIds.has(s.id)).length;
+          const shownSess=visible.slice(0,sessHistLimit);
+          const hasMoreSess=visible.length>sessHistLimit;
           return(<>
             {hiddenCount>0&&(
               <button onClick={()=>setShowHidden(p=>!p)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 12px",color:C.muted,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:8}}>
                 {showHidden?`▲ Hide hidden (${hiddenCount})`:`▼ Show hidden (${hiddenCount})`}
               </button>
             )}
-            {visible.map((s,i)=>{
+            {shownSess.map((s,i)=>{
               const isBooking=s._type==="booking";
               const isHidden=hiddenSessIds.has(s.id);
               const badgeStatus=statusMap[s.id];
@@ -1580,6 +1593,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                 </div>
               </div>
             );})}
+            {hasMoreSess&&<button onClick={()=>setSessHistLimit(l=>l+10)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 16px",color:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",width:"100%",marginBottom:8}}>Load More ({visible.length-sessHistLimit} more)</button>}
           </>);
         })()}
       </div>
@@ -1587,6 +1601,68 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       <UaConfirm dialog={cancelDlg} setDialog={setCancelDlg}/>
       <UaConfirm dialog={renewDlg} setDialog={setRenewDlg}/>
       <UaPrompt prompt={progPrompt} setPrompt={setProgPrompt}/>
+
+      {/* Past Package Action Sheet */}
+      {selectedPastPkg&&(
+        <div onClick={()=>setSelectedPastPkg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 36px",boxSizing:"border-box",maxHeight:"85vh",overflowY:"auto"}}>
+            {/* Handle */}
+            <div style={{width:40,height:4,borderRadius:2,background:C.muted+"44",margin:"0 auto 16px"}}/>
+            {/* Header */}
+            <div style={{marginBottom:16}}>
+              <div style={{color:C.white,fontSize:15,fontWeight:800}}>{selectedPastPkg.sessions_total}-Session Pack · {selectedPastPkg.sessions_per_week||3}x/week</div>
+              {selectedPastPkg.workout_templates?.name&&<div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:3}}>🏋️ {selectedPastPkg.workout_templates.name}</div>}
+              <div style={{color:C.muted,fontSize:12,marginTop:3}}>{fmtDate(selectedPastPkg.start_date)} → {fmtDate(selectedPastPkg.end_date)}</div>
+              <div style={{color:C.muted,fontSize:11,marginTop:2}}>{selectedPastPkg.sessions_used??"-"}/{selectedPastPkg.sessions_total} sessions used</div>
+            </div>
+
+            {/* Paid toggle */}
+            <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{color:C.white,fontSize:14,fontWeight:700}}>Payment Status</div>
+                <div style={{color:pastPkgPaid?C.green:C.amber,fontSize:12,marginTop:2,fontWeight:700}}>{pastPkgPaid?"✓ Paid":"⚠ Unpaid"}</div>
+              </div>
+              <button onClick={()=>setPastPkgPaid(p=>!p)} style={{background:pastPkgPaid?C.green+"22":C.amber+"22",border:`1.5px solid ${pastPkgPaid?C.green:C.amber}`,borderRadius:20,padding:"7px 18px",color:pastPkgPaid?C.green:C.amber,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
+                {pastPkgPaid?"Mark Unpaid":"Mark Paid"}
+              </button>
+            </div>
+
+            {/* Notes */}
+            <div style={{marginBottom:14}}>
+              <div style={{color:C.muted,fontSize:11,fontWeight:700,marginBottom:6}}>NOTES</div>
+              <textarea value={pastPkgNotes} onChange={e=>setPastPkgNotes(e.target.value)} placeholder="Add notes about this package..." rows={3} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",color:C.white,fontSize:13,fontFamily:"inherit",resize:"none",outline:"none",boxSizing:"border-box",lineHeight:1.5}}/>
+            </div>
+
+            {/* Save */}
+            <button disabled={savingPastPkg} onClick={async()=>{
+              setSavingPastPkg(true);
+              try{
+                await dbPatch("packages",`id=eq.${selectedPastPkg.id}`,{paid:pastPkgPaid,package_notes:pastPkgNotes},token);
+                setAllPkgs(prev=>prev.map(p=>p.id===selectedPastPkg.id?{...p,paid:pastPkgPaid,package_notes:pastPkgNotes}:p));
+                showUaToast("Saved",true);
+                setSelectedPastPkg(null);
+              }catch(e){showUaToast("Error: "+e.message);}
+              setSavingPastPkg(false);
+            }} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"14px",color:C.white,fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"inherit",marginBottom:10,opacity:savingPastPkg?0.6:1}}>
+              {savingPastPkg?"Saving...":"Save Changes"}
+            </button>
+
+            {/* Delete */}
+            <button onClick={()=>{
+              setCancelDlg({msg:`Delete this ${selectedPastPkg.sessions_total}-session package? This cannot be undone.`,onOk:async()=>{
+                try{
+                  await dbDelete("packages",`id=eq.${selectedPastPkg.id}`,token);
+                  setAllPkgs(prev=>prev.filter(p=>p.id!==selectedPastPkg.id));
+                  showUaToast("Package deleted",true);
+                  setSelectedPastPkg(null);
+                }catch(e){showUaToast("Error: "+e.message);}
+              }});
+            }} style={{width:"100%",background:"none",border:`1.5px solid ${C.pink}44`,borderRadius:12,padding:"12px",color:C.pink,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>
+              🗑 Delete Package
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
