@@ -1649,13 +1649,17 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 
             {/* Delete */}
             <button onClick={()=>{
-              setCancelDlg({msg:`Delete this ${selectedPastPkg.sessions_total}-session package? This cannot be undone.`,onOk:async()=>{
-                try{
-                  await dbDelete("packages",`id=eq.${selectedPastPkg.id}`,token);
-                  setAllPkgs(prev=>prev.filter(p=>p.id!==selectedPastPkg.id));
-                  showUaToast("Package deleted",true);
-                  setSelectedPastPkg(null);
-                }catch(e){showUaToast("Error: "+e.message);}
+              const pkgId=selectedPastPkg.id;
+              const pkgTotal=selectedPastPkg.sessions_total;
+              setCancelDlg({msg:`Delete this ${pkgTotal}-session package? This cannot be undone.`,onOk:()=>{
+                // Close sheet immediately so the overlay disappears right away
+                setSelectedPastPkg(null);
+                dbDelete("packages",`id=eq.${pkgId}`,token)
+                  .then(()=>{
+                    setAllPkgs(prev=>prev.filter(p=>p.id!==pkgId));
+                    showUaToast("Package deleted",true);
+                  })
+                  .catch(e=>showUaToast("Error: "+e.message));
               }});
             }} style={{width:"100%",background:"none",border:`1.5px solid ${C.pink}44`,borderRadius:12,padding:"12px",color:C.pink,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>
               🗑 Delete Package
