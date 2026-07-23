@@ -7,6 +7,15 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
+  // Verify caller is a valid Supabase user (trainer)
+  const authHeader = req.headers['authorization'] || '';
+  const callerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!callerToken) return res.status(401).json({ error: 'Missing Authorization header' });
+  const userCheck = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${callerToken}` },
+  }).catch(() => null);
+  if (!userCheck || !userCheck.ok) return res.status(401).json({ error: 'Invalid token' });
+
   let body;
   try {
     body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;

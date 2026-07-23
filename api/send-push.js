@@ -133,6 +133,15 @@ export default async function handler(req, res) {
   if (req.method === 'GET') return res.status(200).json({ ok: true, ts: Date.now() });
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
+  // ── Auth: verify caller is a valid Supabase user ──
+  const authHeader = req.headers['authorization'] || '';
+  const callerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!callerToken) return res.status(401).json({ error: 'Missing Authorization header' });
+  const userCheck = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${callerToken}` },
+  }).catch(() => null);
+  if (!userCheck || !userCheck.ok) return res.status(401).json({ error: 'Invalid token' });
+
   let body;
   try {
     body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -193,6 +202,14 @@ export default async function handler(req, res) {
 
     // Now insert the notification — client realtime fires here and re-fetches bookings
     // (which are already cancelled by the step above).
+    // Only include columns that exist in the notifications table to avoid silent 400s.
+    const notifRow = {
+      client_id: notification.client_id,
+      type: notification.type,
+      message: notification.message,
+      ...(notification.related_client_id ? { related_client_id: notification.related_client_id } : {}),
+      read: false,
+    };
     fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
       method: 'POST',
       headers: {
@@ -201,7 +218,7 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
         Prefer: 'return=minimal',
       },
-      body: JSON.stringify(notification),
+      body: JSON.stringify(notifRow),
     }).catch(() => {});
   }
 

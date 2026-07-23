@@ -420,7 +420,7 @@ const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
       // Save cancel request row (requires cancel_requests table)
       await postCancelRequest({client_id:userId,trainer_id:trainer.id,booking_id:bookingId||null,book_date:bookDate,start_time_min:startMin,status:"pending"},token).catch(()=>{});
       // Notify trainer in-app + push (single server call handles both)
-      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} ζήτησε ακύρωση: ${label}`},token).catch(()=>{});
+      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} requested cancellation: ${label}`},token).catch(()=>{});
       setSent(true);
     }catch(e){ setErr("Failed to send. Please try again."); }
     setSending(false);
@@ -713,7 +713,7 @@ const NotifPanel=({notifications,onDelete,onClose})=>{
             <div style={{color:C.white,fontSize:16,fontWeight:800}}>🔔 Notifications</div>
             <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>Close</button>
           </div>
-          {notifications.length>0&&<div style={{color:C.muted,fontSize:11,marginBottom:12,paddingLeft:2}}>← σύρε αριστερά · πάτα 🗑 για διαγραφή</div>}
+          {notifications.length>0&&<div style={{color:C.muted,fontSize:11,marginBottom:12,paddingLeft:2}}>← swipe left · tap 🗑 to delete</div>}
         </div>
         {notifications.length===0
           ?<div style={{padding:"20px 20px 40px",color:C.muted,fontSize:13,textAlign:"center"}}>All caught up! No new notifications.</div>
@@ -947,7 +947,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
 
   useEffect(()=>{
     const dow=todayDow(); const today=todayISO();
-    const ws=WDATES_BASE[0].iso; const we=WDATES_BASE[5].iso;
+    const ws=WDATES_BASE[0].iso; const we=WDATES_BASE[6].iso;
     Promise.all([
       getActiveSlots(dow,token),
       getMyBooks(userId,today,token),
@@ -1058,7 +1058,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
           getTrainerProfile(token).then(trainer=>{
             if(!trainer) return;
             const clientName=profile?.name||"Client";
-            postNotification({client_id:trainer.id,type:"cancel_request",message:`${clientName} ακύρωσε το ραντεβού: ${dateLabel}.`},token).catch(()=>{});
+            postNotification({client_id:trainer.id,type:"cancel_request",message:`${clientName} cancelled their booking: ${dateLabel}.`},token).catch(()=>{});
           }).catch(()=>{});
           onNav("schedule");
         }catch(e){ showHomeToast("Error: "+e.message); }
@@ -1418,7 +1418,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
 
   const thisWeekSessionDates=new Set(sessions.filter(s=>
     (s.status==="booked"||s.status==="completed")&&
-    s.session_date>=WDATES_BASE[0].iso&&s.session_date<=WDATES_BASE[5].iso
+    s.session_date>=WDATES_BASE[0].iso&&s.session_date<=WDATES_BASE[6].iso
   ).map(s=>s.session_date));
   const combinedWeekDates=new Set([...thisWeekSessionDates,...myWeekBookDates]);
   const currentWeekFull=isCurrentWeek&&!!pkg&&combinedWeekDates.size>=spw;
@@ -1430,7 +1430,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
   ]);
 
   useEffect(()=>{
-    const ws=WDATES_BASE[0].iso,we=WDATES_BASE[5].iso;
+    const ws=WDATES_BASE[0].iso,we=WDATES_BASE[6].iso;
     dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,token)
       .then(r=>setMyWeekBookDates(new Set((r||[]).map(b=>b.book_date)))).catch(()=>{});
     getActivePeriodForToday(token).then(p=>setActivePeriod(p||null)).catch(()=>{});
@@ -1489,7 +1489,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
         getTrainerProfile(token).then(trainer=>{
           if(!trainer) return;
           const clientName=profile?.name||"Client";
-          postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`${clientName} έχει απομείνει μόνο ${newLeft} session${newLeft>1?"s":""} στο πακέτο. Σκέψου ανανέωση.`},token).catch(()=>{});
+          postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`${clientName} has only ${newLeft} session${newLeft>1?"s":""} left in their package. Consider renewing.`},token).catch(()=>{});
         }).catch(()=>{});
       }
     }catch(e){}
@@ -1556,7 +1556,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
           if(!trainer) return;
           const clientName=profile?.name||"Client";
           const dateLabel=`${selDay.iso} ${toTime(slot.start_time_min)}`;
-          postNotification({client_id:trainer.id,type:"booking_made",message:`${clientName} έκλεισε ραντεβού: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(slot.start_time_min)}`},token).catch(()=>{});
+          postNotification({client_id:trainer.id,type:"booking_made",message:`${clientName} booked a session: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} at ${toTime(slot.start_time_min)}`},token).catch(()=>{});
         }).catch(()=>{});
       }
     }catch(e){ showSchedErr("Error: "+e.message); }
@@ -1592,7 +1592,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
       getTrainerProfile(token).then(trainer=>{
         if(!trainer) return;
         const clientName=profile?.name||"Client";
-        postNotification({client_id:trainer.id,type:"slot_request",message:`${clientName} ζήτησε αλλαγή ώρας: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} στις ${toTime(customStart)}`},token).catch(()=>{});
+        postNotification({client_id:trainer.id,type:"slot_request",message:`${clientName} requested a custom time: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} at ${toTime(customStart)}`},token).catch(()=>{});
       }).catch(()=>{});
     }catch(e){ showSchedErr("Error: "+e.message); }
     setReqSending(false);
@@ -1983,7 +1983,7 @@ const StatsPanel=({sessions,prs,pkg})=>{
         <div style={{display:"flex",alignItems:"flex-end",gap:3,height:72}}>
           {monthCounts.map((cnt,i)=>{
             const barH=cnt===0?3:Math.max(8,Math.round((cnt/maxCount)*66));
-            const isSel=i===selMonth&&selYear===selYear;
+            const isSel=i===selMonth;
             return(
               <div key={i} onClick={()=>setSelMonth(i)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer"}}>
                 {cnt>0&&<div style={{color:isSel?C.cyan:C.muted,fontSize:7,fontWeight:800,transition:"color 0.2s"}}>{cnt}</div>}
@@ -2031,7 +2031,7 @@ const NotifBellSheet=({userId,token,onClose})=>{
   const hasPush=typeof PushManager!=='undefined';
 
   const enable=async()=>{
-    if(!('serviceWorker' in navigator)||!hasPush){setMsg('Πρόσθεσε την εφαρμογή στην Αρχική Οθόνη (PWA) για ειδοποιήσεις.');return;}
+    if(!('serviceWorker' in navigator)||!hasPush){setMsg('Add the app to your Home Screen (PWA) to enable notifications.');return;}
     setWorking(true); setMsg('');
     try{
       const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
@@ -2043,12 +2043,12 @@ const NotifBellSheet=({userId,token,onClose})=>{
         if(sub){
           sessionStorage.removeItem(`ua_push_ep_${userId}_session`);
           await savePushSub(userId,sub.toJSON(),token);
-          setMsg('✅ Ειδοποιήσεις ενεργοποιήθηκαν!');
+          setMsg('✅ Notifications enabled!');
         }
       } else if(perm==='denied'){
-        setMsg('❌ Αποκλείστηκαν. Άνοιξε τις ρυθμίσεις του browser για να τις επιτρέψεις.');
+        setMsg('❌ Blocked. Open browser settings to allow notifications.');
       }
-    }catch(e){setMsg('Σφάλμα: '+e.message);}
+    }catch(e){setMsg('Error: '+e.message);}
     setWorking(false);
   };
 
@@ -2063,10 +2063,10 @@ const NotifBellSheet=({userId,token,onClose})=>{
       }
       // Remove push subscription from DB
       await dbPatch("push_subscriptions",`user_id=eq.${userId}`,{endpoint:null,active:false},token).catch(()=>{});
-      setMsg('🔕 Ειδοποιήσεις απενεργοποιήθηκαν.');
+      setMsg('🔕 Notifications disabled.');
       // Note: browser permission stays 'granted' — user must clear from browser settings for full revoke
       // We just stop sending pushes by clearing the subscription
-    }catch(e){setMsg('Σφάλμα: '+e.message);}
+    }catch(e){setMsg('Error: '+e.message);}
     setWorking(false);
   };
 
@@ -2080,9 +2080,9 @@ const NotifBellSheet=({userId,token,onClose})=>{
       if(sub){
         sessionStorage.removeItem(`ua_push_ep_${userId}_session`);
         await savePushSub(userId,sub.toJSON(),token);
-        setMsg('✅ Η εγγραφή ανανεώθηκε!');
+        setMsg('✅ Subscription refreshed!');
       }
-    }catch(e){setMsg('Σφάλμα: '+e.message);}
+    }catch(e){setMsg('Error: '+e.message);}
     setWorking(false);
   };
 
@@ -2099,39 +2099,39 @@ const NotifBellSheet=({userId,token,onClose})=>{
         <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",background:enabled?C.green+"18":denied?C.pink+"18":"rgba(255,255,255,0.05)",borderRadius:12,marginBottom:20,border:`1px solid ${enabled?C.green+"44":denied?C.pink+"44":C.border}`}}>
           <span style={{fontSize:28}}>{enabled?'🔔':denied?'🚫':'🔕'}</span>
           <div>
-            <div style={{color:C.white,fontSize:15,fontWeight:800}}>{enabled?'Ειδοποιήσεις Ενεργές':denied?'Ειδοποιήσεις Αποκλεισμένες':'Ειδοποιήσεις Ανενεργές'}</div>
+            <div style={{color:C.white,fontSize:15,fontWeight:800}}>{enabled?'Notifications Active':denied?'Notifications Blocked':'Notifications Inactive'}</div>
             <div style={{color:enabled?C.green:denied?C.pink:C.muted,fontSize:12,marginTop:2,fontWeight:600}}>
-              {enabled?'Θα λαμβάνεις push ειδοποιήσεις':denied?'Αποκλείστηκαν από τον browser':'Δεν έχουν ενεργοποιηθεί ακόμα'}
+              {enabled?'You will receive push notifications':denied?'Blocked by your browser':'Not enabled yet'}
             </div>
           </div>
         </div>
 
-        {unsupported&&<div style={{color:C.muted,fontSize:12,marginBottom:16,textAlign:"center",lineHeight:1.6}}>📲 Πρόσθεσε την εφαρμογή στην Αρχική Οθόνη (Add to Home Screen) για να ενεργοποιήσεις τις ειδοποιήσεις.</div>}
-        {denied&&<div style={{color:C.muted,fontSize:12,marginBottom:16,lineHeight:1.6}}>Για να τις επανενεργοποιήσεις: άνοιξε <strong style={{color:C.white}}>Ρυθμίσεις Browser → Ειδοποιήσεις</strong> και επίτρεψε για αυτόν τον ιστότοπο, μετά πάτα "Ανανέωση".</div>}
+        {unsupported&&<div style={{color:C.muted,fontSize:12,marginBottom:16,textAlign:"center",lineHeight:1.6}}>📲 Add the app to your Home Screen (Add to Home Screen) to enable notifications.</div>}
+        {denied&&<div style={{color:C.muted,fontSize:12,marginBottom:16,lineHeight:1.6}}>To re-enable: open <strong style={{color:C.white}}>Browser Settings → Notifications</strong> and allow this site, then tap "Refresh".</div>}
 
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {/* Main action button */}
           {!enabled&&!denied&&!unsupported&&(
             <button onClick={enable} disabled={working} style={{background:`linear-gradient(135deg,${C.cyan},${C.green})`,border:"none",borderRadius:12,padding:"15px",color:C.bg,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
-              {working?'Περιμένε…':'🔔 Ενεργοποίηση Ειδοποιήσεων'}
+              {working?'Please wait…':'🔔 Enable Notifications'}
             </button>
           )}
           {enabled&&(
             <>
               <button onClick={refresh} disabled={working} style={{background:C.surface2,border:`1px solid ${C.cyan}55`,borderRadius:12,padding:"13px",color:C.cyan,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
-                {working?'Περιμένε…':'🔄 Ανανέωση εγγραφής'}
+                {working?'Please wait…':'🔄 Refresh subscription'}
               </button>
               <button onClick={disable} disabled={working} style={{background:"none",border:`1px solid ${C.pink}55`,borderRadius:12,padding:"13px",color:C.pink,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
-                {working?'Περιμένε…':'🔕 Απενεργοποίηση Ειδοποιήσεων'}
+                {working?'Please wait…':'🔕 Disable Notifications'}
               </button>
             </>
           )}
           {denied&&!unsupported&&(
             <button onClick={refresh} disabled={working} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"13px",color:C.cyan,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>
-              {working?'Περιμένε…':'🔄 Ανανέωση (μετά αλλαγή ρυθμίσεων)'}
+              {working?'Please wait…':'🔄 Refresh (after changing settings)'}
             </button>
           )}
-          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"12px",color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>Κλείσιμο</button>
+          <button onClick={onClose} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"12px",color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",width:"100%"}}>Close</button>
         </div>
 
         {msg&&<div style={{color:msg.startsWith('✅')?C.green:msg.startsWith('🔕')?C.muted:C.pink,fontSize:13,marginTop:14,textAlign:"center",fontWeight:600,lineHeight:1.5}}>{msg}</div>}
@@ -2146,6 +2146,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
   const [showAddPR,setShowAddPR]=useState(false);
   const [newPR,setNew]=useState({exercise:"",weight:"",unit:"kg",reps:"1"});
   const [editing,setEditing]=useState(false);
+  const [confirmDlg,setConfirmDlg]=useState(null);
   const [newName,setNewName]=useState(profile?.name||"");
   const [savingName,setSavingN]=useState(false);
   const [phone,setPhone]=useState(profile?.phone||"");
@@ -2176,7 +2177,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
     try{ const r=await addPR(userId,newPR,token); const c=Array.isArray(r)?r[0]:r; if(c)setPRs(p=>[c,...p]); setNew({exercise:"",weight:"",unit:"kg",reps:"1"}); setShowAddPR(false); }
     catch(e){ showProfToast("Error: "+e.message); }
   };
-  const removePR=async(id)=>{ try{ await deletePR(id,token); setPRs(p=>p.filter(x=>x.id!==id)); }catch(e){} };
+  const removePR=(id,exercise)=>{ setConfirmDlg({title:"Delete PR",body:`Remove PR for "${exercise}"? This cannot be undone.`,ok:"Delete",danger:true,onOk:async()=>{ try{ await deletePR(id,token); setPRs(p=>p.filter(x=>x.id!==id)); }catch(e){} }}); };
   const savePhone=async()=>{
     if(savingName) return; setSavingN(true);
     try{ await updateProfile(userId,{phone:phone.trim()||null},token); setEditing(false); }catch(e){ showProfToast("Error: "+e.message); }
@@ -2189,7 +2190,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
       {showBellSheet&&<NotifBellSheet userId={userId} token={token} onClose={()=>setShowBellSheet(false)}/>}
       <div style={{padding:"22px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>My Profile</div>
-        <button onClick={()=>setShowBellSheet(true)} title={notifEnabled?"Ειδοποιήσεις ενεργές":"Ειδοποιήσεις ανενεργές"} style={{background:"none",border:"none",cursor:"pointer",fontSize:24,padding:"4px 2px",lineHeight:1,color:notifEnabled?C.cyan:C.muted}}>
+        <button onClick={()=>setShowBellSheet(true)} title={notifEnabled?"Notifications active":"Notifications inactive"} style={{background:"none",border:"none",cursor:"pointer",fontSize:24,padding:"4px 2px",lineHeight:1,color:notifEnabled?C.cyan:C.muted}}>
           {notifEnabled?'🔔':'🔕'}
         </button>
       </div>
@@ -2283,7 +2284,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
               <div><div style={{color:C.white,fontSize:14,fontWeight:600}}>{pr.exercise}</div><div style={{color:C.muted,fontSize:12}}>{fmtDate(pr.record_date)}</div></div>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <div style={{textAlign:"right"}}><div style={{color:C.pink,fontSize:16,fontWeight:900}}>{pr.weight}{pr.unit}</div><div style={{color:C.muted,fontSize:11}}>{pr.reps} rep{pr.reps!=="1"?"s":""}</div></div>
-                <button onClick={()=>removePR(pr.id)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16,padding:"4px"}}>✕</button>
+                <button onClick={()=>removePR(pr.id,pr.exercise)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16,padding:"4px"}}>✕</button>
               </div>
             </div>
           ))
@@ -2359,9 +2360,10 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
         </div>
       </div>
       <div style={{padding:"0 20px 8px"}}>
-        <button onClick={onLogout} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.pink,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Log Out</button>
+        <button onClick={()=>setConfirmDlg({title:"Log Out",body:"Are you sure you want to log out?",ok:"Log Out",danger:true,onOk:onLogout})} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px",color:C.pink,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Log Out</button>
       </div>
       <UaToast toast={profToast} c={C}/>
+      <UaConfirm dialog={confirmDlg} setDialog={setConfirmDlg} c={C}/>
     </div>
   );
 };
@@ -2472,11 +2474,6 @@ export default function App(){
     setHasNewAnn(false);
   };
 
-  const dismissNotification=async(id)=>{
-    setNotifications(p=>p.filter(n=>n.id!==id));
-    try{ await markNotificationRead(id,auth.token); }catch(e){}
-  };
-
   const deleteNotif=async(id)=>{
     setNotifications(p=>p.filter(n=>n.id!==id));
     try{ await deleteNotification(id,auth.token); }catch(e){}
@@ -2549,10 +2546,6 @@ export default function App(){
     // Package INSERT or UPDATE → refresh in auth state (new package assigned, payment status change)
     rt.subscribe('packages','*',`client_id=eq.${auth.userId}`,(row)=>{
       setAuth(prev=>({...prev,pkg:row}));
-      // Also trigger important modal if a new package arrived and no notification came yet
-      if(row.sessions_total&&!importantEvent){
-        // A notification will also fire; this is a fallback
-      }
     });
 
     // New session (trainer force-logged) → update sessions list
@@ -2590,7 +2583,7 @@ export default function App(){
     // Notify trainer of new client signup
     getTrainerProfile(access_token).then(trainer=>{
       if(!trainer) return;
-      postNotification({client_id:trainer.id,type:"new_client",message:`Νέος client εγγράφηκε: ${fullName}${phone?` (${phone})`:""}`},access_token).catch(()=>{});
+      postNotification({client_id:trainer.id,type:"new_client",message:`New client signed up: ${fullName}${phone?` (${phone})`:""}`},access_token).catch(()=>{});
     }).catch(()=>{});
     await loadData(access_token,user.id);
     return true;

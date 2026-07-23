@@ -165,7 +165,7 @@ const addSlot        = (d,tk)    => dbPost("schedule_slots",d,tk);
 const removeSlot     = (id,tk)   => dbPatch("schedule_slots",`id=eq.${id}`,{is_active:false},tk);
 
 const saveTrainerNote = async (sessId,note,tk) => {
-  const ex=await dbGet("session_notes",`session_id=eq.${sessId}`,tk).catch(()=>[]);
+  const ex=await dbGet("session_notes",`session_id=eq.${sessId}`,tk);
   if(ex?.length>0) return dbPatch("session_notes",`session_id=eq.${sessId}`,{trainer_note:note,updated_at:new Date().toISOString()},tk);
   return dbPost("session_notes",{session_id:sessId,trainer_note:note,updated_at:new Date().toISOString()},tk);
 };
@@ -185,21 +185,20 @@ const getPendingRequests  = (tk)                => dbGet("slot_requests","status
 const resolveRequest      = (id,status,tk)      => dbPatch("slot_requests",`id=eq.${id}`,{status},tk);
 const getCancelRequests   = (trainerId,tk)       => dbGet("cancel_requests",`trainer_id=eq.${trainerId}&status=eq.pending&select=*,profiles!cancel_requests_client_id_fkey(id,name,initials)&order=created_at.asc`,tk);
 const resolveCancelReq    = (id,status,tk)       => dbPatch("cancel_requests",`id=eq.${id}`,{status},tk);
-const findActiveSlot      = (trainerId,dow,startMin,tk) => dbGet("schedule_slots",`trainer_id=eq.${trainerId}&day_of_week=eq.${dow}&start_time_min=eq.${startMin}&is_active=eq.true`,tk).then(r=>r?.[0]||null);
 const getSlotBookCount    = (slotId,date,tk)    => dbGet("bookings",`slot_id=eq.${slotId}&book_date=eq.${date}&status=eq.booked&select=id`,tk).then(r=>r?.length||0);
 const createBooking       = (d,tk)              => dbPost("bookings",d,tk);
 const cancelBookingRow    = (id,tk)              => dbPatch("bookings",`id=eq.${id}`,{status:"cancelled"},tk);
 const cancelSessionRow    = (id,tk)              => dbPatch("sessions",`id=eq.${id}`,{status:"cancelled"},tk);
 const decrementPkgUsed    = (pkgId,currentUsed,tk)=> dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max((currentUsed||0)-1,0)},tk);
-const postNotification = async (d,tk) => {
-  // Save in-app notification + send push in one server call.
+const postNotification = (d,tk) => {
+  // Fire-and-forget: save in-app notification + send push via server.
   // Server uses SUPABASE_SERVICE_KEY to bypass RLS for cross-user inserts.
-  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},
+  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${tk}`},
     body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message,notification:d})
-  }).catch(()=>{});
+  }).catch(e=>console.warn('[postNotification] failed',e));
 };
 const getTrainerNotifications=(uid,tk)=>dbGet("notifications",`client_id=eq.${uid}&order=created_at.desc&limit=60`,tk);
-const deleteNotification=(id,tk)=>dbDelete("notifications",`id=eq.${id}`,tk,"return=minimal");
+const deleteNotification=(id,tk)=>dbDelete("notifications",`id=eq.${id}`,tk);
 const savePushSub=(uid,sub,tk)=>fetch(`${SB_URL}/rest/v1/push_subscriptions`,{method:'POST',headers:{apikey:SB_KEY,Authorization:`Bearer ${tk}`,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({client_id:uid,subscription:sub})}).then(r=>r.ok?console.log('[Trainer Push] sub saved'):r.text().then(t=>console.warn('[Trainer Push] save failed',r.status,t))).catch(()=>{});
 
 // ── Schedule periods ──
@@ -211,7 +210,6 @@ const getAllSlotsForDay  = (dow,tk)         => dbGet("schedule_slots",`day_of_we
 const addPeriodSlot      = (d,tk)           => dbPost("period_slots",d,tk);
 const removePeriodSlotRow= (id,tk)          => dbDelete("period_slots",`id=eq.${id}`,tk);
 const getActivePeriodForToday=(tk)=>{ const t=todayISO(); return dbGet("schedule_periods",`start_date=lte.${t}&end_date=gte.${t}&order=start_date.desc&limit=1`,tk).then(r=>r?.[0]||null); };
-const activatePeriodNow=(id,start,end,tk)=>{ const t=todayISO(); return dbPatch("schedule_periods",`id=eq.${id}`,{start_date:start>t?t:start,end_date:end<t?new Date(new Date().getTime()+30*864e5).toISOString().split("T")[0]:end},tk); };
 
 // ── Workout templates (Programs) ──
 const getTemplates   = (trainerId,tk)    => dbGet("workout_templates",`trainer_id=eq.${trainerId}&order=name.asc`,tk);
@@ -362,23 +360,25 @@ const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq})=>{
     deleteNotification(id,token).catch(()=>{});
   };
   const handleClearAll=async()=>{
+    if(notifs.length===0) return;
     const ids=notifs.map(n=>n.id);
     setNotifs([]);
-    ids.forEach(id=>deleteNotification(id,token).catch(()=>{}));
+    // Single batch DELETE instead of N individual requests
+    dbDelete("notifications",`id=in.(${ids.join(",")})`,token).catch(()=>{});
   };
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
       <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <div style={{color:C.white,fontSize:17,fontWeight:800}}>Ειδοποιήσεις</div>
+          <div style={{color:C.white,fontSize:17,fontWeight:800}}>Notifications</div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {notifs.length>0&&<button onClick={handleClearAll} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:11}}>Διαγραφή όλων</button>}
+            {notifs.length>0&&<button onClick={handleClearAll} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:11}}>Clear all</button>}
             <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
           </div>
         </div>
         {loading?<div style={{textAlign:"center",padding:24,color:C.muted}}>Loading…</div>:
-         notifs.length===0?<div style={{textAlign:"center",padding:24,color:C.muted,fontSize:14}}>Καμία ειδοποίηση</div>:
+         notifs.length===0?<div style={{textAlign:"center",padding:24,color:C.muted,fontSize:14}}>No notifications</div>:
          notifs.map(n=>(
            <div key={n.id} style={{padding:"12px 0",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
              <div style={{display:"flex",gap:10,flex:1,minWidth:0}}>
@@ -1110,7 +1110,9 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             is_active: false,
           },token).catch(()=>{});
         } else {
-          await deactivatePkgs(client.id,token);
+          // Deactivate any other active packages for this client with proper timestamps
+          const now=new Date().toISOString();
+          await dbPatch("packages",`client_id=eq.${client.id}&is_active=eq.true`,{is_active:false,deactivated_at:now,deactivation_reason:"renewed"},token).catch(()=>{});
         }
         const total=parseInt(newPkgTotal),spwNum=parseInt(newSpw)||3;
         const weeks=Math.ceil(total/spwNum);
@@ -1142,6 +1144,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 
   const handleLog=async()=>{
     if(!pkg){ showUaToast("This client has no active package. Assign one first."); return; }
+    if(logging) return;
     setLogging(true);
     try{
       const h=Math.floor(logTime/60),m=logTime%60;
@@ -1160,7 +1163,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         if(newLeft===2||newLeft===1){
           await postNotification({client_id:client.id,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
           // Trainer also gets reminded in their notification panel
-          await postNotification({client_id:trainerId,type:"low_sessions_trainer",message:`⚠️ ${client.name||"Client"} έχει απομείνει μόνο ${newLeft} session${newLeft>1?"s":""} στο πακέτο. Σκέψου ανανέωση.`},token).catch(()=>{});
+          postNotification({client_id:trainerId,type:"low_sessions_trainer",message:`⚠️ ${client.name||"Client"} has only ${newLeft} session${newLeft>1?"s":""} left. Consider renewing their package.`},token);
         }
       }
       const full={...created,session_notes:[],exercises:[]};
@@ -1447,7 +1450,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                 </div>
               </div>
             ):(
-              <button onClick={()=>{setCustomTotal(newPkgTotal);setCustomSpw(newSpw);}} style={{width:"100%",background:"none",border:`1px dashed ${C.border}`,borderRadius:8,padding:"8px",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>✏️ Custom package (μονή / οποιοδήποτε αριθμό)</button>
+              <button onClick={()=>{setCustomTotal(newPkgTotal);setCustomSpw(newSpw);}} style={{width:"100%",background:"none",border:`1px dashed ${C.border}`,borderRadius:8,padding:"8px",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>✏️ Custom package (any number of sessions)</button>
             )}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderTop:`1px solid ${C.border}`,marginBottom:8}}>
               <span style={{color:C.white,fontSize:14,fontWeight:600}}>⚠️ Injury / Limitation</span>
@@ -1654,7 +1657,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               setCancelDlg({msg:`Delete this ${pkgTotal}-session package? This cannot be undone.`,onOk:()=>{
                 setSelectedPastPkg(null);
                 // Use server-side endpoint to bypass RLS on packages table
-                fetch('/api/delete-package',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({package_id:pkgId})})
+                fetch('/api/delete-package',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify({package_id:pkgId})})
                   .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||r.status);}))
                   .then(()=>{
                     setAllPkgs(prev=>prev.filter(p=>p.id!==pkgId));
@@ -1673,7 +1676,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 };
 
 // ── Schedule ──
-const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})=>{
+const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,onClientUpdated})=>{
   const [dayIdx,setDay]=useState(todayDow());
   const [weekOffset,setWeekOffset]=useState(0);
   const [slots,setSlots]=useState([]);
@@ -1779,9 +1782,11 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       if(cl._pkg){
         const newUsed=(cl._pkg.sessions_used||0)+1;
         await dbPatch("packages",`id=eq.${cl._pkg.id}`,{sessions_used:newUsed},token).catch(()=>{});
+        // Keep clients state in sync so the card shows the updated session count
+        onClientUpdated({...cl,_pkg:{...cl._pkg,sessions_used:newUsed}});
       }
       const notifMsg=`🗓 Your trainer scheduled a session for you on ${fmtDate(selDay.iso)} at ${toTime(forceLogSlot.start_time_min)}.`;
-      await postNotification({client_id:cl.id,type:"session_scheduled",message:notifMsg},token).catch(()=>{});
+      postNotification({client_id:cl.id,type:"session_scheduled",message:notifMsg},token);
       showToast(`✓ Session logged for ${cl.name||"client"}`,true);
       setForceLogSlot(null); setForceLogClientId(""); setForceLogSearch("");
     }catch(e){ showToast("Error: "+e.message); }
@@ -1868,9 +1873,17 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
       // Cancel the booking if booking_id exists
       if(r.booking_id){
         await cancelBookingRow(r.booking_id,token).catch(()=>{});
+        // Remove from bookingsMap so the schedule view updates immediately
+        setBookingsMap(p=>{
+          const next={...p};
+          for(const slotId of Object.keys(next)){
+            next[slotId]=(next[slotId]||[]).filter(b=>b.id!==r.booking_id);
+          }
+          return next;
+        });
       }
       await resolveCancelReq(r.id,"accepted",token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your cancellation request for ${label} was approved. You can rebook anytime.`,cancel_req_id:r.id,booking_id:r.booking_id||null,booking_client_id:r.client_id,booking_date:r.book_date},token).catch(()=>{});
+      postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your cancellation request for ${label} was approved. You can rebook anytime.`,cancel_req_id:r.id,booking_id:r.booking_id||null,booking_client_id:r.client_id,booking_date:r.book_date},token);
       setCancelReqs(p=>p.filter(x=>x.id!==r.id));
       showToast("✓ Cancellation approved",true);
     }catch(e){ showToast("Error: "+e.message); }
@@ -2286,7 +2299,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         {periodsLoaded&&periods.length===0&&<Empty msg="No custom periods yet"/>}
         {periods.map(period=>{
           const isExpanded=expandedPeriod===period.id;
-          const isActiveNow=activePeriod?.id===period.id;
           const isCurrent=activePeriod?.id===period.id;
           const daySlotIds=new Set((periodSlotsMap[period.id]||[]).filter(ps=>ps.day_of_week===periodDayIdx).map(ps=>ps.start_time_min));
           return(
@@ -2929,7 +2941,7 @@ const ProgramsScreen=({trainerId,token})=>{
 
   const handleDelete=(prog,e)=>{
     e.stopPropagation();
-    setDelDlg({msg:`Delete "${prog.name}"? This can't be undone.`,okLabel:"Delete",onOk:async()=>{
+    setDelDlg({msg:`Delete "${prog.name}"? Any client packages assigned to this program will lose the program reference. This can't be undone.`,okLabel:"Delete",onOk:async()=>{
       try{
         // Unlink from any packages first (FK constraint)
         await dbPatch("packages",`program_id=eq.${prog.id}`,{program_id:null},token).catch(()=>{});
@@ -3000,7 +3012,7 @@ const ProgramsScreen=({trainerId,token})=>{
                         <span style={{color:C.border,marginLeft:6,marginRight:6}}>·</span>
                       )}
                       {exs.length>0&&(
-                        <span style={{color:C.surface2==="pink"?C.pink:C.muted}}>
+                        <span style={{color:C.muted}}>
                           {exs.slice(0,2).map(e=>e.name).join(", ")}{exs.length>2?` +${exs.length-2} more`:""}
                         </span>
                       )}
@@ -3275,9 +3287,9 @@ export default function App(){
   const renderScreen=()=>{
     if(selClient) return <ClientDetail client={selClient} trainerId={auth.userId} token={auth.token} onBack={()=>setSel(null)} onClientUpdated={handleClientUpdated}/>;
     switch(screen){
-      case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onTrainerNameUpdated={name=>setAuth(p=>({...p,profile:{...p.profile,name}}))} notifCount={trainerNotifs.length} onOpenNotif={()=>setShowNotifPanel(true)}/>;
+      case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onTrainerNameUpdated={name=>setAuth(p=>({...p,profile:{...p.profile,name}}))} notifCount={trainerNotifs.filter(n=>n.read===false).length} onOpenNotif={()=>{ setShowNotifPanel(true); setTrainerNotifs(p=>p.map(n=>({...n,read:true}))); }}/>;
       case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel}/>;
-      case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}}/>;
+      case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onClientUpdated={handleClientUpdated}/>;
       case "programs": return <ProgramsScreen trainerId={auth.userId} token={auth.token}/>;
       default: return null;
     }
@@ -3378,7 +3390,7 @@ export default function App(){
         <div onClick={()=>{setSlotReqBanner(null);handleNav("schedule");}} style={{position:"fixed",top:0,left:0,right:0,zIndex:950,background:C.surface,borderBottom:`2px solid ${C.cyan}`,padding:"14px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",boxShadow:"0 4px 24px rgba(0,0,0,0.5)"}}>
           <span style={{fontSize:22,flexShrink:0}}>🕐</span>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{color:C.cyan,fontSize:12,fontWeight:800,marginBottom:2}}>ΑΙΤΗΜΑ ΑΛΛΑΓΗΣ ΩΡΑΣ</div>
+            <div style={{color:C.cyan,fontSize:12,fontWeight:800,marginBottom:2}}>SCHEDULE CHANGE REQUEST</div>
             <div style={{color:C.white,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{slotReqBanner}</div>
           </div>
           <div style={{color:C.cyan,fontSize:20,fontWeight:700,flexShrink:0}}>›</div>
