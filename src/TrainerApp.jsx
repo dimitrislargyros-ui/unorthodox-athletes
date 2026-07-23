@@ -1652,9 +1652,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               const pkgId=selectedPastPkg.id;
               const pkgTotal=selectedPastPkg.sessions_total;
               setCancelDlg({msg:`Delete this ${pkgTotal}-session package? This cannot be undone.`,onOk:()=>{
-                // Close sheet immediately so the overlay disappears right away
                 setSelectedPastPkg(null);
-                dbDelete("packages",`id=eq.${pkgId}`,token)
+                // Use server-side endpoint to bypass RLS on packages table
+                fetch('/api/delete-package',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({package_id:pkgId})})
+                  .then(r=>r.ok?r.json():r.json().then(e=>{throw new Error(e.error||r.status);}))
                   .then(()=>{
                     setAllPkgs(prev=>prev.filter(p=>p.id!==pkgId));
                     showUaToast("Package deleted",true);
