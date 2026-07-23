@@ -26,14 +26,16 @@ export default async function handler(req, res) {
   const { package_id } = body;
   if (!package_id) return res.status(400).json({ error: 'package_id required' });
 
-  const svcKey = process.env.SUPABASE_SERVICE_KEY || SUPABASE_KEY;
+  const svcKey = process.env.SUPABASE_SERVICE_KEY;
+  if (!svcKey) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured on server' });
 
   const r = await fetch(`${SUPABASE_URL}/rest/v1/packages?id=eq.${package_id}`, {
     method: 'DELETE',
     headers: {
       apikey: svcKey,
       Authorization: `Bearer ${svcKey}`,
-      Prefer: 'return=minimal',
+      Prefer: 'return=representation',
+      'Content-Type': 'application/json',
     },
   });
 
@@ -42,5 +44,10 @@ export default async function handler(req, res) {
     return res.status(r.status).json({ error: txt });
   }
 
-  return res.status(200).json({ ok: true });
+  const deleted = await r.json().catch(() => []);
+  if (!Array.isArray(deleted) || deleted.length === 0) {
+    return res.status(404).json({ error: 'Package not found or already deleted' });
+  }
+
+  return res.status(200).json({ ok: true, deleted: deleted.length });
 }
