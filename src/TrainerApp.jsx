@@ -1789,7 +1789,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
         await cancelBookingRow(r.booking_id,token).catch(()=>{});
       }
       await resolveCancelReq(r.id,"accepted",token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your cancellation request for ${label} was approved. You can rebook anytime.`},token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your cancellation request for ${label} was approved. You can rebook anytime.`,cancel_req_id:r.id,booking_id:r.booking_id||null,booking_client_id:r.client_id,booking_date:r.book_date},token).catch(()=>{});
       setCancelReqs(p=>p.filter(x=>x.id!==r.id));
       showToast("✓ Cancellation approved",true);
     }catch(e){ showToast("Error: "+e.message); }
@@ -1799,7 +1799,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient})
     try{
       const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
       await resolveCancelReq(r.id,"declined",token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your cancellation request for ${label} was declined. Please contact your trainer.`},token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your cancellation request for ${label} was declined. Please contact your trainer.`,cancel_req_id:r.id},token).catch(()=>{});
       setCancelReqs(p=>p.filter(x=>x.id!==r.id));
       showToast("Request declined");
     }catch(e){ showToast("Error: "+e.message); }
@@ -2999,6 +2999,7 @@ export default function App(){
         booking_id:r.booking_id||null,
         booking_client_id:r.client_id,
         booking_date:r.book_date,
+        cancel_req_id:r.id,
       },auth.token).catch(()=>{});
       cleanCancelReqNotifs();
       setCancelReqModal(null);
@@ -3011,7 +3012,7 @@ export default function App(){
     try{
       const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
       await resolveCancelReq(r.id,"declined",auth.token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your cancellation request for ${label} was declined. Please contact your trainer.`},auth.token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your cancellation request for ${label} was declined. Please contact your trainer.`,cancel_req_id:r.id},auth.token).catch(()=>{});
       cleanCancelReqNotifs();
       setCancelReqModal(null);
       showRtToast("Request declined");

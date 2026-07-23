@@ -171,6 +171,26 @@ export default async function handler(req, res) {
       }
     }
 
+    // Update cancel_request status server-side (bypasses RLS) for both accept and decline.
+    // The client-side PATCH often fails silently due to RLS, leaving status=pending and
+    // causing the popup to re-appear on every app open.
+    if (
+      (notification.type === 'cancel_accepted' || notification.type === 'cancel_declined') &&
+      notification.cancel_req_id
+    ) {
+      const newStatus = notification.type === 'cancel_accepted' ? 'accepted' : 'declined';
+      await fetch(`${SUPABASE_URL}/rest/v1/cancel_requests?id=eq.${notification.cancel_req_id}`, {
+        method: 'PATCH',
+        headers: {
+          apikey: svcKey,
+          Authorization: `Bearer ${svcKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({ status: newStatus }),
+      }).catch(() => {});
+    }
+
     // Now insert the notification — client realtime fires here and re-fetches bookings
     // (which are already cancelled by the step above).
     fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
