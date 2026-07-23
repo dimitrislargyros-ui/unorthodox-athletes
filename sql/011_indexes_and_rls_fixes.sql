@@ -31,9 +31,16 @@ CREATE INDEX IF NOT EXISTS idx_packages_client_active
 -- ── Missing RLS policies ──────────────────────────────────────
 
 -- cancel_requests: clients should be able to delete their own resolved requests
-CREATE POLICY IF NOT EXISTS "Clients can delete own cancel requests"
-  ON cancel_requests FOR DELETE
-  USING (auth.uid() = client_id);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename='cancel_requests' AND policyname='Clients can delete own cancel requests'
+  ) THEN
+    CREATE POLICY "Clients can delete own cancel requests"
+      ON cancel_requests FOR DELETE
+      USING (auth.uid() = client_id);
+  END IF;
+END $$;
 
 -- push_subscriptions: clients manage their own subscriptions
 -- (INSERT and DELETE — SELECT/UPDATE already handled via service key in API)
