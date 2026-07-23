@@ -26,8 +26,8 @@ export default async function handler(req, res) {
   const { package_id } = body;
   if (!package_id) return res.status(400).json({ error: 'package_id required' });
 
-  const svcKey = process.env.SUPABASE_SERVICE_KEY;
-  if (!svcKey) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured on server' });
+  const svcKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  if (!svcKey) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY / SUPABASE_SERVICE_ROLE not configured on server' });
 
   const r = await fetch(`${SUPABASE_URL}/rest/v1/packages?id=eq.${package_id}`, {
     method: 'DELETE',

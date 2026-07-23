@@ -155,7 +155,7 @@ export default async function handler(req, res) {
   // Save in-app notification server-side to bypass RLS (clients can't insert for other users)
   // Uses SUPABASE_SERVICE_KEY env var which skips RLS entirely.
   if (notification && notification.client_id) {
-    const svcKey = process.env.SUPABASE_SERVICE_KEY || SUPABASE_KEY;
+    const svcKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE || SUPABASE_KEY;
 
     // When trainer approves a cancellation, cancel the booking FIRST (with service key,
     // bypassing RLS), then insert the notification so the client re-fetches AFTER the
@@ -223,7 +223,7 @@ export default async function handler(req, res) {
   }
 
   // Use service key to bypass RLS when reading push subscriptions
-  const dbKey = process.env.SUPABASE_SERVICE_KEY || SUPABASE_KEY;
+  const dbKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE || SUPABASE_KEY;
 
   // Fetch subscriptions — either for one client or all (broadcast)
   const url = broadcast
