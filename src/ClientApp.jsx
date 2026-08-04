@@ -271,11 +271,10 @@ const savePushSub = async (client_id, subscription, tk) => {
     sessionStorage.setItem(cacheKey+'_session','1');
   }
 };
-const postNotification = async (d,tk) => {
-  // Save in-app notification + send push in one server call.
-  // The server uses SUPABASE_SERVICE_KEY to bypass RLS, so cross-user
-  // notifications (client→trainer) work correctly.
-  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},
+const postNotification = (d,tk) => {
+  // Fire-and-forget: save in-app notification + send push via server.
+  // Server uses SUPABASE_SERVICE_ROLE to bypass RLS for cross-user inserts.
+  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${tk}`},
     body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message,notification:d})
   }).then(r=>r.json()).then(j=>console.log('[UA Push] result:',j)).catch(e=>console.error('[UA Push] error:',e));
 };
