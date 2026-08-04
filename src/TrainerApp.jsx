@@ -1041,6 +1041,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [logDate,setLogDate]=useState(todayISO());
   const [logTime,setLogTime]=useState(300);
   const [logging,setLogging]=useState(false);
+  const [reconciling,setReconciling]=useState(false);
   const [logSlots,setLogSlots]=useState([]);
   const [logDayNum,setLogDayNum]=useState(null);
   const [cancelDlg,setCancelDlg]=useState(null);
@@ -1272,6 +1273,31 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   });
   const statusMap=computeStatusMap(timeline.filter(s=>s.session_date).map(s=>({...s,_key:s.id})),new Date());
 
+  // ── Sessions reconciliation ──
+  // The true "used" count for the active package = every non-cancelled session/booking
+  // dated on or after the package start. If the counter drifted below that (e.g. an
+  // increment failed to save), offer the trainer a one-tap fix. Never lowers the counter.
+  const pkgStartDate=pkg?(pkg.start_date||(pkg.created_at?String(pkg.created_at).slice(0,10):"")):"";
+  const reconciledUsed=pkg
+    ? Math.min(
+        timeline.filter(it=>it.status!=="cancelled"&&(!pkgStartDate||it.session_date>=pkgStartDate)).length,
+        pkg.sessions_total
+      )
+    : 0;
+  const needsReconcile=!!pkg&&reconciledUsed>(pkg.sessions_used||0);
+  const handleReconcile=async()=>{
+    if(!pkg||reconciling||!needsReconcile) return;
+    setReconciling(true);
+    try{
+      await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:reconciledUsed},token);
+      const updPkg={...pkg,sessions_used:reconciledUsed};
+      setPkg(updPkg);
+      onClientUpdated({...client,_pkg:updPkg});
+      showUaToast(`Synced — ${reconciledUsed}/${pkg.sessions_total} sessions counted.`,true);
+    }catch(e){ showUaToast("Error: "+e.message); }
+    setReconciling(false);
+  };
+
   const handleCancelSession=(item)=>{
     setCancelDlg({
       title:"Cancel Session",
@@ -1500,6 +1526,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               <button onClick={handleTogglePaid} style={{flex:1,background:pkg.paid?"rgba(0,0,0,0.25)":"rgba(0,0,0,0.4)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{pkg.paid?"✓ Paid":"⚠ Unpaid"}</button>
               <button onClick={handleSendPaymentReminder} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>💳 Payment Reminder</button>
             </div>
+            {needsReconcile&&(
+              <button onClick={handleReconcile} disabled={reconciling} style={{width:"100%",marginTop:8,background:"rgba(0,0,0,0.4)",border:"1px solid rgba(0,0,0,0.5)",borderRadius:8,padding:"9px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:reconciling?"default":"pointer",fontFamily:"inherit",opacity:reconciling?0.6:1}}>
+                {reconciling?"Syncing…":`🔄 Sync sessions — count ${reconciledUsed}/${pkg.sessions_total} (now ${pkg.sessions_used||0})`}
+              </button>
+            )}
           </div>
         ):<Card><Empty msg="No active package"/></Card>}
       </div>
