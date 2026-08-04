@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 
 // ── Premium Design System (injected once) ──
@@ -2421,7 +2421,28 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
 };
 
 // ── App Root ──
-export default function App(){
+// ── Error boundary: turns any render crash into a recoverable screen ──
+class ErrorBoundary extends Component {
+  constructor(props){ super(props); this.state={error:null}; }
+  static getDerivedStateFromError(error){ return {error}; }
+  componentDidCatch(error,info){ console.error("[UA ErrorBoundary]",error,info); }
+  render(){
+    if(this.state.error){
+      return(
+        <div style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px",textAlign:"center",gap:16}}>
+          <div style={{fontSize:44}}>⚠️</div>
+          <div style={{color:C.white,fontSize:18,fontWeight:800}}>Κάτι πήγε στραβά</div>
+          <div style={{color:C.muted,fontSize:13,lineHeight:1.5,maxWidth:340}}>Παρουσιάστηκε ένα σφάλμα. Δοκίμασε ξανά — τα δεδομένα σου είναι ασφαλή.</div>
+          <div style={{color:C.pink,fontSize:11,fontFamily:"monospace",wordBreak:"break-word",maxWidth:340,opacity:0.8}}>{String(this.state.error?.message||this.state.error)}</div>
+          <button onClick={()=>{this.setState({error:null});window.location.reload();}} style={{marginTop:8,background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"12px 28px",color:C.white,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>🔄 Επαναφόρτωση</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AppInner(){
   const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[]});
   const [screen,setScreen]=useState("home");
   const [scheduleInitWeek,setScheduleInitWeek]=useState(0);
@@ -2752,4 +2773,8 @@ export default function App(){
       <BottomNav active={screen} onNav={handleNav} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials} annBadge={hasNewAnn}/>
     </>
   );
+}
+
+export default function App(){
+  return <ErrorBoundary><AppInner/></ErrorBoundary>;
 }

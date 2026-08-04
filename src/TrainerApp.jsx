@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
 
@@ -3092,7 +3092,29 @@ const ProgramsScreen=({trainerId,token})=>{
 };
 
 // ── App Root ──
-export default function App(){
+// ── Error boundary: turns any render crash into a recoverable screen ──
+// (instead of an unrecoverable black screen when React unmounts the tree)
+class ErrorBoundary extends Component {
+  constructor(props){ super(props); this.state={error:null}; }
+  static getDerivedStateFromError(error){ return {error}; }
+  componentDidCatch(error,info){ console.error("[UA ErrorBoundary]",error,info); }
+  render(){
+    if(this.state.error){
+      return(
+        <div style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 24px",textAlign:"center",gap:16}}>
+          <div style={{fontSize:44}}>⚠️</div>
+          <div style={{color:C.white,fontSize:18,fontWeight:800}}>Κάτι πήγε στραβά</div>
+          <div style={{color:C.muted,fontSize:13,lineHeight:1.5,maxWidth:340}}>Παρουσιάστηκε ένα σφάλμα. Δοκίμασε ξανά — τα δεδομένα σου είναι ασφαλή.</div>
+          <div style={{color:C.pink,fontSize:11,fontFamily:"monospace",wordBreak:"break-word",maxWidth:340,opacity:0.8}}>{String(this.state.error?.message||this.state.error)}</div>
+          <button onClick={()=>{this.setState({error:null});window.location.reload();}} style={{marginTop:8,background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"12px 28px",color:C.white,fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>🔄 Επαναφόρτωση</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AppInner(){
   const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null});
   const [clients,setClients]=useState([]);
   const [screen,setScreen]=useState("today");
@@ -3229,9 +3251,12 @@ export default function App(){
 
     // Package changes → update client's pkg in list
     rt.subscribe('packages','*',null,(row)=>{
+      if(!row?.id||!row?.client_id) return; // empty DELETE event — ignore
       setClients(prev=>prev.map(c=>{
         if(c.id!==row.client_id) return c;
-        return {...c,_pkg:row.is_active?row:null};
+        if(!row.is_active) return c._pkg?.id===row.id?{...c,_pkg:null}:c;
+        // Merge into existing _pkg so we don't lose the workout_templates join
+        return {...c,_pkg:{...(c._pkg||{}),...row}};
       }));
     });
 
@@ -3442,4 +3467,8 @@ export default function App(){
       )}
     </>
   );
+}
+
+export default function App(){
+  return <ErrorBoundary><AppInner/></ErrorBoundary>;
 }
