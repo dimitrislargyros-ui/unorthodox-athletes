@@ -1067,10 +1067,22 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       getClientBooks(client.id,token),
       dbGet("packages",`client_id=eq.${client.id}&order=created_at.desc&select=*,workout_templates(id,name)`,token)
     ])
-      .then(([s,b,pkgs])=>{ setSessions(s||[]); setClientBooks(b||[]); setAllPkgs(pkgs||[]); })
+      .then(([s,b,pkgs])=>{
+        setSessions(s||[]); setClientBooks(b||[]); setAllPkgs(pkgs||[]);
+        // Always use fresh DB value so sessions_used is never stale from prop
+        const fresh=(pkgs||[]).find(p=>p.is_active);
+        if(fresh) setPkg(fresh);
+      })
       .finally(()=>setLoad(false));
     getTemplates(trainerId,token).then(r=>setPrograms(r||[])).catch(()=>{});
   },[client.id]);
+
+  // Keep sessions_used in sync when Realtime updates the parent's client._pkg
+  // (e.g. client books a slot → Realtime fires → parent updates → local pkg was stale)
+  useEffect(()=>{
+    if(client._pkg?.sessions_used!=null)
+      setPkg(p=>p?.id===client._pkg.id?{...p,sessions_used:client._pkg.sessions_used}:p);
+  },[client._pkg?.sessions_used]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const programPicker=(selectedId,onSelect)=>(
     <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>

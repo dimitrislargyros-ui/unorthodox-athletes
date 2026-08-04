@@ -2544,7 +2544,14 @@ export default function App(){
 
     // Package INSERT or UPDATE → refresh in auth state (new package assigned, payment status change)
     rt.subscribe('packages','*',`client_id=eq.${auth.userId}`,(row)=>{
-      setAuth(prev=>({...prev,pkg:row}));
+      if(!row?.id) return; // empty DELETE event — ignore
+      if(row.is_active){
+        // Merge into existing pkg so we don't lose the workout_templates join
+        setAuth(prev=>({...prev,pkg:{...(prev.pkg||{}), ...row}}));
+      } else {
+        // Package deactivated — clear only if this is the currently displayed pkg
+        setAuth(prev=>prev.pkg?.id===row.id?{...prev,pkg:null}:prev);
+      }
     });
 
     // New session (trainer force-logged) → update sessions list
