@@ -939,6 +939,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
   const [myWeekBooks,setMyWeekBooks]=useState([]);
   const [todaySlotCount,setTodaySlotCount]=useState(null);
   const [wodDay,setWodDay]=useState(null); // day number to show WOD for, or null
+  const [wodAutoShown,setWodAutoShown]=useState(false); // prevent re-opening after user closes
   const [cancelReDlg,setCancelReDlg]=useState(null);
   const [cancelReqSess,setCancelReqSess]=useState(null); // 48h cancel request session
   const [homeToast,setHomeToast]=useState(null);
@@ -1012,6 +1013,12 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
   const weekFull=!!pkg&&weekCount>=spw;
 
   const myBookedSlot=myTodayBook?todaySlots.find(s=>s.id===myTodayBook.slot_id):null;
+  // Reliable session-window detection: uses myBookedSlot directly because sessions that have
+  // already started are filtered out of allUpcoming (which uses dt > now), making heroDT null.
+  const todaySessionMin=myBookedSlot?.start_time_min??null;
+  const todayDT_ms=todaySessionMin!=null?(()=>{const[yr,mo,dy]=today.split('-').map(Number);return new Date(yr,mo-1,dy,Math.floor(todaySessionMin/60),todaySessionMin%60,0).getTime();})():null;
+  const inSessionNow=todayDT_ms!=null&&now.getTime()>=todayDT_ms&&now.getTime()<todayDT_ms+SESS_MIN*60000;
+  const sessionEndedToday=todayDT_ms!=null&&now.getTime()>=todayDT_ms+SESS_MIN*60000;
 
   const cdShort=(s)=>{
     const [yr,mo,dy]=s.session_date.split('-').map(Number);
@@ -1068,19 +1075,20 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
   const heroItem=allUpcoming[0]||null;
   const heroIsToday=heroItem?.session_date===today;
   const heroDT=heroItem?sessionDT({session_date:heroItem.session_date,start_time_min:heroItem.start_time_min}):null;
-  const inTraining=heroDT!=null&&now.getTime()>=heroDT&&now.getTime()<heroDT+SESS_MIN*60000;
+  // inTraining: true if session is actively in-progress (uses reliable myBookedSlot check)
+  const inTraining=inSessionNow||(heroDT!=null&&now.getTime()>=heroDT&&now.getTime()<heroDT+SESS_MIN*60000);
 
-  // Self-adjusting ticker: 1s resolution whenever today's session countdown is on screen, 60s otherwise
+  // Self-adjusting ticker: 1s when today's session is visible or in progress, 60s otherwise
   useEffect(()=>{
     let timer;
     const tick=()=>{
       setNow(new Date());
-      const interval=heroIsToday?1000:60000;
+      const interval=(heroIsToday||!!myTodayBook)?1000:60000;
       timer=setTimeout(tick,interval);
     };
     tick();
     return ()=>clearTimeout(timer);
-  },[heroIsToday,heroItem?.start_time_min]);
+  },[heroIsToday,heroItem?.start_time_min,myTodayBook?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const heroCd=heroItem&&!inTraining?countdownHMS(heroItem.start_time_min,heroItem.session_date):null;
   // Day numbering: global sequential — Day 1/2/3 cycles across ALL sessions, never resets weekly
@@ -1091,6 +1099,17 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
     return (completedCount+i)%spw+1;
   };
   const heroDayNum=heroItem?dayNumForIndex(0):null;
+  // Day number for today's session during/after the session window
+  const todayActiveDay=(inSessionNow||sessionEndedToday)&&pkg?completedCount%spw+1:null;
+
+  // Auto-open WOD sheet when session is actively in progress or just ended (once per mount)
+  useEffect(()=>{
+    if(!wodAutoShown&&pkg?.workout_templates&&todayActiveDay!=null&&(inSessionNow||sessionEndedToday)){
+      setWodDay(todayActiveDay);
+      setWodAutoShown(true);
+    }
+  },[todayActiveDay,inSessionNow,sessionEndedToday,wodAutoShown]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const nextBookDayNum=dayNumForIndex(allUpcoming.length);
 
   // Compute target date for "Book Day X" nav = day after last future booking
@@ -1203,8 +1222,27 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
         </div>
       )}
 
-      {/* TOP: next upcoming session, or Book CTA */}
-      {heroItem?(
+      {/* TOP: training in progress → next upcoming → session complete → other CTAs */}
+      {inSessionNow?(
+        <div style={{padding:"14px 20px 0"}}>
+          <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:20,padding:"18px 20px",boxSizing:"border-box"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Today</span>
+              {pkg?.workout_templates?.name&&<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>{sessLabel(pkg.workout_templates.name)}</span>}
+              {todayActiveDay!=null&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Day {todayActiveDay}</span>}
+            </div>
+            <div style={{textAlign:"center",padding:"6px 0"}}>
+              <div style={{color:C.bg,fontSize:22,fontWeight:900,fontFamily:"'Oswald',sans-serif"}}>🏋️ Training in Progress</div>
+              {todaySessionMin!=null&&<div style={{color:C.bg,fontSize:13,fontWeight:700,marginTop:4,opacity:0.85}}>{toTime(todaySessionMin)} – {toTime(todaySessionMin+SESS_MIN)}</div>}
+            </div>
+            {todayActiveDay!=null&&pkg?.workout_templates&&(
+              <button onClick={()=>setWodDay(todayActiveDay)} style={{marginTop:12,width:"100%",background:"rgba(0,0,0,0.25)",border:"1px solid rgba(255,255,255,0.25)",borderRadius:10,padding:"9px 14px",color:C.white,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.5,display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+                <span>📋</span> Check WOD — Day {todayActiveDay}
+              </button>
+            )}
+          </div>
+        </div>
+      ):heroItem?(
         <div style={{padding:"14px 20px 0"}}>
           <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:20,padding:"18px 20px",boxSizing:"border-box"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1241,6 +1279,21 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
             {heroDayNum&&pkg?.workout_templates&&(
               <button onClick={()=>setWodDay(heroDayNum)} style={{marginTop:12,width:"100%",background:"rgba(0,0,0,0.25)",border:"1px solid rgba(255,255,255,0.25)",borderRadius:10,padding:"9px 14px",color:C.white,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.5,display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
                 <span>📋</span> Check WOD — Day {heroDayNum}
+              </button>
+            )}
+          </div>
+        </div>
+      ):sessionEndedToday&&myTodayBook?(
+        <div style={{padding:"14px 20px 0"}}>
+          <div style={{background:C.green+"18",border:`1px solid ${C.green}44`,borderRadius:20,padding:"18px 20px",boxSizing:"border-box"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{color:C.green,fontSize:16,fontWeight:900,fontFamily:"'Oswald',sans-serif"}}>✅ Session Complete</div>
+              {todayActiveDay!=null&&<span style={{background:C.green+"33",borderRadius:20,padding:"4px 11px",color:C.green,fontSize:11,fontWeight:800}}>Day {todayActiveDay}</span>}
+            </div>
+            <div style={{color:C.muted,fontSize:12,lineHeight:1.5,marginBottom:todayActiveDay!=null&&pkg?.workout_templates?10:0}}>Great work today! Rest and recover 💪</div>
+            {todayActiveDay!=null&&pkg?.workout_templates&&(
+              <button onClick={()=>setWodDay(todayActiveDay)} style={{width:"100%",background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:10,padding:"9px 14px",color:C.green,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",letterSpacing:0.5,display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+                <span>📋</span> View Today's Program — Day {todayActiveDay}
               </button>
             )}
           </div>
