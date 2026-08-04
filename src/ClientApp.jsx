@@ -272,11 +272,11 @@ const savePushSub = async (client_id, subscription, tk) => {
   }
 };
 const postNotification = (d,tk) => {
-  // Fire-and-forget: save in-app notification + send push via server.
+  // Returns a Promise that always resolves — callers can safely await/catch.
   // Server uses SUPABASE_SERVICE_ROLE to bypass RLS for cross-user inserts.
-  fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${tk}`},
+  return fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${tk}`},
     body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message,notification:d})
-  }).then(r=>r.json()).then(j=>console.log('[UA Push] result:',j)).catch(e=>console.error('[UA Push] error:',e));
+  }).then(r=>r.json()).then(j=>console.log('[UA Push] result:',j)).catch(e=>console.warn('[UA Push] error:',e));
 };
 
 // Converts VAPID public key from base64url to Uint8Array for PushManager
