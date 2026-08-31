@@ -11,7 +11,7 @@ import { EXERCISE_LIST } from "./exerciseList.js";
   if(!document.head.querySelector('[href*="Oswald"]')) document.head.appendChild(link);
   const style=document.createElement("style");
   style.id="ua-premium-styles";
-  style.textContent=`
+  style.textContent=`h
     @keyframes ua-spin{to{transform:rotate(360deg)}}
     @keyframes ua-logo-pulse{0%,100%{opacity:1}50%{opacity:.75}}
     .ua-btn-grad{transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s ease}
@@ -3355,7 +3355,7 @@ function AppInner(){
   const renderScreen=()=>{
     if(selClient) return <ClientDetail client={selClient} trainerId={auth.userId} token={auth.token} onBack={()=>setSel(null)} onClientUpdated={handleClientUpdated}/>;
     switch(screen){
-      case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onTrainerNameUpdated={name=>setAuth(p=>({...p,profile:{...p.profile,name}}))} notifCount={trainerNotifs.filter(n=>n.read===false).length} onOpenNotif={()=>{ setShowNotifPanel(true); setTrainerNotifs(p=>p.map(n=>({...n,read:true}))); }}/>;
+      case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onTrainerNameUpdated={name=>setAuth(p=>({...p,profile:{...p.profile,name}}))} notifCount={trainerNotifs.filter(n=>n.read===false).length} onOpenNotif={()=>{ setShowNotifPanel(true); setTrainerNotifs(p=>p.map(n=>({...n,read:true}))); dbPatch("notifications",`client_id=eq.${auth.userId}&read=eq.false`,{read:true},auth.token).catch(()=>{}); }}/>;
       case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel}/>;
       case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onClientUpdated={handleClientUpdated}/>;
       case "programs": return <ProgramsScreen trainerId={auth.userId} token={auth.token}/>;
@@ -3420,7 +3420,7 @@ function AppInner(){
         {renderScreen()}
       </div>
       <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
-      {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideCancelReq={handleDecideCancelReq} onClose={()=>{setShowNotifPanel(false);getTrainerNotifications(auth.userId,auth.token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});}}/>}
+      {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideCancelReq={handleDecideCancelReq} onClose={()=>setShowNotifPanel(false)}/>}
       {/* Cancel Request Modal — pops up wherever trainer is */}
       {cancelReqModal&&(
         <div style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.65)"}} onClick={e=>{if(e.target===e.currentTarget)setCancelReqModal(null);}}>
