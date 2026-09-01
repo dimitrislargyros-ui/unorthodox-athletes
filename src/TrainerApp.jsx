@@ -1166,7 +1166,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const dayNum=await calcDayNum(client.id,logDate,token,spw);
       const res=await createSession({client_id:client.id,trainer_id:trainerId,session_date:logDate,start_time_min:logTime,day_num:dayNum,status},token);
       const created=Array.isArray(res)?res[0]:res;
-      if(pkg){
+      if(pkg && status==="completed"){
         const newUsed=(pkg.sessions_used||0)+1;
         await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
         const updPkg={...pkg,sessions_used:newUsed};
@@ -1822,7 +1822,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
       const dayNum=await calcDayNum(cl.id,selDay.iso,token,cl._pkg?.sessions_per_week||3).catch(()=>null);
       const sessStatus=selDay.iso>todayISO()?"booked":"completed";
       await createSession({client_id:cl.id,trainer_id:trainerId,session_date:selDay.iso,start_time_min:forceLogSlot.start_time_min,day_num:dayNum,status:sessStatus},token);
-      if(cl._pkg){
+      if(cl._pkg && sessStatus==="completed"){
         const newUsed=(cl._pkg.sessions_used||0)+1;
         await dbPatch("packages",`id=eq.${cl._pkg.id}`,{sessions_used:newUsed},token).catch(()=>{});
         // Keep clients state in sync so the card shows the updated session count
