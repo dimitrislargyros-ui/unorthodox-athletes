@@ -1166,7 +1166,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const dayNum=await calcDayNum(client.id,logDate,token,spw);
       const res=await createSession({client_id:client.id,trainer_id:trainerId,session_date:logDate,start_time_min:logTime,day_num:dayNum,status},token);
       const created=Array.isArray(res)?res[0]:res;
-      if(pkg && status==="completed"){
+      const hasBookingForDay=clientBooks.some(b=>b.book_date===logDate&&b.status!=="cancelled");
+      if(pkg && status==="completed" && !hasBookingForDay){
         const newUsed=(pkg.sessions_used||0)+1;
         await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
         const updPkg={...pkg,sessions_used:newUsed};
