@@ -324,7 +324,7 @@ const UaPrompt=({prompt,setPrompt})=>{
   );
 };
 const sessionDT=(s)=>{ const [yr,mo,dy]=s.session_date.split('-').map(Number); return new Date(yr,mo-1,dy,Math.floor(s.start_time_min/60),s.start_time_min%60,0).getTime(); };
-const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"},missed:{c:C.muted,l:"Not logged"}};
+const STATUS_CFG={upcoming:{c:C.amber,l:"Booked"},booked:{c:C.amber,l:"Booked"},completed:{c:C.green,l:"Completed"},cancelled:{c:C.muted,l:"Cancelled"},missed:{c:C.muted,l:"Cancelled"}};
 const StatusBadge=({status})=>{
   const cfg=STATUS_CFG[status];
   if(!cfg) return null;
