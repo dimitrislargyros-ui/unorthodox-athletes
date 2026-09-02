@@ -3366,8 +3366,7 @@ function AppInner(){
 
   const handlePtrStart=(e)=>{
     if(refreshing) return;
-    const el=e.currentTarget;
-    if(el.scrollTop>0) return;
+    if(window.scrollY>0) return;
     ptrStartY.current=e.touches[0].clientY;
   };
   const handlePtrMove=(e)=>{
@@ -3394,7 +3393,7 @@ function AppInner(){
     <>
       <div
         className="ua-app"
-        style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh",overflowY:"auto",position:"relative"}}
+        style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100dvh"}}
         onTouchStart={handlePtrStart}
         onTouchMove={handlePtrMove}
         onTouchEnd={handlePtrEnd}
