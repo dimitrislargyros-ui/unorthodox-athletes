@@ -1021,6 +1021,16 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [showPkg,setShowPkg]=useState(false);
   const [showLog,setShowLog]=useState(false);
   const [newPkgTotal,setNPT]=useState("10");
+  const [showEditPkg,setShowEditPkg]=useState(false);
+  const [editAddSessions,setEditAddSessions]=useState(0);
+  const [editUsedOverride,setEditUsedOverride]=useState("");
+  const [editEndDate,setEditEndDate]=useState("");
+  const [savingEditPkg,setSavingEditPkg]=useState(false);
+  const [showEditPkg,setShowEditPkg]=useState(false);
+  const [editAddSessions,setEditAddSessions]=useState(0);
+  const [editUsedOverride,setEditUsedOverride]=useState("");
+  const [editEndDate,setEditEndDate]=useState("");
+  const [savingEditPkg,setSavingEditPkg]=useState(false);
   const [newSpw,setNSpw]=useState("3");
   const [customTotal,setCustomTotal]=useState("");
   const [customSpw,setCustomSpw]=useState("");
@@ -1230,6 +1240,27 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     }catch(e){ showUaToast("Error: "+e.message); }
   };
 
+  const handleEditPkg=async()=>{
+    if(!pkg||savingEditPkg) return;
+    setSavingEditPkg(true);
+    try{
+      const newTotal=Math.max(1, (pkg.sessions_total||0) + editAddSessions);
+      const newUsed=editUsedOverride!==''?Math.max(0,Math.min(newTotal,parseInt(editUsedOverride)||0)):(pkg.sessions_used||0);
+      const updates={sessions_total:newTotal,sessions_used:newUsed};
+      if(editEndDate) updates.end_date=editEndDate;
+      await dbPatch("packages",`id=eq.${pkg.id}`,updates,token);
+      const updPkg={...pkg,...updates};
+      setPkg(updPkg);
+      onClientUpdated({...client,_pkg:updPkg});
+      setShowEditPkg(false);
+      setEditAddSessions(0);
+      setEditUsedOverride("");
+      setEditEndDate("");
+      showUaToast("Package updated!",true);
+    }catch(e){ showUaToast("Error: "+e.message); }
+    setSavingEditPkg(false);
+  };
+
   const handleOpenEditNotes=()=>{
     setEditHasInj(pkg?.has_injury||false);
     setEditInjNotes(pkg?.injury_notes||"");
@@ -1281,7 +1312,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const pkgStartDate=pkg?(pkg.start_date||(pkg.created_at?String(pkg.created_at).slice(0,10):"")):"";
   const reconciledUsed=pkg
     ? Math.min(
-        timeline.filter(it=>it.status!=="cancelled"&&(!pkgStartDate||it.session_date>=pkgStartDate)).length,
+        timeline.filter(it=>it.status==="completed"&&(!pkgStartDate||it.session_date>=pkgStartDate)).length,
         pkg.sessions_total
       )
     : 0;
@@ -1526,6 +1557,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             <div style={{display:"flex",gap:8,marginTop:12}}>
               <button onClick={handleTogglePaid} style={{flex:1,background:pkg.paid?"rgba(0,0,0,0.25)":"rgba(0,0,0,0.4)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{pkg.paid?"✓ Paid":"⚠ Unpaid"}</button>
               <button onClick={handleSendPaymentReminder} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>💳 Payment Reminder</button>
+              <button onClick={()=>{setShowEditPkg(p=>!p);setEditAddSessions(0);setEditUsedOverride("");setEditEndDate(pkg?.end_date||"");}} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✏️ Adjust</button>
             </div>
             {needsReconcile&&(
               <button onClick={handleReconcile} disabled={reconciling} style={{width:"100%",marginTop:8,background:"rgba(0,0,0,0.4)",border:"1px solid rgba(0,0,0,0.5)",borderRadius:8,padding:"9px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:reconciling?"default":"pointer",fontFamily:"inherit",opacity:reconciling?0.6:1}}>
@@ -1533,6 +1565,36 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               </button>
             )}
           </div>
+        {/* Package quick-edit panel */}
+        {pkg&&showEditPkg&&(
+          <Card style={{marginTop:10,border:`1px solid ${C.cyan}44`}}>
+            <SL>Adjust Package</SL>
+            <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Current: {pkg.sessions_used}/{pkg.sessions_total} sessions used · ends {fmtDate(pkg.end_date)}</div>
+            <div style={{marginBottom:12}}>
+              <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Add or remove total sessions</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {[-5,-1,1,5,10].map(n=>(
+                  <button key={n} onClick={()=>setEditAddSessions(p=>p+n)} style={{background:editAddSessions+n===0?C.surface2:n>0?C.green+"22":C.pink+"22",border:`1px solid ${n>0?C.green:C.pink}44`,borderRadius:8,padding:"7px 12px",color:n>0?C.green:C.pink,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{n>0?"+"+n:n}</button>
+                ))}
+                <div style={{background:C.surface2,borderRadius:8,padding:"7px 12px",color:C.cyan,fontWeight:800,fontSize:13,border:`1px solid ${C.cyan}44`}}>
+                  {pkg.sessions_total+editAddSessions} total
+                </div>
+              </div>
+            </div>
+            <div style={{marginBottom:12}}>
+              <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Override sessions used (optional)</div>
+              <input type="number" min="0" max={pkg.sessions_total+editAddSessions} value={editUsedOverride} onChange={e=>setEditUsedOverride(e.target.value)} placeholder={"Current: "+pkg.sessions_used} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Extend end date (optional)</div>
+              <input type="date" value={editEndDate} onChange={e=>setEditEndDate(e.target.value)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <GBtn label={savingEditPkg?"Saving...":"Save Changes"} onClick={handleEditPkg} disabled={savingEditPkg||editAddSessions===0&&editUsedOverride===""&&(!editEndDate||editEndDate===pkg.end_date)} style={{flex:1}}/>
+              <button onClick={()=>setShowEditPkg(false)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 16px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>Cancel</button>
+            </div>
+          </Card>
+        )}
         ):<Card><Empty msg="No active package"/></Card>}
       </div>
 
