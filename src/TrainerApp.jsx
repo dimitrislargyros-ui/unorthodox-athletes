@@ -1560,7 +1560,9 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               </button>
             )}
           </div>
-        {/* Package quick-edit panel */}
+        ):<Card><Empty msg="No active package"/></Card>}
+      </div>
+      {/* Package quick-edit panel */}
         {pkg&&showEditPkg&&(
           <Card style={{marginTop:10,border:`1px solid ${C.cyan}44`}}>
             <SL>Adjust Package</SL>
@@ -1590,8 +1592,6 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             </div>
           </Card>
         )}
-        ):<Card><Empty msg="No active package"/></Card>}
-      </div>
 
       {/* Package History */}
       {(()=>{
