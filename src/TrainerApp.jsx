@@ -1026,11 +1026,6 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [editUsedOverride,setEditUsedOverride]=useState("");
   const [editEndDate,setEditEndDate]=useState("");
   const [savingEditPkg,setSavingEditPkg]=useState(false);
-  const [showEditPkg,setShowEditPkg]=useState(false);
-  const [editAddSessions,setEditAddSessions]=useState(0);
-  const [editUsedOverride,setEditUsedOverride]=useState("");
-  const [editEndDate,setEditEndDate]=useState("");
-  const [savingEditPkg,setSavingEditPkg]=useState(false);
   const [newSpw,setNSpw]=useState("3");
   const [customTotal,setCustomTotal]=useState("");
   const [customSpw,setCustomSpw]=useState("");
