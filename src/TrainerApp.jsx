@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
+import { computeCompletedUsed, computeReservedCount } from "./sessionsMath.js";
 
 // ── Premium Design System (injected once) ──
 ;(()=>{
@@ -132,7 +133,9 @@ const tryRefreshAuth = async () => {
 const sb = async (path,method="GET",body=null,token=null,prefer="return=representation") => {
   const res = await fetch(`${SB_URL}${path}`,{method,headers:{"apikey":SB_KEY,"Authorization":`Bearer ${token||SB_KEY}`,"Content-Type":"application/json","Prefer":prefer},body:body?JSON.stringify(body):undefined});
   if(!res.ok){
-    if(res.status===401||res.status===403){
+    // 401 = invalid/expired token -> real session problem. 403 = one specific request denied
+    // (e.g. RLS on that row) -> session is fine, don't reload and lose unsaved state.
+    if(res.status===401){
       const refreshed = await tryRefreshAuth();
       if(refreshed){ window.location.reload(); return; }
       localStorage.removeItem(UA_TRAINER_AUTH_KEY); window.location.reload(); return;
@@ -1297,18 +1300,12 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   // The true "used" count for the active package = every non-cancelled session/booking
   // dated on or after the package start. If the counter drifted below that (e.g. an
   // increment failed to save), offer the trainer a one-tap fix. Never lowers the counter.
-  const pkgStartDate=pkg?(pkg.start_date||(pkg.created_at?String(pkg.created_at).slice(0,10):"")):"";
+  // Computed via the shared sessionsMath module so this always agrees with ClientApp's
+  // computation for the same package — do not reimplement the dedup-by-date logic here.
   const _nowMs=Date.now();
-  const _inPkg=(it)=>!pkgStartDate||it.session_date>=pkgStartDate;
-  // Booked (reserved) = every non-cancelled session/booking since package start (future + past)
-  const reservedCount=pkg?timeline.filter(it=>it.status!=="cancelled"&&_inPkg(it)).length:0;
-  // Charge at completion: "used" = non-cancelled sessions/bookings whose time has already passed.
-  // Future bookings/logs are reserved but NOT charged until they happen.
+  const reservedCount=computeReservedCount(pkg,sessions,clientBooks);
   const reconciledUsed=pkg
-    ? Math.min(
-        timeline.filter(it=>it.status!=="cancelled"&&_inPkg(it)&&sessionDT(it)<=_nowMs).length,
-        pkg.sessions_total
-      )
+    ? computeCompletedUsed(pkg,sessions,clientBooks,_nowMs)
     : 0;
   const needsReconcile=!!pkg&&reconciledUsed!==(pkg.sessions_used||0);
   const handleReconcile=async()=>{
@@ -2851,7 +2848,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
               </div>
             </div>
           )}
-          <div style={{flexShrink:0,padding:"12px 20px 28px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
+          <div style={{flexShrink:0,padding:"12px 20px max(env(safe-area-inset-bottom),20px)",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
             <GBtn label={saving?"Saving…":"+ Add Exercise"} onClick={startAdd} style={{flex:1}} disabled={saving}/>
             <button onClick={()=>{setPasteText(dayNote);setStep("paste");}} style={{flexShrink:0,background:`${C.amber}18`,border:`1px solid ${C.amber}44`,borderRadius:10,padding:"10px 14px",color:C.amber,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📝</button>
           </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
+import { computeCompletedUsed, computeReservedCount } from "./sessionsMath.js";
 
 // ── Premium Design System (injected once) ──
 ;(()=>{
@@ -166,8 +167,10 @@ const sb = async (path, method="GET", body=null, token=null, prefer="return=repr
     body: body ? JSON.stringify(body) : undefined,
   });
   if(!res.ok){
-    if(res.status===401||res.status===403){
-      // Try a token refresh before giving up
+    // 401 = the token itself is invalid/expired -> this is a real session problem, worth a
+    // refresh-or-reload. 403 = a specific request was denied (e.g. an RLS policy on that one
+    // row) — the session is still fine, so don't nuke the whole app and lose unsaved state.
+    if(res.status===401){
       const refreshed = await tryRefreshAuth();
       if(refreshed){ window.location.reload(); return; }
       localStorage.removeItem(UA_AUTH_KEY); window.location.reload(); return;
@@ -235,29 +238,6 @@ const leaveWaitlist    = (id,tk) => dbDelete("waitlist",`id=eq.${id}`,tk);
 const getSlotWaitlist  = (slotId,date,tk) => dbGet("waitlist",`slot_id=eq.${slotId}&book_date=eq.${date}&order=position.asc`,tk);
 const getMyUpcomingBooks = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${date}&status=eq.booked&select=*,schedule_slots(start_time_min)`,tk);
 const getAllMyBookings   = (uid,tk) => dbGet("bookings",`client_id=eq.${uid}&status=neq.cancelled&select=book_date,schedule_slots(start_time_min)`,tk);
-// Charge at completion: package "used" = distinct non-cancelled session/booking days (since
-// package start) whose time has already passed. Future bookings are reserved, not charged.
-const computeCompletedUsed=(pkg,sessions,bookings,nowMs)=>{
-  if(!pkg) return 0;
-  const start=pkg.start_date||(pkg.created_at?String(pkg.created_at).slice(0,10):"");
-  const byDate={};
-  const add=(date,min)=>{ if(!date) return; if(start&&date<start) return; if(byDate[date]==null||min<byDate[date]) byDate[date]=min; };
-  (sessions||[]).forEach(s=>{ if(s.status!=="cancelled") add(s.session_date,s.start_time_min||0); });
-  (bookings||[]).forEach(b=>{ add(b.book_date,b.schedule_slots?.start_time_min||0); });
-  let n=0;
-  for(const d in byDate){ const[y,mo,dy]=d.split('-').map(Number); const dt=new Date(y,mo-1,dy,Math.floor(byDate[d]/60),byDate[d]%60,0).getTime(); if(dt<=nowMs) n++; }
-  return Math.min(n,pkg.sessions_total);
-};
-// Booked = distinct non-cancelled session/booking days (since package start), regardless of time.
-const computeReservedCount=(pkg,sessions,bookings)=>{
-  if(!pkg) return 0;
-  const start=pkg.start_date||(pkg.created_at?String(pkg.created_at).slice(0,10):"");
-  const byDate={};
-  const add=(date)=>{ if(!date) return; if(start&&date<start) return; byDate[date]=true; };
-  (sessions||[]).forEach(s=>{ if(s.status!=="cancelled") add(s.session_date); });
-  (bookings||[]).forEach(b=>{ add(b.book_date); });
-  return Object.keys(byDate).length;
-};
 const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,tk);
 const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max(newUsed,0)},tk);
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
