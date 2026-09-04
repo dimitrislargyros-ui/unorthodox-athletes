@@ -746,9 +746,16 @@ const getDayExercises=(templateExercises,dayNum,numDays=3)=>{
   const plan=toDayPlan(templateExercises,numDays);
   return plan.find(d=>d.day===dayNum)?.exercises||[];
 };
+// Trainers now write programs primarily as free-text notes per day (see TrainerApp's
+// ProgramEditorModal) — this must be surfaced to the client alongside/instead of the
+// structured exercise list, or the trainer's actual program never reaches them.
+const getDayNote=(templateExercises,dayNum,numDays=3)=>{
+  const plan=toDayPlan(templateExercises,numDays);
+  return plan.find(d=>d.day===dayNum)?.note||"";
+};
 
 // ── WOD Sheet (client: view program for their day) ──
-const WODSheet=({programName,dayNum,exercises,onClose})=>(
+const WODSheet=({programName,dayNum,exercises,note,onClose})=>(
   <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
     <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"78vh",overflowY:"auto",boxSizing:"border-box"}}>
       <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
@@ -759,8 +766,11 @@ const WODSheet=({programName,dayNum,exercises,onClose})=>(
         </div>
         <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
       </div>
+      {!!note&&note.trim()&&(
+        <div style={{background:`${C.cyan}11`,border:`1px solid ${C.cyan}33`,borderRadius:12,padding:"13px 16px",marginBottom:exercises.length>0?14:0,whiteSpace:"pre-wrap",wordBreak:"break-word",color:C.white,fontSize:13,lineHeight:1.6}}>{note}</div>
+      )}
       {exercises.length===0
-        ? <div style={{textAlign:"center",padding:"28px 0",color:C.muted,fontSize:14}}>No program set for Day {dayNum} yet</div>
+        ? (!note||!note.trim())&&<div style={{textAlign:"center",padding:"28px 0",color:C.muted,fontSize:14}}>No program set for Day {dayNum} yet</div>
         : <div style={{display:"flex",flexDirection:"column",gap:6}}>
             {(()=>{
               let lastSs=null;
@@ -1192,6 +1202,7 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
           programName={pkg.workout_templates.name}
           dayNum={wodDay}
           exercises={getDayExercises(pkg.workout_templates.exercises,wodDay,spw)}
+          note={getDayNote(pkg.workout_templates.exercises,wodDay,spw)}
           onClose={()=>setWodDay(null)}
         />
       )}

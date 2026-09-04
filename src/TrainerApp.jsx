@@ -1027,6 +1027,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [showLog,setShowLog]=useState(false);
   const [newPkgTotal,setNPT]=useState("10");
   const [showEditPkg,setShowEditPkg]=useState(false);
+  const [showAssignProgram,setShowAssignProgram]=useState(false);
   const [editAddSessions,setEditAddSessions]=useState(0);
   const [editUsedOverride,setEditUsedOverride]=useState("");
   const [editEndDate,setEditEndDate]=useState("");
@@ -1217,6 +1218,19 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       } else {
         await postNotification({client_id:client.id,type:"payment_reminder",message:`⚠️ Your package payment has been marked as unpaid. Please contact your trainer.`},token).catch(()=>{});
       }
+    }catch(e){ showUaToast("Error: "+e.message); }
+  };
+
+  const handleAssignProgram=async(programId)=>{
+    if(!pkg) return;
+    try{
+      await dbPatch("packages",`id=eq.${pkg.id}`,{program_id:programId},token);
+      const tpl=programs.find(p=>p.id===programId)||null;
+      const updPkg={...pkg,program_id:programId,workout_templates:tpl};
+      setPkg(updPkg);
+      onClientUpdated({...client,_pkg:updPkg});
+      showUaToast(tpl?`Assigned "${tpl.name}"`:"Program removed",true);
+      setShowAssignProgram(false);
     }catch(e){ showUaToast("Error: "+e.message); }
   };
 
@@ -1559,8 +1573,15 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             <div style={{display:"flex",gap:8,marginTop:12}}>
               <button onClick={handleTogglePaid} style={{flex:1,background:pkg.paid?"rgba(0,0,0,0.25)":"rgba(0,0,0,0.4)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{pkg.paid?"✓ Paid":"⚠ Unpaid"}</button>
               <button onClick={handleSendPaymentReminder} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>💳 Payment Reminder</button>
+              <button onClick={()=>setShowAssignProgram(p=>!p)} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>🏋️ {pkg.workout_templates?.name?"Change":"Assign"} Program</button>
               <button onClick={()=>{setShowEditPkg(p=>!p);setEditAddSessions(0);setEditUsedOverride("");setEditEndDate(pkg?.end_date||"");}} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✏️ Adjust</button>
             </div>
+            {showAssignProgram&&(
+              <div style={{background:"rgba(0,0,0,0.25)",borderRadius:10,padding:12,marginTop:10}}>
+                <div style={{color:C.bg,fontSize:11,fontWeight:800,letterSpacing:1,textTransform:"uppercase",opacity:0.8,marginBottom:8}}>Assign Program</div>
+                {programPicker(pkg.program_id,handleAssignProgram)}
+              </div>
+            )}
             {needsReconcile&&(
               <button onClick={handleReconcile} disabled={reconciling} style={{width:"100%",marginTop:8,background:"rgba(0,0,0,0.4)",border:"1px solid rgba(0,0,0,0.5)",borderRadius:8,padding:"9px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:reconciling?"default":"pointer",fontFamily:"inherit",opacity:reconciling?0.6:1}}>
                 {reconciling?"Syncing…":`🔄 Sync sessions — count ${reconciledUsed}/${pkg.sessions_total} (now ${pkg.sessions_used||0})`}
@@ -2568,7 +2589,10 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
   const [days,setDays]=useState(()=>toDayPlan(prog.exercises||[],initNumDays));
   const [activeDay,setActiveDay]=useState(1);
   const [saving,setSaving]=useState(false);
-  const [step,setStep]=useState("list"); // "list" | "pick" | "detail" | "paste"
+  const [step,setStep]=useState("list"); // "list" | "pick" | "detail"
+  // Free-text notes are the primary way trainers write programs; the structured
+  // exercise list is optional and stays collapsed unless this program already uses it.
+  const [showStructured,setShowStructured]=useState(()=>(prog.exercises||[]).some(d=>Array.isArray(d.exercises)&&d.exercises.length>0));
   const [pasteText,setPasteText]=useState(()=>prog.exercises?.find?.(d=>d.day===1)?.note||"");
   const [pickSearch,setPickSearch]=useState("");
   const [pickedName,setPickedName]=useState("");
@@ -2765,12 +2789,13 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
           <div style={{display:"flex",gap:5,flex:1,overflowX:"auto",minWidth:0}}>
             {days.map(d=>{
               const cnt=d.exercises?.length||0;
+              const hasNote=!!(d.note&&d.note.trim());
               const active=activeDay===d.day;
               return(
                 <button key={d.day} onClick={()=>{setActiveDay(d.day);setPasteText(d.note||"");setStep("list");}}
                   style={{flexShrink:0,minWidth:56,padding:"7px 6px",borderRadius:10,border:`1px solid ${active?C.cyan:C.border}`,background:active?`${C.cyan}22`:"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
                   <div style={{color:active?C.cyan:C.muted,fontSize:12,fontWeight:800}}>Day {d.day}</div>
-                  <div style={{color:active?C.cyan+"99":C.border,fontSize:10,fontWeight:600,marginTop:1}}>{cnt} ex</div>
+                  <div style={{color:active?C.cyan+"99":C.border,fontSize:10,fontWeight:600,marginTop:1}}>{hasNote?"📝":""}{cnt>0?` ${cnt} ex`:hasNote?"":"empty"}</div>
                 </button>
               );
             })}
@@ -2789,7 +2814,34 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
             chrome, OS taskbar), the user can still scroll down to reach them. A fixed
             footer outside the scroll area can become permanently unreachable in that case. */}
         {step==="list"&&(
-          <div style={{flex:1,overflowY:"auto",padding:"14px 20px",display:"flex",flexDirection:"column"}}>
+          <div style={{flex:1,overflowY:"auto",padding:"14px 20px max(env(safe-area-inset-bottom),20px)",display:"flex",flexDirection:"column"}}>
+            {/* Free-text program notes — the primary way to write a day's program.
+                Bound directly to `pasteText`, which is kept in sync with the active
+                day's note (see the prevActiveDayRef effect above). */}
+            <div style={{marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <SL style={{marginBottom:0}}>📝 Day {activeDay} Program</SL>
+                {saving&&<span style={{color:C.muted,fontSize:11}}>Saving…</span>}
+              </div>
+              <textarea
+                value={pasteText}
+                onChange={e=>setPasteText(e.target.value)}
+                placeholder={"Write today's program here…\ne.g.\nSquat 4x8 @70%\nRDL 3x10\nLeg Press 3x12"}
+                style={{width:"100%",minHeight:170,background:"rgba(255,255,255,0.06)",border:`1px solid ${C.amber}44`,borderRadius:12,padding:"12px 14px",color:C.white,fontSize:13,lineHeight:1.6,fontFamily:"inherit",outline:"none",resize:"vertical",boxSizing:"border-box"}}
+              />
+              <div style={{display:"flex",gap:8,marginTop:8}}>
+                <GBtn label={saving?"Saving…":"💾 Save Note"} onClick={()=>persistNote(pasteText)} disabled={saving||pasteText===dayNote} style={{flex:1}}/>
+                {!!dayNote&&<button onClick={()=>{setPasteText("");persistNote("");}} disabled={saving} style={{flexShrink:0,background:`${C.pink}18`,border:`1px solid ${C.pink}44`,borderRadius:10,padding:"0 14px",color:C.pink,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🗑 Clear</button>}
+              </div>
+            </div>
+
+            {/* Structured exercise list — optional, kept for trainers who want per-exercise
+                sets/reps/weight tracking instead of (or alongside) free-text notes. */}
+            <button onClick={()=>setShowStructured(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",background:"none",border:"none",borderTop:`1px solid ${C.border}`,padding:"10px 0",cursor:"pointer",fontFamily:"inherit"}}>
+              <SL style={{marginBottom:0}}>Structured Exercises (optional){exs.length>0?` · ${exs.length}`:""}</SL>
+              <span style={{color:C.muted,fontSize:12}}>{showStructured?"▲ Hide":"▼ Show"}</span>
+            </button>
+            {showStructured&&(<>
             {exs.length===0
               ? <Empty msg={`No exercises for Day ${activeDay} yet`}/>
               : (()=>{
@@ -2841,21 +2893,10 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
                   });
                 })()
             }
-            {dayNote&&(
-              <div style={{marginTop:8,flexShrink:0}}>
-                <div style={{background:`${C.amber}11`,border:`1px solid ${C.amber}33`,borderRadius:10,padding:"10px 14px",marginBottom:6}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                    <div style={{color:C.amber,fontSize:10,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase"}}>📝 Text Note</div>
-                    <button onClick={()=>{setPasteText(dayNote);setStep("paste");}} style={{background:"none",border:"none",color:C.amber,fontSize:12,cursor:"pointer",padding:0,fontFamily:"inherit",fontWeight:700}}>Edit</button>
-                  </div>
-                  <div style={{color:C.muted,fontSize:12,lineHeight:1.55,whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom,black 60%,transparent 100%)"}}>{dayNote}</div>
-                </div>
-              </div>
-            )}
-            <div style={{flexShrink:0,marginTop:16,paddingTop:12,paddingBottom:"max(env(safe-area-inset-bottom),20px)",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
+            <div style={{flexShrink:0,marginTop:12,display:"flex",gap:8}}>
               <GBtn label={saving?"Saving…":"+ Add Exercise"} onClick={startAdd} style={{flex:1}} disabled={saving}/>
-              <button onClick={()=>{setPasteText(dayNote);setStep("paste");}} style={{flexShrink:0,background:`${C.amber}18`,border:`1px solid ${C.amber}44`,borderRadius:10,padding:"10px 14px",color:C.amber,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📝</button>
             </div>
+            </>)}
           </div>
         )}
 
@@ -2982,28 +3023,6 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
           </div>
         )}
 
-        {/* ── Step: paste / type text note ──
-            Scrollable (was previously a non-scrolling flex column) so the Save/Cancel
-            buttons stay reachable even when an on-screen keyboard or browser/OS chrome
-            shrinks the visible area — same reasoning as the list-step fix above. */}
-        {step==="paste"&&(
-          <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",padding:"20px",gap:14}}>
-            <div style={{color:C.amber,fontSize:10,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase"}}>📝 Text Note — Day {activeDay}</div>
-            <div style={{color:C.muted,fontSize:12,lineHeight:1.5}}>Paste or type program text here. Shown as a note block alongside exercises.</div>
-            <textarea
-              autoFocus
-              value={pasteText}
-              onChange={e=>setPasteText(e.target.value)}
-              placeholder={"e.g.\nSquat 4x8 @70%\nRDL 3x10\nLeg Press 3x12\n..."}
-              style={{minHeight:180,flexShrink:0,background:"rgba(255,255,255,0.06)",border:`1px solid ${C.amber}44`,borderRadius:12,padding:"12px 14px",color:C.white,fontSize:13,lineHeight:1.6,fontFamily:"inherit",outline:"none",resize:"none"}}
-            />
-            <div style={{display:"flex",gap:8,flexShrink:0,paddingBottom:"max(env(safe-area-inset-bottom),4px)"}}>
-              <button onClick={()=>setStep("list")} style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px",color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-              <button onClick={async()=>{await persistNote(pasteText);setStep("list");}} disabled={saving} style={{flex:2,background:`linear-gradient(135deg,${C.amber},${C.pink})`,border:"none",borderRadius:10,padding:"11px",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:saving?0.6:1}}>{saving?"Saving…":"💾 Save Note"}</button>
-              {pasteText&&<button onClick={async()=>{setPasteText("");await persistNote("");setStep("list");}} disabled={saving} style={{flexShrink:0,background:`${C.pink}18`,border:`1px solid ${C.pink}44`,borderRadius:10,padding:"11px 14px",color:C.pink,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🗑</button>}
-            </div>
-          </div>
-        )}
       </div>
       <UaToast toast={pmToast}/>
     </div>
