@@ -338,7 +338,9 @@ const computeStatusMap=(items,now)=>{
   const map={};
   withDt.forEach(it=>{
     if(it.status==="cancelled") map[it._key]="cancelled";
-    else if(it._type==="booking"&&it._dt<=nowMs) map[it._key]="missed";
+    // Past booking never cancelled = client attended (package already charged at
+    // booking time) → show Completed, not "Cancelled".
+    else if(it._type==="booking"&&it._dt<=nowMs) map[it._key]="completed";
     else if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed";
   });
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
@@ -414,7 +416,7 @@ const BottomNav=({active,onNav,scheduleBadge=0})=>{
     {id:"programs", label:"Programs", Icon:IcoDumbbell},
   ];
   return(
-    <div style={{position:"fixed",bottom:0,left:0,right:0,background:"rgba(8,8,8,0.92)",backdropFilter:"blur(24px) saturate(200%)",WebkitBackdropFilter:"blur(24px) saturate(200%)",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-around",alignItems:"flex-end",padding:"8px 0 max(env(safe-area-inset-bottom),20px)",zIndex:100}}>
+    <div style={{flexShrink:0,background:"rgba(8,8,8,0.92)",backdropFilter:"blur(24px) saturate(200%)",WebkitBackdropFilter:"blur(24px) saturate(200%)",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-around",alignItems:"flex-end",padding:"8px 0 max(env(safe-area-inset-bottom),20px)",zIndex:100}}>
       {tabs.map(t=>{
         const isActive=active===t.id;
         const col=isActive?C.pink:C.muted;
@@ -1172,7 +1174,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const res=await createSession({client_id:client.id,trainer_id:trainerId,session_date:logDate,start_time_min:logTime,day_num:dayNum,status},token);
       const created=Array.isArray(res)?res[0]:res;
       const hasBookingForDay=clientBooks.some(b=>b.book_date===logDate&&b.status!=="cancelled");
-      if(pkg && status==="completed" && !hasBookingForDay){
+      // Charge the package whenever the trainer commits a session (past OR future custom
+      // time), unless a booking already exists for that day (which already charged it).
+      // A future logged session is a real commitment, just like a client booking.
+      if(pkg && !hasBookingForDay){
         const newUsed=(pkg.sessions_used||0)+1;
         await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
         const updPkg={...pkg,sessions_used:newUsed};
@@ -1335,6 +1340,14 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           if(item._type==="booking"){
             await cancelBookingRow(item._bookingId,token);
             setClientBooks(p=>p.filter(b=>b.id!==item._bookingId));
+            // A booking charges the package at creation time — refund it on cancel
+            if(pkg){
+              const newUsed=Math.max((pkg.sessions_used||0)-1,0);
+              await decrementPkgUsed(pkg.id,pkg.sessions_used,token);
+              const updPkg={...pkg,sessions_used:newUsed};
+              setPkg(updPkg);
+              onClientUpdated({...client,_pkg:updPkg});
+            }
           }else{
             await cancelSessionRow(item.id,token);
             setSessions(p=>p.map(s=>s.id===item.id?{...s,status:"cancelled"}:s));
@@ -3423,7 +3436,7 @@ function AppInner(){
 
   const handlePtrStart=(e)=>{
     if(refreshing) return;
-    if(window.scrollY>0) return;
+    if(e.currentTarget.scrollTop>0) return; // only trigger at top of the scroll area
     ptrStartY.current=e.touches[0].clientY;
   };
   const handlePtrMove=(e)=>{
@@ -3450,11 +3463,14 @@ function AppInner(){
     <>
       <div
         className="ua-app"
-        style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100dvh"}}
-        onTouchStart={handlePtrStart}
-        onTouchMove={handlePtrMove}
-        onTouchEnd={handlePtrEnd}
+        style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,height:"100dvh",display:"flex",flexDirection:"column",overflow:"hidden"}}
       >
+        <div
+          style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",position:"relative"}}
+          onTouchStart={handlePtrStart}
+          onTouchMove={handlePtrMove}
+          onTouchEnd={handlePtrEnd}
+        >
         {/* Pull-to-refresh indicator */}
         {(ptrY>0||refreshing)&&(
           <div style={{position:"fixed",top:0,left:0,right:0,zIndex:700,display:"flex",justifyContent:"center",transition:"opacity .2s",opacity:ptrY>10||refreshing?1:0}}>
@@ -3475,8 +3491,9 @@ function AppInner(){
           </div>
         )}
         {renderScreen()}
+        </div>
+        <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
       </div>
-      <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
       {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideCancelReq={handleDecideCancelReq} onClose={()=>setShowNotifPanel(false)}/>}
       {/* Cancel Request Modal — pops up wherever trainer is */}
       {cancelReqModal&&(
