@@ -2782,9 +2782,14 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
             style={{flexShrink:0,width:32,height:32,borderRadius:8,border:`1px solid ${numDays>1?C.pink:C.border}`,background:numDays>1?`${C.pink}22`:"transparent",color:numDays>1?C.pink:C.border,cursor:numDays>1?"pointer":"default",fontSize:18,lineHeight:1,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",opacity:saving?0.4:1}}>−</button>
         </div>
 
-        {/* ── Step: exercise list ── */}
-        {step==="list"&&(<>
-          <div style={{flex:1,overflowY:"auto",padding:"14px 20px"}}>
+        {/* ── Step: exercise list ──
+            Everything — list, note preview, and the action buttons — lives inside this one
+            scrollable container. Action buttons are NOT pinned outside the scroll area:
+            if something covers the bottom of the viewport (on-screen keyboard, browser
+            chrome, OS taskbar), the user can still scroll down to reach them. A fixed
+            footer outside the scroll area can become permanently unreachable in that case. */}
+        {step==="list"&&(
+          <div style={{flex:1,overflowY:"auto",padding:"14px 20px",display:"flex",flexDirection:"column"}}>
             {exs.length===0
               ? <Empty msg={`No exercises for Day ${activeDay} yet`}/>
               : (()=>{
@@ -2836,23 +2841,23 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
                   });
                 })()
             }
-          </div>
-          {dayNote&&(
-            <div style={{margin:"0 20px 0",flexShrink:0}}>
-              <div style={{background:`${C.amber}11`,border:`1px solid ${C.amber}33`,borderRadius:10,padding:"10px 14px",marginBottom:6}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                  <div style={{color:C.amber,fontSize:10,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase"}}>📝 Text Note</div>
-                  <button onClick={()=>{setPasteText(dayNote);setStep("paste");}} style={{background:"none",border:"none",color:C.amber,fontSize:12,cursor:"pointer",padding:0,fontFamily:"inherit",fontWeight:700}}>Edit</button>
+            {dayNote&&(
+              <div style={{marginTop:8,flexShrink:0}}>
+                <div style={{background:`${C.amber}11`,border:`1px solid ${C.amber}33`,borderRadius:10,padding:"10px 14px",marginBottom:6}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <div style={{color:C.amber,fontSize:10,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase"}}>📝 Text Note</div>
+                    <button onClick={()=>{setPasteText(dayNote);setStep("paste");}} style={{background:"none",border:"none",color:C.amber,fontSize:12,cursor:"pointer",padding:0,fontFamily:"inherit",fontWeight:700}}>Edit</button>
+                  </div>
+                  <div style={{color:C.muted,fontSize:12,lineHeight:1.55,whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom,black 60%,transparent 100%)"}}>{dayNote}</div>
                 </div>
-                <div style={{color:C.muted,fontSize:12,lineHeight:1.55,whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom,black 60%,transparent 100%)"}}>{dayNote}</div>
               </div>
+            )}
+            <div style={{flexShrink:0,marginTop:16,paddingTop:12,paddingBottom:"max(env(safe-area-inset-bottom),20px)",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
+              <GBtn label={saving?"Saving…":"+ Add Exercise"} onClick={startAdd} style={{flex:1}} disabled={saving}/>
+              <button onClick={()=>{setPasteText(dayNote);setStep("paste");}} style={{flexShrink:0,background:`${C.amber}18`,border:`1px solid ${C.amber}44`,borderRadius:10,padding:"10px 14px",color:C.amber,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📝</button>
             </div>
-          )}
-          <div style={{flexShrink:0,padding:"12px 20px max(env(safe-area-inset-bottom),20px)",borderTop:`1px solid ${C.border}`,display:"flex",gap:8}}>
-            <GBtn label={saving?"Saving…":"+ Add Exercise"} onClick={startAdd} style={{flex:1}} disabled={saving}/>
-            <button onClick={()=>{setPasteText(dayNote);setStep("paste");}} style={{flexShrink:0,background:`${C.amber}18`,border:`1px solid ${C.amber}44`,borderRadius:10,padding:"10px 14px",color:C.amber,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📝</button>
           </div>
-        </>)}
+        )}
 
         {/* ── Step: pick exercise from library ── */}
         {step==="pick"&&(<>
@@ -2977,9 +2982,12 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
           </div>
         )}
 
-        {/* ── Step: paste / type text note ── */}
+        {/* ── Step: paste / type text note ──
+            Scrollable (was previously a non-scrolling flex column) so the Save/Cancel
+            buttons stay reachable even when an on-screen keyboard or browser/OS chrome
+            shrinks the visible area — same reasoning as the list-step fix above. */}
         {step==="paste"&&(
-          <div style={{flex:1,display:"flex",flexDirection:"column",padding:"20px",gap:14}}>
+          <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",padding:"20px",gap:14}}>
             <div style={{color:C.amber,fontSize:10,fontWeight:800,letterSpacing:1.5,textTransform:"uppercase"}}>📝 Text Note — Day {activeDay}</div>
             <div style={{color:C.muted,fontSize:12,lineHeight:1.5}}>Paste or type program text here. Shown as a note block alongside exercises.</div>
             <textarea
@@ -2987,9 +2995,9 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
               value={pasteText}
               onChange={e=>setPasteText(e.target.value)}
               placeholder={"e.g.\nSquat 4x8 @70%\nRDL 3x10\nLeg Press 3x12\n..."}
-              style={{flex:1,minHeight:180,background:"rgba(255,255,255,0.06)",border:`1px solid ${C.amber}44`,borderRadius:12,padding:"12px 14px",color:C.white,fontSize:13,lineHeight:1.6,fontFamily:"inherit",outline:"none",resize:"none"}}
+              style={{minHeight:180,flexShrink:0,background:"rgba(255,255,255,0.06)",border:`1px solid ${C.amber}44`,borderRadius:12,padding:"12px 14px",color:C.white,fontSize:13,lineHeight:1.6,fontFamily:"inherit",outline:"none",resize:"none"}}
             />
-            <div style={{display:"flex",gap:8}}>
+            <div style={{display:"flex",gap:8,flexShrink:0,paddingBottom:"max(env(safe-area-inset-bottom),4px)"}}>
               <button onClick={()=>setStep("list")} style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px",color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
               <button onClick={async()=>{await persistNote(pasteText);setStep("list");}} disabled={saving} style={{flex:2,background:`linear-gradient(135deg,${C.amber},${C.pink})`,border:"none",borderRadius:10,padding:"11px",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:saving?0.6:1}}>{saving?"Saving…":"💾 Save Note"}</button>
               {pasteText&&<button onClick={async()=>{setPasteText("");await persistNote("");setStep("list");}} disabled={saving} style={{flexShrink:0,background:`${C.pink}18`,border:`1px solid ${C.pink}44`,borderRadius:10,padding:"11px 14px",color:C.pink,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🗑</button>}
