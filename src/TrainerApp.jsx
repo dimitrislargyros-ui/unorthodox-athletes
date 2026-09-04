@@ -1173,23 +1173,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const dayNum=await calcDayNum(client.id,logDate,token,spw);
       const res=await createSession({client_id:client.id,trainer_id:trainerId,session_date:logDate,start_time_min:logTime,day_num:dayNum,status},token);
       const created=Array.isArray(res)?res[0]:res;
-      const hasBookingForDay=clientBooks.some(b=>b.book_date===logDate&&b.status!=="cancelled");
-      // Charge the package whenever the trainer commits a session (past OR future custom
-      // time), unless a booking already exists for that day (which already charged it).
-      // A future logged session is a real commitment, just like a client booking.
-      if(pkg && !hasBookingForDay){
-        const newUsed=(pkg.sessions_used||0)+1;
-        await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
-        const updPkg={...pkg,sessions_used:newUsed};
-        setPkg(updPkg);
-        onClientUpdated({...client,_pkg:updPkg});
-        const newLeft=pkg.sessions_total-newUsed;
-        if(newLeft===2||newLeft===1){
-          await postNotification({client_id:client.id,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
-          // Trainer also gets reminded in their notification panel
-          postNotification({client_id:trainerId,type:"low_sessions_trainer",message:`⚠️ ${client.name||"Client"} has only ${newLeft} session${newLeft>1?"s":""} left. Consider renewing their package.`},token);
-        }
-      }
+      // Counting is derived (charge at completion) and auto-settled by the effect above:
+      // the new session flows into the timeline and the count updates itself. No direct charge.
       const full={...created,session_notes:[],exercises:[]};
       setSessions(p=>[full,...p]);
       if(status==="completed") setAS(full);
@@ -1310,13 +1295,19 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   // dated on or after the package start. If the counter drifted below that (e.g. an
   // increment failed to save), offer the trainer a one-tap fix. Never lowers the counter.
   const pkgStartDate=pkg?(pkg.start_date||(pkg.created_at?String(pkg.created_at).slice(0,10):"")):"";
+  const _nowMs=Date.now();
+  const _inPkg=(it)=>!pkgStartDate||it.session_date>=pkgStartDate;
+  // Booked (reserved) = every non-cancelled session/booking since package start (future + past)
+  const reservedCount=pkg?timeline.filter(it=>it.status!=="cancelled"&&_inPkg(it)).length:0;
+  // Charge at completion: "used" = non-cancelled sessions/bookings whose time has already passed.
+  // Future bookings/logs are reserved but NOT charged until they happen.
   const reconciledUsed=pkg
     ? Math.min(
-        timeline.filter(it=>it.status==="completed"&&(!pkgStartDate||it.session_date>=pkgStartDate)).length,
+        timeline.filter(it=>it.status!=="cancelled"&&_inPkg(it)&&sessionDT(it)<=_nowMs).length,
         pkg.sessions_total
       )
     : 0;
-  const needsReconcile=!!pkg&&reconciledUsed>(pkg.sessions_used||0);
+  const needsReconcile=!!pkg&&reconciledUsed!==(pkg.sessions_used||0);
   const handleReconcile=async()=>{
     if(!pkg||reconciling||!needsReconcile) return;
     setReconciling(true);
@@ -1329,6 +1320,21 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     }catch(e){ showUaToast("Error: "+e.message); }
     setReconciling(false);
   };
+  // Auto-settle the stored count to the completion-based value whenever it drifts
+  // (fixes existing clients on open, and keeps it correct as sessions complete).
+  useEffect(()=>{
+    if(!pkg||loading) return;
+    if(reconciledUsed===(pkg.sessions_used||0)) return;
+    const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
+    const newLeft=pkg.sessions_total-reconciledUsed;
+    dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:reconciledUsed},token).catch(()=>{});
+    const updPkg={...pkg,sessions_used:reconciledUsed};
+    setPkg(updPkg);
+    onClientUpdated({...client,_pkg:updPkg});
+    if(newLeft<prevLeft&&(newLeft===2||newLeft===1)){
+      postNotification({client_id:client.id,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+    }
+  },[reconciledUsed,loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCancelSession=(item)=>{
     setCancelDlg({
@@ -1337,27 +1343,14 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       okLabel:"Cancel Session",
       onOk:async()=>{
         try{
+          // Cancelling flips the item to cancelled/removes it → the completion count
+          // auto-settles via the effect above (a cancelled completed session = trainer's −1).
           if(item._type==="booking"){
             await cancelBookingRow(item._bookingId,token);
             setClientBooks(p=>p.filter(b=>b.id!==item._bookingId));
-            // A booking charges the package at creation time — refund it on cancel
-            if(pkg){
-              const newUsed=Math.max((pkg.sessions_used||0)-1,0);
-              await decrementPkgUsed(pkg.id,pkg.sessions_used,token);
-              const updPkg={...pkg,sessions_used:newUsed};
-              setPkg(updPkg);
-              onClientUpdated({...client,_pkg:updPkg});
-            }
           }else{
             await cancelSessionRow(item.id,token);
             setSessions(p=>p.map(s=>s.id===item.id?{...s,status:"cancelled"}:s));
-            if(pkg){
-              const newUsed=Math.max((pkg.sessions_used||0)-1,0);
-              await decrementPkgUsed(pkg.id,pkg.sessions_used,token);
-              const updPkg={...pkg,sessions_used:newUsed};
-              setPkg(updPkg);
-              onClientUpdated({...client,_pkg:updPkg});
-            }
           }
           await postNotification({client_id:client.id,type:"session_cancelled",message:`Your session on ${fmtDate(item.session_date)} at ${toTime(item.start_time_min)} was cancelled by your trainer.`},token).catch(()=>{});
         }catch(e){ showUaToast("Error: "+e.message); }
