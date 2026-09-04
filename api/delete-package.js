@@ -15,6 +15,15 @@ export default async function handler(req, res) {
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${callerToken}` },
   }).catch(() => null);
   if (!userCheck || !userCheck.ok) return res.status(401).json({ error: 'Invalid token' });
+  const callerUser = await userCheck.json().catch(() => null);
+  if (!callerUser?.id) return res.status(401).json({ error: 'Invalid token' });
+
+  // Verify caller is actually a trainer, not just any authenticated user.
+  const roleCheck = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${callerUser.id}&select=role`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${callerToken}` },
+  }).catch(() => null);
+  const roleRows = roleCheck && roleCheck.ok ? await roleCheck.json().catch(() => []) : [];
+  if (roleRows[0]?.role !== 'trainer') return res.status(403).json({ error: 'Trainer role required' });
 
   let body;
   try {

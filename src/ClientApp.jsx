@@ -2702,12 +2702,21 @@ function AppInner(){
     // A DB trigger auto-creates the profiles row (with a placeholder name) when the
     // auth.users row is created, so this must PATCH the existing row, not INSERT —
     // clients have no INSERT policy on profiles, only UPDATE-own-row.
-    await updateProfile(user.id,{name:fullName,initials,username,...(phone&&{phone})},access_token).catch(()=>{});
+    let profileErr=null;
+    await updateProfile(user.id,{name:fullName,initials,username,...(phone&&{phone})},access_token).catch(async(e)=>{
+      // Most likely cause: username collision with an existing client. Retry once with a
+      // numeric suffix so the account doesn't end up stuck with the DB-trigger placeholder name.
+      const altUsername=`${username}${Math.floor(100+Math.random()*900)}`;
+      await updateProfile(user.id,{name:fullName,initials,username:altUsername,...(phone&&{phone})},access_token).catch(()=>{profileErr=e;});
+    });
     localStorage.setItem(UA_AUTH_KEY,JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at,refreshToken:data.refresh_token}));
-    // Notify trainer of new client signup
+    // Notify trainer of new client signup (and flag if the profile update never went through)
     getTrainerProfile(access_token).then(trainer=>{
       if(!trainer) return;
-      postNotification({client_id:trainer.id,type:"new_client",message:`New client signed up: ${fullName}${phone?` (${phone})`:""}`},access_token).catch(()=>{});
+      const msg=profileErr
+        ?`⚠️ New client signed up but profile setup failed (${email}) — check their name/username manually.`
+        :`New client signed up: ${fullName}${phone?` (${phone})`:""}`;
+      postNotification({client_id:trainer.id,type:"new_client",message:msg},access_token).catch(()=>{});
     }).catch(()=>{});
     await loadData(access_token,user.id);
     return true;

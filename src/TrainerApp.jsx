@@ -1268,7 +1268,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     setSavingNotes(false);
   };
 
-  const sessDateSet=new Set(sessions.map(s=>s.session_date));
+  // Only non-cancelled sessions should hide a same-date booking from the timeline —
+  // otherwise an active booking on the same date as a cancelled session vanishes entirely
+  // (and drifts out of sync with ClientApp's computeReservedCount/computeCompletedUsed).
+  const sessDateSet=new Set(sessions.filter(s=>s.status!=="cancelled").map(s=>s.session_date));
   const bookOnlyItems=(clientBooks||[])
     .filter(b=>!sessDateSet.has(b.book_date))
     .map(b=>({id:`bk_${b.id}`,_bookingId:b.id,_type:"booking",session_date:b.book_date,start_time_min:b.schedule_slots?.start_time_min||0,status:"booked"}));
