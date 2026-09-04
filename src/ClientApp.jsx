@@ -234,6 +234,20 @@ const joinWaitlist     = (d,tk) => dbPost("waitlist",d,tk);
 const leaveWaitlist    = (id,tk) => dbDelete("waitlist",`id=eq.${id}`,tk);
 const getSlotWaitlist  = (slotId,date,tk) => dbGet("waitlist",`slot_id=eq.${slotId}&book_date=eq.${date}&order=position.asc`,tk);
 const getMyUpcomingBooks = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${date}&status=eq.booked&select=*,schedule_slots(start_time_min)`,tk);
+const getAllMyBookings   = (uid,tk) => dbGet("bookings",`client_id=eq.${uid}&status=neq.cancelled&select=book_date,schedule_slots(start_time_min)`,tk);
+// Charge at completion: package "used" = distinct non-cancelled session/booking days (since
+// package start) whose time has already passed. Future bookings are reserved, not charged.
+const computeCompletedUsed=(pkg,sessions,bookings,nowMs)=>{
+  if(!pkg) return 0;
+  const start=pkg.start_date||(pkg.created_at?String(pkg.created_at).slice(0,10):"");
+  const byDate={};
+  const add=(date,min)=>{ if(!date) return; if(start&&date<start) return; if(byDate[date]==null||min<byDate[date]) byDate[date]=min; };
+  (sessions||[]).forEach(s=>{ if(s.status!=="cancelled") add(s.session_date,s.start_time_min||0); });
+  (bookings||[]).forEach(b=>{ add(b.book_date,b.schedule_slots?.start_time_min||0); });
+  let n=0;
+  for(const d in byDate){ const[y,mo,dy]=d.split('-').map(Number); const dt=new Date(y,mo-1,dy,Math.floor(byDate[d]/60),byDate[d]%60,0).getTime(); if(dt<=nowMs) n++; }
+  return Math.min(n,pkg.sessions_total);
+};
 const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,tk);
 const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max(newUsed,0)},tk);
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
@@ -1561,7 +1575,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
       setCounts(p=>({...p,[slot.id]:Math.max((p[slot.id]||1)-1,0)}));
       if(isCurrentWeek) setMyWeekBookDates(p=>{ const n=new Set(p); n.delete(selDay.iso); return n; });
       setWeekBookDates(p=>{ const n=new Set(p); n.delete(selDay.iso); return n; });
-      adjustPkgUsed(-1);
+      // No package change on cancel — a future booking was never charged (charge at completion).
       const waitlist=await getSlotWaitlist(slot.id,selDay.iso,token).catch(()=>[]);
       if(waitlist?.length>0){
         const first=waitlist[0];
@@ -1569,8 +1583,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
           await bookSlot(slot.id,first.client_id,selDay.iso,token);
           await leaveWaitlist(first.id,token);
           setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));
-          const promotedPkg=await getPackage(first.client_id,token).catch(()=>null);
-          if(promotedPkg) await updatePkgUsed(promotedPkg.id,(promotedPkg.sessions_used||0)+1,token).catch(()=>{});
+          // Promoted from waitlist into a future booking — not charged until it completes.
           await postNotification({client_id:first.client_id,type:"waitlist_promoted",message:`A spot opened up — you've been booked for ${fmtDate(selDay.iso)} at ${toTime(slot.start_time_min)}!`},token).catch(()=>{});
         }catch(e){}
       }
@@ -1603,7 +1616,9 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
       if(created){
         setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));
         if(isCurrentWeek) setMyWeekBookDates(p=>new Set(p).add(selDay.iso));
-        setWeekBookDates(p=>new Set(p).add(selDay.iso)); adjustPkgUsed(1);
+        setWeekBookDates(p=>new Set(p).add(selDay.iso));
+        // Booking reserves the slot but does NOT charge the package — it's charged when the
+        // session actually happens (charge at completion).
         // Notify trainer of new booking
         getTrainerProfile(token).then(trainer=>{
           if(!trainer) return;
@@ -2496,7 +2511,17 @@ function AppInner(){
       const prs=await getPRs(userId,token).catch(()=>[]);
       const notifs=await getMyNotifications(userId,token).catch(()=>[]);
       const anns=await getAnnouncements(token).catch(()=>[]);
-      setAuth({loading:false,token,userId,profile,pkg:pkg||null,sessions:sessions||[],prs:prs||[]});
+      // Settle package "used" to the completion-based count (charge at completion).
+      let pkgFixed=pkg;
+      if(pkg){
+        const allBooks=await getAllMyBookings(userId,token).catch(()=>[]);
+        const completed=computeCompletedUsed(pkg,sessions,allBooks,Date.now());
+        if(completed!==(pkg.sessions_used||0)){
+          updatePkgUsed(pkg.id,completed,token).catch(()=>{});
+          pkgFixed={...pkg,sessions_used:completed};
+        }
+      }
+      setAuth({loading:false,token,userId,profile,pkg:pkgFixed||null,sessions:sessions||[],prs:prs||[]});
       setNotifications(notifs||[]);
       // Show ImportantEventModal for any unread important notification already in DB on load
       // Skip any notification the user already dismissed (persisted across theme reloads).
