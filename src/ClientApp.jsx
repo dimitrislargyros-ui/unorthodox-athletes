@@ -248,6 +248,16 @@ const computeCompletedUsed=(pkg,sessions,bookings,nowMs)=>{
   for(const d in byDate){ const[y,mo,dy]=d.split('-').map(Number); const dt=new Date(y,mo-1,dy,Math.floor(byDate[d]/60),byDate[d]%60,0).getTime(); if(dt<=nowMs) n++; }
   return Math.min(n,pkg.sessions_total);
 };
+// Booked = distinct non-cancelled session/booking days (since package start), regardless of time.
+const computeReservedCount=(pkg,sessions,bookings)=>{
+  if(!pkg) return 0;
+  const start=pkg.start_date||(pkg.created_at?String(pkg.created_at).slice(0,10):"");
+  const byDate={};
+  const add=(date)=>{ if(!date) return; if(start&&date<start) return; byDate[date]=true; };
+  (sessions||[]).forEach(s=>{ if(s.status!=="cancelled") add(s.session_date); });
+  (bookings||[]).forEach(b=>{ add(b.book_date); });
+  return Object.keys(byDate).length;
+};
 const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,tk);
 const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max(newUsed,0)},tk);
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
@@ -946,7 +956,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
 };
 
 // ── Home ──
-const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,userId,onPkgUpdate,onOpenNotif,notifCount,bookingsVer})=>{
+const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpenSession,token,userId,onPkgUpdate,onOpenNotif,notifCount,bookingsVer})=>{
   const [now,setNow]=useState(new Date());
   const [todaySlots,setTodaySlots]=useState([]);
   const [myTodayBook,setMyBook]=useState(null);
@@ -1412,6 +1422,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
               <div style={{textAlign:"right"}}>
                 <div style={{color:left<=2?C.pink:C.cyan,fontSize:26,fontWeight:900,lineHeight:1}}>{left}</div>
                 <div style={{color:C.muted,fontSize:10,fontWeight:700}}>LEFT</div>
+                <div style={{color:C.muted,fontSize:10,marginTop:2}}>{reservedCount}/{pkg.sessions_total} booked</div>
               </div>
             </div>
             <div style={{height:6,background:C.surface2,borderRadius:3}}>
@@ -1448,7 +1459,7 @@ const HomeScreen=({profile,pkg,sessions,onNav,onNavSchedule,onOpenSession,token,
 };
 
 // ── Schedule ──
-const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeekOffset,initialDayIdx,bookingsVer})=>{
+const ScheduleScreen=({userId,token,sessions,pkg,reservedCount,onPkgUpdate,profile,initialWeekOffset,initialDayIdx,bookingsVer})=>{
   const [weekOffset,setWeekOffset]=useState(initialWeekOffset||0);
   const [dayIdx,setDay]=useState(initialDayIdx!=null?initialDayIdx:todayDow());
   const [slots,setSlots]=useState([]);
@@ -1599,6 +1610,10 @@ const ScheduleScreen=({userId,token,sessions,pkg,onPkgUpdate,profile,initialWeek
       setCounts(p=>({...p,[existingDayBook.slot_id]:Math.max((p[existingDayBook.slot_id]||1)-1,0)}));
       try{ const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk; if(created){setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));setWeekBookDates(p=>new Set(p).add(selDay.iso));} }
       catch(e){ showSchedErr("Error: "+e.message); }
+      return;
+    }
+    if(pkg&&reservedCount>=pkg.sessions_total){
+      showSchedErr("You've booked all sessions in your package. Contact your trainer to renew.");
       return;
     }
     if(pkg&&(pkg.sessions_total-pkg.sessions_used)<=0){
@@ -2209,7 +2224,7 @@ const NotifBellSheet=({userId,token,onClose})=>{
 };
 
 // ── Profile ──
-const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onAvatarChange})=>{
+const ProfileScreen=({profile,pkg,sessions,reservedCount,prs:initPRs,userId,token,onLogout,onAvatarChange})=>{
   const [prs,setPRs]=useState(initPRs||[]);
   const [showAddPR,setShowAddPR]=useState(false);
   const [newPR,setNew]=useState({exercise:"",weight:"",unit:"kg",reps:"1"});
@@ -2316,6 +2331,7 @@ const ProfileScreen=({profile,pkg,sessions,prs:initPRs,userId,token,onLogout,onA
                 <div style={{color:C.bg,fontSize:11,opacity:0.8}}>Remaining</div>
                 <div style={{color:C.bg,fontSize:32,fontWeight:900,lineHeight:1}}>{left}</div>
                 <div style={{color:C.bg,fontSize:11,opacity:0.8}}>of {pkg.sessions_total}</div>
+                <div style={{color:C.bg,fontSize:11,opacity:0.65,marginTop:2}}>{reservedCount}/{pkg.sessions_total} booked</div>
               </div>
             </div>
             <div style={{height:5,background:"rgba(0,0,0,0.25)",borderRadius:3,marginTop:12}}>
@@ -2459,7 +2475,7 @@ class ErrorBoundary extends Component {
 }
 
 function AppInner(){
-  const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[]});
+  const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[],reservedCount:0});
   const [screen,setScreen]=useState("home");
   const [scheduleInitWeek,setScheduleInitWeek]=useState(0);
   const [scheduleInitDay,setScheduleInitDay]=useState(null);
@@ -2513,6 +2529,7 @@ function AppInner(){
       const anns=await getAnnouncements(token).catch(()=>[]);
       // Settle package "used" to the completion-based count (charge at completion).
       let pkgFixed=pkg;
+      let reservedCount=0;
       if(pkg){
         const allBooks=await getAllMyBookings(userId,token).catch(()=>[]);
         const completed=computeCompletedUsed(pkg,sessions,allBooks,Date.now());
@@ -2520,8 +2537,9 @@ function AppInner(){
           updatePkgUsed(pkg.id,completed,token).catch(()=>{});
           pkgFixed={...pkg,sessions_used:completed};
         }
+        reservedCount=computeReservedCount(pkg,sessions,allBooks);
       }
-      setAuth({loading:false,token,userId,profile,pkg:pkgFixed||null,sessions:sessions||[],prs:prs||[]});
+      setAuth({loading:false,token,userId,profile,pkg:pkgFixed||null,sessions:sessions||[],prs:prs||[],reservedCount});
       setNotifications(notifs||[]);
       // Show ImportantEventModal for any unread important notification already in DB on load
       // Skip any notification the user already dismissed (persisted across theme reloads).
@@ -2700,14 +2718,14 @@ function AppInner(){
     if(data.error) throw new Error(data.error_description||data.error);
     const {access_token,expires_at,user}=data;
     localStorage.setItem(UA_AUTH_KEY,JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at,refreshToken:data.refresh_token}));
-    setAuth({loading:false,token:access_token,userId:user.id,profile:null,pkg:null,sessions:[],prs:[]});
+    setAuth({loading:false,token:access_token,userId:user.id,profile:null,pkg:null,sessions:[],prs:[],reservedCount:0});
     loadData(access_token,user.id);
   };
 
   const handleLogout=async()=>{
     try{ await authLogout(auth.token); }catch(e){}
     localStorage.removeItem(UA_AUTH_KEY);
-    setAuth({loading:false,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[]});
+    setAuth({loading:false,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[],reservedCount:0});
     setScreen("home");
   };
 
@@ -2726,10 +2744,10 @@ function AppInner(){
 
   const renderScreen=()=>{
     switch(screen){
-      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length} bookingsVer={bookingsVer}/>;
-      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} initialDayIdx={scheduleInitDay} bookingsVer={bookingsVer}/>;
+      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length} bookingsVer={bookingsVer}/>;
+      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} reservedCount={auth.reservedCount} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} initialDayIdx={scheduleInitDay} bookingsVer={bookingsVer}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
-      case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
+      case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;
     }
   };

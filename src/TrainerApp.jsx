@@ -1550,6 +1550,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                 <div style={{color:C.bg,fontSize:11,opacity:0.8}}>Remaining</div>
                 <div style={{color:C.bg,fontSize:32,fontWeight:900,lineHeight:1}}>{left}</div>
                 <div style={{color:C.bg,fontSize:11,opacity:0.8}}>of {pkg.sessions_total}</div>
+                <div style={{color:C.bg,fontSize:11,opacity:0.65,marginTop:2}}>{reservedCount}/{pkg.sessions_total} booked</div>
               </div>
             </div>
             <div style={{height:5,background:"rgba(0,0,0,0.25)",borderRadius:3,marginTop:12}}>
@@ -1886,12 +1887,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
       const dayNum=await calcDayNum(cl.id,selDay.iso,token,cl._pkg?.sessions_per_week||3).catch(()=>null);
       const sessStatus=selDay.iso>todayISO()?"booked":"completed";
       await createSession({client_id:cl.id,trainer_id:trainerId,session_date:selDay.iso,start_time_min:forceLogSlot.start_time_min,day_num:dayNum,status:sessStatus},token);
-      if(cl._pkg && sessStatus==="completed"){
-        const newUsed=(cl._pkg.sessions_used||0)+1;
-        await dbPatch("packages",`id=eq.${cl._pkg.id}`,{sessions_used:newUsed},token).catch(()=>{});
-        // Keep clients state in sync so the card shows the updated session count
-        onClientUpdated({...cl,_pkg:{...cl._pkg,sessions_used:newUsed}});
-      }
+      // sessions_used is derived (charge-at-completion) — the auto-settle effect corrects it.
       const notifMsg=`🗓 Your trainer scheduled a session for you on ${fmtDate(selDay.iso)} at ${toTime(forceLogSlot.start_time_min)}.`;
       postNotification({client_id:cl.id,type:"session_scheduled",message:notifMsg},token);
       showToast(`✓ Session logged for ${cl.name||"client"}`,true);
