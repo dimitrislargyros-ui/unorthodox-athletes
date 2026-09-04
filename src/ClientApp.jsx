@@ -491,7 +491,8 @@ const computeStatusMap=(items,now)=>{
   const map={};
   withDt.forEach(it=>{
     if(it.status==="cancelled") map[it._key]="cancelled";
-    else if(it._fromBooking&&it._dt<=nowMs) map[it._key]="missed";
+    // Past booking never cancelled = attended (package already charged) → Completed.
+    else if(it._fromBooking&&it._dt<=nowMs) map[it._key]="completed";
     else if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed";
   });
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
@@ -511,7 +512,7 @@ const BottomNav=({active,onNav,avatarUrl,initials,annBadge})=>{
     {id:"profile",  label:"Profile",       Icon:null},
   ];
   return(
-    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:200,display:"flex",justifyContent:"center",pointerEvents:"none"}}>
+    <div style={{flexShrink:0,zIndex:200,display:"flex",justifyContent:"center"}}>
     <div style={{width:"100%",maxWidth:480,background:"rgba(8,8,8,0.94)",backdropFilter:"blur(24px) saturate(180%)",WebkitBackdropFilter:"blur(24px) saturate(180%)",borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",justifyContent:"space-around",alignItems:"flex-end",padding:"8px 0 max(env(safe-area-inset-bottom),18px)",pointerEvents:"all"}}>
       {tabs.map(t=>{
         const isActive=active===t.id;
@@ -2739,11 +2740,14 @@ function AppInner(){
     <>
       <div
         className="ua-app"
-        style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh",overflowY:"auto",position:"relative"}}
-        onTouchStart={handlePtrStart}
-        onTouchMove={handlePtrMove}
-        onTouchEnd={handlePtrEnd}
+        style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,height:"100dvh",display:"flex",flexDirection:"column",overflow:"hidden"}}
       >
+        <div
+          style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",position:"relative"}}
+          onTouchStart={handlePtrStart}
+          onTouchMove={handlePtrMove}
+          onTouchEnd={handlePtrEnd}
+        >
         {/* Pull-to-refresh indicator */}
         {(ptrY>0||refreshing)&&(
           <div style={{position:"fixed",top:0,left:0,right:0,zIndex:700,display:"flex",justifyContent:"center",transition:"opacity .2s",opacity:ptrY>10||refreshing?1:0}}>
@@ -2769,8 +2773,9 @@ function AppInner(){
           </div>
         )}
         {renderScreen()}
+        </div>
+        <BottomNav active={screen} onNav={handleNav} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials} annBadge={hasNewAnn}/>
       </div>
-      <BottomNav active={screen} onNav={handleNav} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials} annBadge={hasNewAnn}/>
     </>
   );
 }
