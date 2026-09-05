@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Component } from "react";
+import React, { useState, useEffect, useRef, useMemo, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { computeCompletedUsed, computeReservedCount } from "./sessionsMath.js";
 
@@ -511,11 +511,12 @@ const IcoHome=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none
 const IcoCalendar=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>);
 const IcoMega=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 010 8"/><path d="M4.5 9H4a2 2 0 000 6h.5"/><path d="M4.5 9l9-5v14l-9-5V9z"/><path d="M7.5 9.5v5"/></svg>);
 const IcoPerson=({c,sz=22})=>(<svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>);
+const IcoDumbbell=({c})=>(<svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M8 12h8"/><rect x="5.5" y="8" width="2.5" height="8" rx="1"/><rect x="16" y="8" width="2.5" height="8" rx="1"/><rect x="2.5" y="10" width="3" height="4" rx="1"/><rect x="18.5" y="10" width="3" height="4" rx="1"/></svg>);
 
-const BottomNav=({active,onNav,avatarUrl,initials,annBadge})=>{
+const BottomNav=({active,onNav,avatarUrl,initials,annBadge,isRemote})=>{
   const tabs=[
     {id:"home",     label:"Home",         Icon:IcoHome},
-    {id:"schedule", label:"Schedule",     Icon:IcoCalendar},
+    {id:"schedule", label:isRemote?"My Program":"Schedule", Icon:isRemote?IcoDumbbell:IcoCalendar},
     {id:"announcements",label:"News",      Icon:IcoMega},
     {id:"profile",  label:"Profile",       Icon:null},
   ];
@@ -593,12 +594,18 @@ const SessionSheet=({session,token,onClose})=>{
         {exercises.length===0
           ? <Empty msg="No exercises logged yet"/>
           : <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:20}}>
-              {exercises.map((ex,i)=>(
-                <div key={i} style={{background:C.surface2,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between"}}>
-                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>{ex.name}</div>
-                  <div style={{color:C.cyan,fontSize:13,fontWeight:700}}>{ex.sets}×{ex.reps} · {ex.weight}</div>
-                </div>
-              ))}
+              {exercises.map((ex,i)=>{
+                const hasSetsInfo=ex.sets||ex.reps||ex.weight;
+                return (
+                  <div key={i} style={{background:C.surface2,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>{ex.name}</div>
+                    {hasSetsInfo
+                      ? <div style={{color:C.cyan,fontSize:13,fontWeight:700}}>{ex.sets}×{ex.reps} · {ex.weight}</div>
+                      : <div style={{color:ex.done?C.green:C.muted,fontSize:12,fontWeight:700}}>{ex.done?"✓ Done":"— Skipped"}</div>
+                    }
+                  </div>
+                );
+              })}
             </div>
         }
 
@@ -1239,7 +1246,9 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
         </div>
       )}
 
-      {/* TOP: training in progress → next upcoming → session complete → other CTAs */}
+      {/* TOP: training in progress → next upcoming → session complete → other CTAs
+          (in-person only — gym booking has no meaning for remote clients) */}
+      {pkg?.delivery_mode!=='remote'&&(<>
       {inSessionNow?(
         <div style={{padding:"14px 20px 0"}}>
           <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:20,padding:"18px 20px",boxSizing:"border-box"}}>
@@ -1397,6 +1406,17 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
           <button onClick={doBookNav} style={{width:"100%",background:"none",border:`2px solid ${weekFull?C.green:C.cyan}`,borderRadius:14,padding:"14px 18px",color:weekFull?C.green:C.cyan,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
             <span>🗓</span>
             <span>Book Day {nextBookDayNum}{nextBookNavLabel?` · ${nextBookNavLabel}`:weekFull?" → Next Week":""} →</span>
+          </button>
+        </div>
+      )}
+      </>)}
+
+      {/* Remote clients: no gym schedule — just point them at today's program */}
+      {pkg?.delivery_mode==='remote'&&(
+        <div style={{padding:"14px 20px 0"}}>
+          <button onClick={()=>onNavSchedule?.()} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:18,padding:"22px 20px",color:C.white,fontSize:18,fontWeight:900,cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+            <span>📍 Log Today's Workout →</span>
+            {pkg.workout_templates?.name&&<span style={{fontSize:12,fontWeight:600,opacity:0.85}}>{pkg.workout_templates.name}</span>}
           </button>
         </div>
       )}
@@ -1893,6 +1913,156 @@ const ScheduleScreen=({userId,token,sessions,pkg,reservedCount,onPkgUpdate,profi
         </>
       }
       <UaToast toast={schedErrToast} c={C}/>
+    </div>
+  );
+};
+
+// ── Remote Program (client: self-log a remote workout day) ──
+// Replaces ScheduleScreen entirely for pkg.delivery_mode==='remote' clients — see the
+// "schedule" case in renderScreen(). Day rotation reuses calcDayNum (the same function
+// in-person sessions use), the program text reuses getDayNote (the same Notes the
+// trainer writes for in-person programs) — this screen is glue, not new business logic.
+const fmtStopwatch=(sec)=>{ const m=Math.floor(sec/60),s=sec%60; return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`; };
+
+const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
+  const spw=pkg?.sessions_per_week||3;
+  const nextDay=calcDayNum(pkg?.sessions_used||0,spw);
+  const programName=pkg?.workout_templates?.name;
+  const note=pkg?.workout_templates?.exercises?getDayNote(pkg.workout_templates.exercises,nextDay,spw):"";
+  const lines=useMemo(()=>(note||"").split("\n").map(l=>l.trim()).filter(Boolean),[note]);
+
+  const today=todayISO();
+  const alreadyLoggedToday=(sessions||[]).some(s=>s.session_date===today&&s.status!=="cancelled");
+  const draftKey=`ua_remote_draft_${userId}_${today}`;
+
+  const [checked,setChecked]=useState(()=>{
+    try{ const d=JSON.parse(localStorage.getItem(draftKey)||"null"); return new Set(d?.checked||[]); }catch{ return new Set(); }
+  });
+  const [running,setRunning]=useState(false);
+  const [hasStarted,setHasStarted]=useState(()=>{
+    try{ const d=JSON.parse(localStorage.getItem(draftKey)||"null"); return !!d?.hasStarted; }catch{ return false; }
+  });
+  const [elapsedSec,setElapsedSec]=useState(()=>{
+    try{ const d=JSON.parse(localStorage.getItem(draftKey)||"null"); return d?.elapsedSec||0; }catch{ return 0; }
+  });
+  const [startClockMin,setStartClockMin]=useState(()=>{
+    try{ const d=JSON.parse(localStorage.getItem(draftKey)||"null"); return d?.startClockMin??null; }catch{ return null; }
+  });
+  const [saving,setSaving]=useState(false);
+  const [toast,setToast]=useState(null);
+  const showToast=(msg,ok=false)=>{setToast({msg,ok});setTimeout(()=>setToast(null),3000);};
+
+  // Persist the in-progress draft so a reload mid-workout doesn't lose checklist/timer state.
+  useEffect(()=>{
+    if(alreadyLoggedToday) return;
+    localStorage.setItem(draftKey,JSON.stringify({checked:[...checked],hasStarted,elapsedSec,startClockMin}));
+  },[checked,hasStarted,elapsedSec,startClockMin,alreadyLoggedToday,draftKey]);
+
+  useEffect(()=>{
+    if(!running) return;
+    const t=setInterval(()=>setElapsedSec(s=>s+1),1000);
+    return ()=>clearInterval(t);
+  },[running]);
+
+  const toggleLine=(i)=>setChecked(p=>{ const n=new Set(p); n.has(i)?n.delete(i):n.add(i); return n; });
+
+  const toggleTimer=()=>{
+    if(!running){
+      setRunning(true);
+      if(!hasStarted){
+        setHasStarted(true);
+        const now=new Date();
+        setStartClockMin(now.getHours()*60+now.getMinutes());
+      }
+    } else {
+      setRunning(false);
+    }
+  };
+
+  const finish=async()=>{
+    if(saving||!pkg) return;
+    setSaving(true);
+    try{
+      const res=await fetch('/api/log-remote-workout',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+        body:JSON.stringify({
+          package_id:pkg.id,
+          day_num:nextDay,
+          session_date:today,
+          start_time_min:startClockMin??(()=>{const n=new Date();return n.getHours()*60+n.getMinutes();})(),
+          duration_sec:elapsedSec,
+          checklist:lines.map((name,i)=>({name,done:checked.has(i)})),
+        }),
+      });
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok) throw new Error(data.error||'Failed to save');
+      localStorage.removeItem(draftKey);
+      setRunning(false);
+      showToast('✅ Workout logged!',true);
+      getTrainerProfile(token).then(trainer=>{
+        if(!trainer) return;
+        postNotification({client_id:trainer.id,type:"remote_workout_logged",message:`📍 A remote client completed Day ${nextDay}${programName?` of ${programName}`:""}.`},token).catch(()=>{});
+      }).catch(()=>{});
+      await onReload?.();
+    }catch(e){ showToast('Error: '+e.message); }
+    setSaving(false);
+  };
+
+  if(!pkg){
+    return <div style={{padding:"40px 20px"}}><Empty msg="No active package yet — check back once your trainer sets one up."/></div>;
+  }
+  if(!pkg.workout_templates){
+    return <div style={{padding:"40px 20px"}}><Empty msg="No program assigned yet — ask your trainer to assign one."/></div>;
+  }
+  if(alreadyLoggedToday){
+    return (
+      <div style={{padding:"22px 20px 40px"}}>
+        <Card style={{textAlign:"center",padding:"32px 20px"}}>
+          <div style={{fontSize:40,marginBottom:10}}>✅</div>
+          <div style={{color:C.white,fontSize:17,fontWeight:800,marginBottom:6}}>Workout logged for today</div>
+          <div style={{color:C.muted,fontSize:13,lineHeight:1.6}}>Come back tomorrow for Day {nextDay} of {sessLabel(programName)}.</div>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{padding:"22px 20px 40px"}}>
+      <div style={{marginBottom:16}}>
+        <div style={{color:C.cyan,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Day {nextDay} · Remote</div>
+        <div style={{color:C.white,fontSize:22,fontWeight:900,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5}}>{sessLabel(programName)}</div>
+      </div>
+
+      <Card style={{marginBottom:14,textAlign:"center"}}>
+        <div style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Workout Timer</div>
+        <div style={{color:C.white,fontSize:38,fontWeight:900,fontFamily:"'Oswald',sans-serif",marginBottom:12,fontVariantNumeric:"tabular-nums"}}>{fmtStopwatch(elapsedSec)}</div>
+        <GBtn label={running?"⏸ Pause":hasStarted?"▶ Resume":"▶ Start Workout"} onClick={toggleTimer} style={{width:"100%"}}/>
+      </Card>
+
+      <Card style={{marginBottom:14}}>
+        <SL>Today's Program</SL>
+        {lines.length===0
+          ?<Empty msg={`No program text set for Day ${nextDay} yet`}/>
+          :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {lines.map((line,i)=>{
+              const done=checked.has(i);
+              return (
+                <button key={i} onClick={()=>toggleLine(i)} style={{display:"flex",alignItems:"flex-start",gap:10,textAlign:"left",background:done?C.green+"14":"rgba(255,255,255,0.04)",border:`1px solid ${done?C.green+"44":C.border}`,borderRadius:10,padding:"11px 13px",cursor:"pointer",fontFamily:"inherit"}}>
+                  <span style={{flexShrink:0,width:20,height:20,borderRadius:6,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",marginTop:1}}>
+                    {done&&<span style={{color:"#000",fontSize:13,fontWeight:900,lineHeight:1}}>✓</span>}
+                  </span>
+                  <span style={{color:done?C.muted:C.white,fontSize:14,lineHeight:1.5,textDecoration:done?"line-through":"none"}}>{line}</span>
+                </button>
+              );
+            })}
+          </div>
+        }
+      </Card>
+
+      <GBtn label={saving?"Saving…":"✓ Finish Workout"} onClick={finish} disabled={saving||!hasStarted} style={{width:"100%"}}/>
+      {!hasStarted&&<div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:8}}>Start the timer to enable Finish.</div>}
+      <UaToast toast={toast} c={C}/>
     </div>
   );
 };
@@ -2745,7 +2915,9 @@ function AppInner(){
   const renderScreen=()=>{
     switch(screen){
       case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length} bookingsVer={bookingsVer}/>;
-      case "schedule": return <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} reservedCount={auth.reservedCount} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} initialDayIdx={scheduleInitDay} bookingsVer={bookingsVer}/>;
+      case "schedule": return auth.pkg?.delivery_mode==='remote'
+        ? <RemoteProgramScreen userId={auth.userId} token={auth.token} pkg={auth.pkg} sessions={auth.sessions} onReload={()=>loadData(auth.token,auth.userId)}/>
+        : <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} reservedCount={auth.reservedCount} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} initialDayIdx={scheduleInitDay} bookingsVer={bookingsVer}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;
@@ -2817,7 +2989,7 @@ function AppInner(){
         )}
         {renderScreen()}
         </div>
-        <BottomNav active={screen} onNav={handleNav} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials} annBadge={hasNewAnn}/>
+        <BottomNav active={screen} onNav={handleNav} avatarUrl={auth.profile?.avatar_url} initials={auth.profile?.initials} annBadge={hasNewAnn} isRemote={auth.pkg?.delivery_mode==='remote'}/>
       </div>
     </>
   );

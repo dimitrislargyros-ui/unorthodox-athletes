@@ -357,7 +357,7 @@ const computeStatusMap=(items,now)=>{
 };
 // ── Trainer Notification Panel ──
 const typeIcon=(type)=>{
-  const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳"};
+  const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳",remote_workout_logged:"📍"};
   return m[type]||"🔔";
 };
 const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq})=>{
@@ -550,7 +550,12 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
         <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:20}}>
           {exs.length===0?<Empty msg="No exercises yet"/>:exs.map((ex,i)=>(
             <div key={i} style={{background:C.surface2,borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div><div style={{color:C.white,fontSize:14,fontWeight:600}}>{ex.name}</div><div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:2}}>{ex.sets}×{ex.reps} · {ex.weight}</div></div>
+              <div><div style={{color:C.white,fontSize:14,fontWeight:600}}>{ex.name}</div>
+                {(ex.sets||ex.reps||ex.weight)
+                  ? <div style={{color:C.cyan,fontSize:12,fontWeight:700,marginTop:2}}>{ex.sets}×{ex.reps} · {ex.weight}</div>
+                  : <div style={{color:ex.done?C.green:C.muted,fontSize:11,fontWeight:700,marginTop:2}}>{ex.done?"✓ Done (remote log)":"— Skipped (remote log)"}</div>
+                }
+              </div>
               <button onClick={()=>setExs(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16,padding:"4px"}}>✕</button>
             </div>
           ))}
@@ -903,6 +908,7 @@ const ClientsScreen=({clients,onViewClient})=>{
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
                     <div style={{color:C.white,fontSize:15,fontWeight:700}}>{c.name}</div>
                     {currentDay&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:20}}>Day {currentDay}</span>}
+                    {pkg?.delivery_mode==='remote'&&<span style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,color:C.pink,fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:20,letterSpacing:0.5}}>📍 REMOTE</span>}
                   </div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{pkg?`${pkg.sessions_total}-Session · ${pkg.sessions_per_week||3}x/week · ends ${fmtDate(pkg.end_date)}`:"No active package"}</div>
                   {pkg?.has_injury&&<div style={{color:C.amber,fontSize:11,marginTop:2}}>⚠️ {pkg.injury_notes}</div>}
@@ -1054,6 +1060,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [programs,setPrograms]=useState([]);
   const [newPkgProgramId,setNewPkgProgramId]=useState(null);
   const [editProgramId,setEditProgramId]=useState(null);
+  const [newPkgDeliveryMode,setNewPkgDeliveryMode]=useState('in_person');
+  const [editDeliveryMode,setEditDeliveryMode]=useState('in_person');
   const [logDate,setLogDate]=useState(todayISO());
   const [logTime,setLogTime]=useState(300);
   const [logging,setLogging]=useState(false);
@@ -1146,7 +1154,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         const total=parseInt(newPkgTotal),spwNum=parseInt(newSpw)||3;
         const weeks=Math.ceil(total/spwNum);
         const end=new Date(); end.setDate(end.getDate()+weeks*7);
-        const res=await createPkg({client_id:client.id,sessions_total:total,sessions_used:0,sessions_per_week:spwNum,weeks,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null},token);
+        const res=await createPkg({client_id:client.id,sessions_total:total,sessions_used:0,sessions_per_week:spwNum,weeks,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null,delivery_mode:newPkgDeliveryMode},token);
         const created=Array.isArray(res)?res[0]:res;
         created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
         setPkg(created); setShowPkg(false); setCustomTotal(""); setCustomSpw("");
@@ -1275,6 +1283,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     setEditInjNotes(pkg?.injury_notes||"");
     setEditPkgNotes(pkg?.package_notes||"");
     setEditProgramId(pkg?.program_id||null);
+    setEditDeliveryMode(pkg?.delivery_mode||'in_person');
     setShowEditNotes(true);
   };
 
@@ -1282,7 +1291,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     if(!pkg||savingNotes) return;
     setSavingNotes(true);
     try{
-      const body={has_injury:editHasInjury,injury_notes:editHasInjury?editInjuryNotes:"",package_notes:editPkgNotes,program_id:editProgramId||null};
+      const body={has_injury:editHasInjury,injury_notes:editHasInjury?editInjuryNotes:"",package_notes:editPkgNotes,program_id:editProgramId||null,delivery_mode:editDeliveryMode};
       await dbPatch("packages",`id=eq.${pkg.id}`,body,token);
       const updPkg={...pkg,...body,workout_templates:programs.find(p=>p.id===editProgramId)||null};
       setPkg(updPkg);
@@ -1492,6 +1501,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               <button onClick={()=>setEditHasInj(p=>!p)} style={{background:editHasInjury?C.amber+"33":C.surface2,border:`1px solid ${editHasInjury?C.amber:C.border}`,borderRadius:20,padding:"6px 16px",color:editHasInjury?C.amber:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{editHasInjury?"Yes ✓":"No"}</button>
             </div>
             {editHasInjury&&<input value={editInjuryNotes} onChange={e=>setEditInjNotes(e.target.value)} placeholder="Describe the injury..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.amber}55`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>}
+            <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Delivery</div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <button onClick={()=>setEditDeliveryMode('in_person')} style={{flex:1,background:editDeliveryMode==='in_person'?C.cyan+"33":C.surface2,border:`1px solid ${editDeliveryMode==='in_person'?C.cyan:C.border}`,borderRadius:8,padding:"9px",color:editDeliveryMode==='in_person'?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🏢 In-Person</button>
+              <button onClick={()=>setEditDeliveryMode('remote')} style={{flex:1,background:editDeliveryMode==='remote'?C.pink+"33":C.surface2,border:`1px solid ${editDeliveryMode==='remote'?C.pink:C.border}`,borderRadius:8,padding:"9px",color:editDeliveryMode==='remote'?C.pink:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>📍 Remote</button>
+            </div>
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Program</div>
             {programPicker(editProgramId,setEditProgramId)}
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Training Notes</div>
@@ -1549,6 +1563,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               <button onClick={()=>setHasInj(p=>!p)} style={{background:hasInjury?C.amber+"33":C.surface2,border:`1px solid ${hasInjury?C.amber:C.border}`,borderRadius:20,padding:"6px 16px",color:hasInjury?C.amber:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{hasInjury?"Yes ✓":"No"}</button>
             </div>
             {hasInjury&&<input value={injuryNotes} onChange={e=>setInjNotes(e.target.value)} placeholder="Describe the injury..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.amber}55`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>}
+            <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Delivery</div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <button onClick={()=>setNewPkgDeliveryMode('in_person')} style={{flex:1,background:newPkgDeliveryMode==='in_person'?C.cyan+"33":C.surface2,border:`1px solid ${newPkgDeliveryMode==='in_person'?C.cyan:C.border}`,borderRadius:8,padding:"9px",color:newPkgDeliveryMode==='in_person'?C.cyan:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🏢 In-Person</button>
+              <button onClick={()=>setNewPkgDeliveryMode('remote')} style={{flex:1,background:newPkgDeliveryMode==='remote'?C.pink+"33":C.surface2,border:`1px solid ${newPkgDeliveryMode==='remote'?C.pink:C.border}`,borderRadius:8,padding:"9px",color:newPkgDeliveryMode==='remote'?C.pink:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>📍 Remote</button>
+            </div>
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Program</div>
             {programPicker(newPkgProgramId,setNewPkgProgramId)}
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Training Notes</div>
@@ -1560,7 +1579,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           <div style={{background:left!=null&&left<=2?C.pink:C.cyan,borderRadius:14,padding:"18px"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div>
-                <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.8}}>{pkg.sessions_total}-Session Pack</div>
+                <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.8}}>{pkg.sessions_total}-Session Pack{pkg.delivery_mode==='remote'?" · 📍 Remote":""}</div>
                 <div style={{color:C.bg,fontSize:20,fontWeight:900,marginTop:3}}>{pkg.sessions_per_week||3}x per week · {pkg.weeks} weeks</div>
                 <div style={{color:C.bg,fontSize:12,opacity:0.8,marginTop:4}}>{fmtDate(pkg.start_date)} → {fmtDate(pkg.end_date)}</div>
                 {pkg.workout_templates?.name&&<div style={{color:C.bg,fontSize:11,fontWeight:700,marginTop:4}}>🏋️ {pkg.workout_templates.name}</div>}
