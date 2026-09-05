@@ -760,9 +760,8 @@ const getDayNote=(templateExercises,dayNum,numDays=3)=>{
 
 // ── WOD Sheet (client: view program for their day) ──
 const WODSheet=({programName,dayNum,exercises,note,onClose})=>(
-  <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
-    <div onClick={e=>e.stopPropagation()} className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px max(env(safe-area-inset-bottom),20px)",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box",width:"100%"}}>
-      <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
+  <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 20px"}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} className="ua-modal-panel" style={{background:C.surface,borderRadius:20,padding:"22px 20px max(env(safe-area-inset-bottom),22px)",maxHeight:"80vh",overflowY:"auto",boxSizing:"border-box",width:"100%",maxWidth:430}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
         <div>
           <div style={{color:C.cyan,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Day {dayNum} · WOD</div>
