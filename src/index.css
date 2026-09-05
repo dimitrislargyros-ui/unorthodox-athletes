@@ -1,4 +1,14 @@
-body { margin: 0; background: #0A0A0A; }
-#root { display: block; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #0A0A0A;
+  overscroll-behavior: none; /* stop the page-level rubber-band bounce / pull-to-refresh */
+}
+#root { display: block; height: 100%; overscroll-behavior: none; }
 .ua-app { max-width: 430px; margin: 0 auto; }
 @media (min-width: 768px) { .ua-app { max-width: 600px; } }
+/* Any scrollable panel inside the app: allow its own scroll but never let the bounce
+   chain up to the page (native-app feel instead of "webpage that scrolls past its edges"). */
+.ua-app, .ua-app * {
+  overscroll-behavior: contain;
+}

@@ -17,6 +17,10 @@ import { computeCompletedUsed, computeReservedCount } from "./sessionsMath.js";
     @keyframes ua-fade-in{from{opacity:0}to{opacity:1}}
     @keyframes ua-scale-in{from{transform:scale(0.82);opacity:0}to{transform:scale(1);opacity:1}}
     @keyframes ua-slide-down{from{opacity:0;transform:translateX(-50%) translateY(-16px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+    @keyframes ua-slide-up-sheet{from{transform:translateY(100%)}to{transform:translateY(0)}}
+    .ua-sheet-backdrop{animation:ua-fade-in .18s ease}
+    .ua-sheet-panel{animation:ua-slide-up-sheet .25s cubic-bezier(.22,1,.36,1)}
+    .ua-modal-panel{animation:ua-scale-in .22s cubic-bezier(.22,1,.36,1)}
     .ua-btn-grad{transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s ease}
     .ua-btn-grad:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,201,225,.35)}
     .ua-btn-grad:not(:disabled):active{transform:translateY(0) scale(.97)}
@@ -395,8 +399,8 @@ const UaConfirm=({dialog,setDialog,c})=>{
   if(!dialog) return null;
   const close=()=>setDialog(null);
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
-      <div style={{background:c.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${c.border}`}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+      <div className="ua-modal-panel" style={{background:c.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${c.border}`}}>
         <div style={{color:c.white,fontSize:15,fontWeight:700,marginBottom:4,lineHeight:1.4}}>{dialog.title||""}</div>
         <div style={{color:c.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>{dialog.msg}</div>
         <div style={{display:"flex",gap:8}}>
@@ -429,8 +433,8 @@ const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
     setSending(false);
   };
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:500,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={sent?onClose:undefined}>
-      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:430,padding:"24px 24px 40px",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:500,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={sent?onClose:undefined}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:430,padding:"24px 24px 40px",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
         <div style={{width:36,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px",opacity:.6}}/>
         {sent?(
           <div style={{textAlign:"center",padding:"12px 0 8px"}}>
@@ -465,8 +469,8 @@ const UaPrompt=({prompt,setPrompt,c})=>{
   if(!prompt) return null;
   const close=()=>setPrompt(null);
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
-      <div style={{background:c.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${c.border}`}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+      <div className="ua-modal-panel" style={{background:c.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${c.border}`}}>
         <div style={{color:c.white,fontSize:15,fontWeight:700,marginBottom:12}}>{prompt.msg}</div>
         <input autoFocus value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&val.trim()&&(close(),prompt.onOk(val.trim()))}
           placeholder={prompt.placeholder||""}
@@ -571,8 +575,8 @@ const SessionSheet=({session,token,onClose})=>{
   };
 
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"90vh",overflowY:"auto"}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div>
@@ -615,8 +619,8 @@ const SessionSheet=({session,token,onClose})=>{
 const HistorySheet=({sessions,spw,onClose,onOpen,label="Personal Training"})=>{
   const completed=sessions.filter(s=>s.status==="completed");
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{color:C.white,fontSize:17,fontWeight:800}}>Session History</div>
@@ -709,8 +713,8 @@ const SwipeNotifRow=({n,onDelete})=>{
 
 const NotifPanel=({notifications,onDelete,onClose})=>{
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
-      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",maxHeight:"80vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",maxHeight:"80vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
         <div style={{padding:"16px 20px 0"}}>
           <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 14px"}}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
@@ -756,8 +760,8 @@ const getDayNote=(templateExercises,dayNum,numDays=3)=>{
 
 // ── WOD Sheet (client: view program for their day) ──
 const WODSheet=({programName,dayNum,exercises,note,onClose})=>(
-  <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
-    <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"78vh",overflowY:"auto",boxSizing:"border-box"}}>
+  <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px max(env(safe-area-inset-bottom),20px)",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box",width:"100%"}}>
       <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
         <div>
@@ -767,7 +771,7 @@ const WODSheet=({programName,dayNum,exercises,note,onClose})=>(
         <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 12px",color:C.muted,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
       </div>
       {!!note&&note.trim()&&(
-        <div style={{background:`${C.cyan}11`,border:`1px solid ${C.cyan}33`,borderRadius:12,padding:"13px 16px",marginBottom:exercises.length>0?14:0,whiteSpace:"pre-wrap",wordBreak:"break-word",color:C.white,fontSize:13,lineHeight:1.6}}>{note}</div>
+        <div style={{background:`${C.cyan}11`,border:`1px solid ${C.cyan}33`,borderRadius:12,padding:"14px 16px",marginBottom:exercises.length>0?14:0,whiteSpace:"pre-wrap",wordBreak:"break-word",overflowWrap:"anywhere",color:C.white,fontSize:14,lineHeight:1.7,boxSizing:"border-box",width:"100%"}}>{note}</div>
       )}
       {exercises.length===0
         ? (!note||!note.trim())&&<div style={{textAlign:"center",padding:"28px 0",color:C.muted,fontSize:14}}>No program set for Day {dayNum} yet</div>
@@ -2165,8 +2169,8 @@ const NotifBellSheet=({userId,token,onClose})=>{
   const unsupported=status==='unsupported'||!hasPush;
 
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:500,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
-      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px"}} onClick={e=>e.stopPropagation()}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:500,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px"}} onClick={e=>e.stopPropagation()}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 18px"}}/>
 
         {/* Status header */}

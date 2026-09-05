@@ -12,9 +12,15 @@ import { computeCompletedUsed, computeReservedCount } from "./sessionsMath.js";
   if(!document.head.querySelector('[href*="Oswald"]')) document.head.appendChild(link);
   const style=document.createElement("style");
   style.id="ua-premium-styles";
-  style.textContent=`h
+  style.textContent=`
     @keyframes ua-spin{to{transform:rotate(360deg)}}
     @keyframes ua-logo-pulse{0%,100%{opacity:1}50%{opacity:.75}}
+    @keyframes ua-fade-in{from{opacity:0}to{opacity:1}}
+    @keyframes ua-scale-in{from{transform:scale(0.82);opacity:0}to{transform:scale(1);opacity:1}}
+    @keyframes ua-slide-up-sheet{from{transform:translateY(100%)}to{transform:translateY(0)}}
+    .ua-sheet-backdrop{animation:ua-fade-in .18s ease}
+    .ua-sheet-panel{animation:ua-slide-up-sheet .25s cubic-bezier(.22,1,.36,1)}
+    .ua-modal-panel{animation:ua-scale-in .22s cubic-bezier(.22,1,.36,1)}
     .ua-btn-grad{transition:transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s ease}
     .ua-btn-grad:not(:disabled):hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,201,225,.35)}
     .ua-btn-grad:not(:disabled):active{transform:translateY(0) scale(.97)}
@@ -294,8 +300,8 @@ const UaConfirm=({dialog,setDialog})=>{
   if(!dialog) return null;
   const close=()=>setDialog(null);
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
-      <div style={{background:C.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${C.border}`}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+      <div className="ua-modal-panel" style={{background:C.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${C.border}`}}>
         <div style={{color:C.white,fontSize:15,fontWeight:700,marginBottom:4,lineHeight:1.4}}>{dialog.title||""}</div>
         <div style={{color:C.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>{dialog.msg}</div>
         <div style={{display:"flex",gap:8}}>
@@ -312,8 +318,8 @@ const UaPrompt=({prompt,setPrompt})=>{
   if(!prompt) return null;
   const close=()=>setPrompt(null);
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
-      <div style={{background:C.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${C.border}`}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 24px"}}>
+      <div className="ua-modal-panel" style={{background:C.surface,borderRadius:16,padding:24,width:"100%",maxWidth:340,border:`1px solid ${C.border}`}}>
         <div style={{color:C.white,fontSize:15,fontWeight:700,marginBottom:12}}>{prompt.msg}</div>
         <input autoFocus value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&val.trim()&&(close(),prompt.onOk(val.trim()))}
           placeholder={prompt.placeholder||""}
@@ -372,8 +378,8 @@ const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq})=>{
     dbDelete("notifications",`id=in.(${ids.join(",")})`,token).catch(()=>{});
   };
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
-      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{color:C.white,fontSize:17,fontWeight:800}}>Notifications</div>
@@ -497,8 +503,8 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
   const inp=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1}}/>);
 
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"92vh",overflowY:"auto"}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"92vh",overflowY:"auto"}}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div>
@@ -945,8 +951,8 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,allPkgs,prs,spw,onClose
   );
 
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"90vh",overflowY:"auto"}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
           <div>
@@ -1736,8 +1742,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
 
       {/* Past Package Action Sheet */}
       {selectedPastPkg&&(
-        <div onClick={()=>setSelectedPastPkg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
-          <div onClick={e=>e.stopPropagation()} style={{width:"100%",background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 36px",boxSizing:"border-box",maxHeight:"85vh",overflowY:"auto"}}>
+        <div onClick={()=>setSelectedPastPkg(null)} className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div onClick={e=>e.stopPropagation()} className="ua-sheet-panel" style={{width:"100%",background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 36px",boxSizing:"border-box",maxHeight:"85vh",overflowY:"auto"}}>
             {/* Handle */}
             <div style={{width:40,height:4,borderRadius:2,background:C.muted+"44",margin:"0 auto 16px"}}/>
             {/* Header */}
@@ -2115,8 +2121,8 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
   return(
     <div style={{paddingBottom:80}}>
       {confirm&&confirm.msg?<UaConfirm dialog={confirm} setDialog={setConf}/>:(confirm&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
-          <div style={{background:C.surface,borderRadius:16,padding:"24px",width:"100%",maxWidth:340}}>
+        <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
+          <div className="ua-modal-panel" style={{background:C.surface,borderRadius:16,padding:"24px",width:"100%",maxWidth:340}}>
             <div style={{color:C.white,fontSize:16,fontWeight:700,marginBottom:8}}>Remove Slot?</div>
             <div style={{color:C.muted,fontSize:13,marginBottom:20}}>Remove {toSlot(confirm.start_time_min)}? Existing bookings will not be deleted.</div>
             <div style={{display:"flex",gap:8}}>
@@ -2502,8 +2508,8 @@ const LibrarySheet=({trainerId,onClose})=>{
   const filtered=search?all.filter(e=>e.toLowerCase().includes(search.toLowerCase())):all;
   const isCustom=n=>custom.includes(n);
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
-      <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px",maxHeight:"80vh",display:"flex",flexDirection:"column"}} onClick={e=>e.stopPropagation()}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px",maxHeight:"80vh",display:"flex",flexDirection:"column"}} onClick={e=>e.stopPropagation()}>
         <div style={{width:36,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div><div style={{color:C.white,fontSize:17,fontWeight:800}}>Exercise Library</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{all.length} exercises · {custom.length} custom</div></div>
@@ -2759,8 +2765,8 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
   };
 
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:350,display:"flex",flexDirection:"column"}}>
-      <div style={{flex:1,display:"flex",flexDirection:"column",background:C.surface,marginTop:44,borderRadius:"20px 20px 0 0",overflow:"hidden"}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:350,display:"flex",flexDirection:"column"}}>
+      <div className="ua-sheet-panel" style={{flex:1,display:"flex",flexDirection:"column",background:C.surface,marginTop:44,borderRadius:"20px 20px 0 0",overflow:"hidden"}}>
         {/* Header */}
         <div style={{padding:"14px 20px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
           <button onClick={step!=="list"?resetDetail:onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"7px 13px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>
@@ -3513,8 +3519,8 @@ function AppInner(){
       {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideCancelReq={handleDecideCancelReq} onClose={()=>setShowNotifPanel(false)}/>}
       {/* Cancel Request Modal — pops up wherever trainer is */}
       {cancelReqModal&&(
-        <div style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.65)"}} onClick={e=>{if(e.target===e.currentTarget)setCancelReqModal(null);}}>
-          <div style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(0,0,0,0.6)"}}>
+        <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.65)"}} onClick={e=>{if(e.target===e.currentTarget)setCancelReqModal(null);}}>
+          <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(0,0,0,0.6)"}}>
             <div style={{width:40,height:4,borderRadius:2,background:C.border,margin:"0 auto 20px"}}/>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
               <div style={{width:44,height:44,borderRadius:12,background:C.amber+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>⚠️</div>
