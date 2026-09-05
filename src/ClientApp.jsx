@@ -1546,25 +1546,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,reservedCount,onPkgUpdate,profi
       getMyBooks(userId,selDay.iso,token).then(mb=>setMyB(mb||[])).catch(()=>{});
   },[bookingsVer]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const adjustPkgUsed=async(delta)=>{
-    if(!pkg) return;
-    const newUsed=Math.max((pkg.sessions_used||0)+delta,0);
-    try{
-      await updatePkgUsed(pkg.id,newUsed,token);
-      onPkgUpdate?.({...pkg,sessions_used:newUsed});
-      const newLeft=pkg.sessions_total-newUsed;
-      if(delta>0&&(newLeft===2||newLeft===1)){
-        await postNotification({client_id:userId,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
-        // Also notify trainer
-        getTrainerProfile(token).then(trainer=>{
-          if(!trainer) return;
-          const clientName=profile?.name||"Client";
-          postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`${clientName} has only ${newLeft} session${newLeft>1?"s":""} left in their package. Consider renewing.`},token).catch(()=>{});
-        }).catch(()=>{});
-      }
-    }catch(e){}
-  };
-
   const handleBook=async(slot)=>{
     const already=myBooks.find(b=>b.slot_id===slot.id&&b.status==="booked");
     if(already){
@@ -2532,8 +2513,20 @@ function AppInner(){
         const allBooks=await getAllMyBookings(userId,token).catch(()=>[]);
         const completed=computeCompletedUsed(pkg,sessions,allBooks,Date.now());
         if(completed!==(pkg.sessions_used||0)){
+          const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
+          const newLeft=pkg.sessions_total-completed;
           updatePkgUsed(pkg.id,completed,token).catch(()=>{});
           pkgFixed={...pkg,sessions_used:completed};
+          // Mirror TrainerApp's auto-settle notification — the trainer's app only fires this
+          // when THEY open the client panel, which might not happen promptly. This covers
+          // the case where the client's own session-completion is what crosses the threshold.
+          if(newLeft<prevLeft&&(newLeft===2||newLeft===1)){
+            postNotification({client_id:userId,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+            getTrainerProfile(token).then(trainer=>{
+              if(!trainer) return;
+              postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`${profile?.name||"A client"} has only ${newLeft} session${newLeft>1?"s":""} left in their package. Consider renewing.`},token).catch(()=>{});
+            }).catch(()=>{});
+          }
         }
         reservedCount=computeReservedCount(pkg,sessions,allBooks);
       }
