@@ -378,9 +378,8 @@ const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq})=>{
     dbDelete("notifications",`id=in.(${ids.join(",")})`,token).catch(()=>{});
   };
   return(
-    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
-      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
-        <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 20px"}} onClick={onClose}>
+      <div className="ua-modal-panel" style={{background:C.surface,borderRadius:20,padding:"20px 20px 22px",maxHeight:"80vh",overflowY:"auto",boxSizing:"border-box",width:"100%",maxWidth:430}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{color:C.white,fontSize:17,fontWeight:800}}>Notifications</div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>

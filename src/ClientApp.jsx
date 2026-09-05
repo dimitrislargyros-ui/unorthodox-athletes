@@ -713,10 +713,9 @@ const SwipeNotifRow=({n,onDelete})=>{
 
 const NotifPanel=({notifications,onDelete,onClose})=>{
   return(
-    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
-      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",maxHeight:"80vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
-        <div style={{padding:"16px 20px 0"}}>
-          <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 14px"}}/>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 20px"}} onClick={onClose}>
+      <div className="ua-modal-panel" style={{background:C.surface,borderRadius:20,maxHeight:"80vh",overflowY:"auto",boxSizing:"border-box",width:"100%",maxWidth:430}} onClick={e=>e.stopPropagation()}>
+        <div style={{padding:"20px 20px 0"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
             <div style={{color:C.white,fontSize:16,fontWeight:800}}>🔔 Notifications</div>
             <button onClick={onClose} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"5px 10px",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12}}>Close</button>
@@ -2175,10 +2174,8 @@ const NotifBellSheet=({userId,token,onClose})=>{
   const unsupported=status==='unsupported'||!hasPush;
 
   return(
-    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:500,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
-      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px"}} onClick={e=>e.stopPropagation()}>
-        <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 18px"}}/>
-
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 20px"}} onClick={onClose}>
+      <div className="ua-modal-panel" style={{background:C.surface,borderRadius:20,padding:"22px 20px",width:"100%",maxWidth:430,maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
         {/* Status header */}
         <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",background:enabled?C.green+"18":denied?C.pink+"18":"rgba(255,255,255,0.05)",borderRadius:12,marginBottom:20,border:`1px solid ${enabled?C.green+"44":denied?C.pink+"44":C.border}`}}>
           <span style={{fontSize:28}}>{enabled?'🔔':denied?'🚫':'🔕'}</span>
