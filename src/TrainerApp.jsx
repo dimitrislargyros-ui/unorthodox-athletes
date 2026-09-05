@@ -1237,6 +1237,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       onClientUpdated({...client,_pkg:updPkg});
       showUaToast(tpl?`Assigned "${tpl.name}"`:"Program removed",true);
       setShowAssignProgram(false);
+      const msg=tpl?`🏋️ Your trainer assigned you a new program: ${tpl.name}. Check your WOD for today's plan!`:"🏋️ Your program was removed by your trainer.";
+      postNotification({client_id:client.id,type:"program_assigned",message:msg},token).catch(()=>{});
     }catch(e){ showUaToast("Error: "+e.message); }
   };
 

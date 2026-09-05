@@ -657,7 +657,7 @@ const SwipeNotifRow=({n,onDelete})=>{
   const [gone,setGone]=useState(false);
   const startX=useRef(null);
   const THRESHOLD=75; // px to snap open
-  const typeIcon=n.type==="session_scheduled"?"🗓":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":"🔔";
+  const typeIcon=n.type==="session_scheduled"?"🗓":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":n.type==="program_assigned"?"🏋️":n.type==="package_renewed"?"🎯":n.type==="slot_request_approved"?"✅":n.type==="slot_request_rejected"?"🚫":"🔔";
 
   const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; setDragging(true); };
   const onTouchMove=(e)=>{
