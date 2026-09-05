@@ -1218,11 +1218,10 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
         </div>
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
           <Logo size={52}/>
-          <button onClick={onOpenNotif} style={{display:"flex",alignItems:"center",gap:4,background:"rgba(255,255,255,0.04)",border:`1px solid ${notifCount>0?C.pink+"44":"rgba(255,255,255,0.07)"}`,borderRadius:20,padding:"4px 9px",cursor:"pointer",transition:"all .2s"}}>
-            <svg width={11} height={11} viewBox="0 0 24 24" fill={notifCount>0?C.pink:C.muted+"99"}><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
-            {notifCount>0
-              ?<span style={{background:C.pink,color:"#fff",fontSize:9,fontWeight:900,padding:"1px 5px",borderRadius:10,lineHeight:1.4}}>{notifCount>9?"9+":notifCount}</span>
-              :<span style={{color:C.muted+"88",fontSize:9,fontWeight:600,letterSpacing:.3}}>notif</span>
+          <button onClick={onOpenNotif} style={{display:"flex",alignItems:"center",justifyContent:"center",width:34,height:34,background:"rgba(255,255,255,0.04)",border:`1px solid ${notifCount>0?C.pink+"44":"rgba(255,255,255,0.07)"}`,borderRadius:"50%",cursor:"pointer",position:"relative",transition:"all .2s"}}>
+            <svg width={15} height={15} viewBox="0 0 24 24" fill={notifCount>0?C.pink:C.muted+"99"}><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+            {notifCount>0&&
+              <span style={{position:"absolute",top:-3,right:-3,background:C.pink,color:"#fff",fontSize:9,fontWeight:900,minWidth:15,height:15,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px",boxShadow:`0 0 0 2px ${C.bg}`}}>{notifCount>9?"9+":notifCount}</span>
             }
           </button>
         </div>
@@ -2134,12 +2133,20 @@ const NotifBellSheet=({userId,token,onClose})=>{
     setWorking(true); setMsg('');
     try{
       const reg=await navigator.serviceWorker.getRegistration('/');
+      let endpoint=null;
       if(reg){
         const sub=await reg.pushManager.getSubscription();
-        if(sub) await sub.unsubscribe();
+        if(sub){ endpoint=sub.endpoint; await sub.unsubscribe(); }
       }
-      // Remove push subscription from DB
-      await dbPatch("push_subscriptions",`user_id=eq.${userId}`,{endpoint:null,active:false},token).catch(()=>{});
+      // push_subscriptions has no user_id/endpoint/active columns — it's client_id +
+      // a `subscription` jsonb blob. Delete by matching the endpoint inside that jsonb,
+      // falling back to clearing all rows for this client if no local subscription was found.
+      const filter=endpoint
+        ? `client_id=eq.${userId}&subscription->>endpoint=eq.${encodeURIComponent(endpoint)}`
+        : `client_id=eq.${userId}`;
+      await dbDelete("push_subscriptions",filter,token).catch(()=>{});
+      localStorage.removeItem(`ua_push_ep_${userId}`);
+      sessionStorage.removeItem(`ua_push_ep_${userId}_session`);
       setMsg('🔕 Notifications disabled.');
       // Note: browser permission stays 'granted' — user must clear from browser settings for full revoke
       // We just stop sending pushes by clearing the subscription
