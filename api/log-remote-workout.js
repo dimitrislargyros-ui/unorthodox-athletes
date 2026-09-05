@@ -73,13 +73,20 @@ export default async function handler(req, res) {
     }),
   });
   if (!sessRes.ok) {
-    const txt = await sessRes.text();
+    const txt = await sessRes.text().catch(() => '');
     return res.status(sessRes.status).json({ error: txt });
   }
-  const created = await sessRes.json();
-  const session = Array.isArray(created) ? created[0] : created;
 
-  if (Array.isArray(checklist) && checklist.length > 0 && session?.id) {
+  // The session row is already committed at this point — a hiccup in anything below
+  // (parsing the response, the exercises insert) must NOT turn a successful save into
+  // a reported failure to the client.
+  let sessionId = null;
+  try {
+    const created = await sessRes.json();
+    sessionId = (Array.isArray(created) ? created[0] : created)?.id;
+  } catch {}
+
+  if (Array.isArray(checklist) && checklist.length > 0 && sessionId) {
     await fetch(`${SUPABASE_URL}/rest/v1/exercises`, {
       method: 'POST',
       headers: {
@@ -89,10 +96,10 @@ export default async function handler(req, res) {
         Prefer: 'return=minimal',
       },
       body: JSON.stringify(
-        checklist.map((c, i) => ({ session_id: session.id, order_index: i, name: c.name, done: !!c.done }))
+        checklist.map((c, i) => ({ session_id: sessionId, order_index: i, name: c.name, done: !!c.done }))
       ),
     }).catch(() => {});
   }
 
-  return res.status(200).json({ ok: true, session_id: session?.id });
+  return res.status(200).json({ ok: true, session_id: sessionId });
 }

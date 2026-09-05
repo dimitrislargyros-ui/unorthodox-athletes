@@ -576,13 +576,12 @@ const SessionSheet=({session,token,onClose})=>{
   };
 
   return (
-    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"90vh",overflowY:"auto"}}>
-        <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px"}}/>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 20px"}} onClick={onClose}>
+      <div className="ua-modal-panel" onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:20,padding:"20px 20px 22px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box",width:"100%",maxWidth:430}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <div style={{color:C.white,fontSize:18,fontWeight:800}}>Session Log</div>
+              <div style={{color:C.white,fontSize:18,fontWeight:800}}>{sessLabel(session._program_name)}</div>
               {dayNum&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20}}>Day {dayNum}</span>}
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:2}}>{fmtDate(session.session_date)} · {toTime(session.start_time_min)}</div>
@@ -1778,7 +1777,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,reservedCount,onPkgUpdate,profi
             :<><div style={{color:C.muted,fontSize:13,marginBottom:10}}>No other slots available.</div><GBtn label="Close" onClick={()=>setToast(null)} sm ghost color={C.muted}/></>}
         </div>
       )}
-      {activeSession&&<SessionSheet session={{...activeSession,_pkg_spw:spw}} token={token} onClose={()=>setAS(null)}/>}
+      {activeSession&&<SessionSheet session={{...activeSession,_pkg_spw:spw,_program_name:pkg?.workout_templates?.name}} token={token} onClose={()=>setAS(null)}/>}
 
       <div style={{padding:"22px 20px 12px"}}>
         <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Book a Session</div>
@@ -1982,6 +1981,7 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
   const finish=async()=>{
     if(saving||!pkg) return;
     setSaving(true);
+    let ok=false;
     try{
       const res=await fetch('/api/log-remote-workout',{
         method:'POST',
@@ -1997,6 +1997,15 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
       });
       const data=await res.json().catch(()=>({}));
       if(!res.ok) throw new Error(data.error||'Failed to save');
+      ok=true;
+    }catch(e){
+      // A dropped response after the server already committed the write looks identical
+      // to a real failure from here — reload below and let the screen self-correct
+      // (it'll flip to "already logged today" if the save actually went through).
+      showToast('Connection hiccup — checking if it saved…');
+      console.error('[Remote workout] finish error:',e);
+    }
+    if(ok){
       localStorage.removeItem(draftKey);
       setRunning(false);
       showToast('✅ Workout logged!',true);
@@ -2004,8 +2013,8 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
         if(!trainer) return;
         postNotification({client_id:trainer.id,type:"remote_workout_logged",message:`📍 A remote client completed Day ${nextDay}${programName?` of ${programName}`:""}.`},token).catch(()=>{});
       }).catch(()=>{});
-      await onReload?.();
-    }catch(e){ showToast('Error: '+e.message); }
+    }
+    await onReload?.().catch(()=>{});
     setSaving(false);
   };
 
@@ -2018,11 +2027,12 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
   if(alreadyLoggedToday){
     return (
       <div style={{padding:"22px 20px 40px"}}>
-        <Card style={{textAlign:"center",padding:"32px 20px"}}>
+        <Card style={{textAlign:"center",padding:"32px 20px",marginBottom:14}}>
           <div style={{fontSize:40,marginBottom:10}}>✅</div>
-          <div style={{color:C.white,fontSize:17,fontWeight:800,marginBottom:6}}>Workout logged for today</div>
+          <div style={{color:C.white,fontSize:17,fontWeight:800,marginBottom:6}}>Workout logged for {fmtDate(today)}</div>
           <div style={{color:C.muted,fontSize:13,lineHeight:1.6}}>Come back tomorrow for Day {nextDay} of {sessLabel(programName)}.</div>
         </Card>
+        <ProgramPreview pkg={pkg} spw={spw} nextDay={nextDay}/>
       </div>
     );
   }
@@ -2030,14 +2040,18 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
   return (
     <div style={{padding:"22px 20px 40px"}}>
       <div style={{marginBottom:16}}>
-        <div style={{color:C.cyan,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Day {nextDay} · Remote</div>
+        <div style={{color:C.cyan,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase"}}>Day {nextDay} · Remote · {fmtDate(today)}</div>
         <div style={{color:C.white,fontSize:22,fontWeight:900,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5}}>{sessLabel(programName)}</div>
       </div>
 
       <Card style={{marginBottom:14,textAlign:"center"}}>
         <div style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Workout Timer</div>
         <div style={{color:C.white,fontSize:38,fontWeight:900,fontFamily:"'Oswald',sans-serif",marginBottom:12,fontVariantNumeric:"tabular-nums"}}>{fmtStopwatch(elapsedSec)}</div>
-        <GBtn label={running?"⏸ Pause":hasStarted?"▶ Resume":"▶ Start Workout"} onClick={toggleTimer} style={{width:"100%"}}/>
+        <div style={{display:"flex",gap:8}}>
+          <GBtn label={running?"⏸ Pause":hasStarted?"▶ Resume":"▶ Start"} onClick={toggleTimer} style={{flex:1}}/>
+          <GBtn label={saving?"Saving…":"⏹ End"} onClick={finish} disabled={saving||!hasStarted} style={{flex:1}}/>
+        </div>
+        {!hasStarted&&<div style={{color:C.muted,fontSize:11,marginTop:8}}>Start the timer to enable End.</div>}
       </Card>
 
       <Card style={{marginBottom:14}}>
@@ -2060,10 +2074,38 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
         }
       </Card>
 
-      <GBtn label={saving?"Saving…":"✓ Finish Workout"} onClick={finish} disabled={saving||!hasStarted} style={{width:"100%"}}/>
-      {!hasStarted&&<div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:8}}>Start the timer to enable Finish.</div>}
+      <ProgramPreview pkg={pkg} spw={spw} nextDay={nextDay}/>
+
       <UaToast toast={toast} c={C}/>
     </div>
+  );
+};
+
+// Read-only browsing of every day in the program — separate from the interactive
+// checklist above, which always stays locked to today's auto-rotated day (logging a
+// different day would desync the Day 1→2→3 rotation math).
+const ProgramPreview=({pkg,spw,nextDay})=>{
+  const [open,setOpen]=useState(false);
+  const [previewDay,setPreviewDay]=useState(nextDay);
+  const previewNote=pkg?.workout_templates?.exercises?getDayNote(pkg.workout_templates.exercises,previewDay,spw):"";
+  return (
+    <Card>
+      <button onClick={()=>setOpen(p=>!p)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>
+        <SL style={{marginBottom:0}}>📖 Browse Full Program</SL>
+        <span style={{color:C.muted,fontSize:12}}>{open?"▲ Hide":"▼ Show"}</span>
+      </button>
+      {open&&(<>
+        <div style={{display:"flex",gap:6,marginTop:12,marginBottom:12,flexWrap:"wrap"}}>
+          {Array.from({length:spw},(_,i)=>i+1).map(d=>(
+            <button key={d} onClick={()=>setPreviewDay(d)} style={{flex:1,minWidth:56,padding:"8px 6px",borderRadius:8,border:`1px solid ${previewDay===d?C.cyan:C.border}`,background:previewDay===d?`${C.cyan}22`:"transparent",color:previewDay===d?C.cyan:C.muted,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Day {d}{d===nextDay?" · Today":""}</button>
+          ))}
+        </div>
+        {previewNote&&previewNote.trim()
+          ? <div style={{whiteSpace:"pre-wrap",wordBreak:"break-word",color:C.white,fontSize:13,lineHeight:1.7,background:"rgba(255,255,255,0.04)",borderRadius:10,padding:"12px 14px"}}>{previewNote}</div>
+          : <Empty msg={`No program text set for Day ${previewDay} yet`}/>
+        }
+      </>)}
+    </Card>
   );
 };
 
@@ -2555,7 +2597,7 @@ const ProfileScreen=({profile,pkg,sessions,reservedCount,prs:initPRs,userId,toke
         })()}
       </div>
       {showHistorySheet&&<HistorySheet sessions={sessions} spw={spw} label={sessLabel(pkg?.workout_templates?.name)} onClose={()=>setShowHistorySheet(false)} onOpen={s=>{setShowHistorySheet(false);setOpenSess(s);}}/>}
-      {openSess&&<SessionSheet session={{...openSess,_pkg_spw:spw}} token={token} onClose={()=>setOpenSess(null)}/>}
+      {openSess&&<SessionSheet session={{...openSess,_pkg_spw:spw,_program_name:pkg?.workout_templates?.name}} token={token} onClose={()=>setOpenSess(null)}/>}
 
       <div style={{padding:"0 20px 16px"}}>
         <SL>App Theme</SL>
@@ -2975,7 +3017,7 @@ function AppInner(){
             </div>
           </div>
         )}
-        {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
+        {openSess&&<SessionSheet session={{...openSess,_pkg_spw:auth.pkg?.sessions_per_week||3,_program_name:auth.pkg?.workout_templates?.name}} token={auth.token} onClose={()=>setOpenSess(null)}/>}
         {/* Notification panel */}
         {showNotifPanel&&<NotifPanel notifications={notifications} onDelete={async(id)=>{await deleteNotif(id);}} onClose={()=>setShowNotifPanel(false)}/>}
         {/* Important event modal (payment / package) */}
