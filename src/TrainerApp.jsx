@@ -1355,12 +1355,16 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   useEffect(()=>{
     if(!pkg||loading) return;
     if(reconciledUsed===(pkg.sessions_used||0)) return;
+    const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
     const newLeft=pkg.sessions_total-reconciledUsed;
     // Only alert once per threshold — a durable flag on the package row (not local
     // state) so repeated mounts/patches (or the client's own app doing the same
-    // settle) can't re-fire the same "N left" push notification.
+    // settle) can't re-fire the same "N left" push notification. Still gated on
+    // newLeft<prevLeft so a downward correction to sessions_used (e.g. a booking
+    // that had been counted gets excluded, freeing up a session) can't look like a
+    // new depletion and fire a spurious "running low" alert.
     const alreadyAlerted=(pkg.low_sessions_alert_level??99)<=newLeft;
-    const shouldAlert=!alreadyAlerted&&(newLeft===2||newLeft===1);
+    const shouldAlert=!alreadyAlerted&&newLeft<prevLeft&&(newLeft===2||newLeft===1);
     const patch={sessions_used:reconciledUsed,...(shouldAlert?{low_sessions_alert_level:newLeft}:{})};
     dbPatch("packages",`id=eq.${pkg.id}`,patch,token).catch(()=>{});
     const updPkg={...pkg,...patch};
@@ -2193,8 +2197,8 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
                     <button onClick={()=>handleRejectRequest(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
                   </div>
                 </div>
-                {cancelReqs.some(c=>c.client_id===r.client_id)&&(
-                  <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"6px 10px",color:C.amber,fontSize:11,fontWeight:600,lineHeight:1.4}}>⚠️ This client also has a pending cancellation request below — resolve that too, or they'll end up booked for both.</div>
+                {cancelReqs.some(c=>c.client_id===r.client_id&&c.book_date===r.requested_date)&&(
+                  <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"6px 10px",color:C.amber,fontSize:11,fontWeight:600,lineHeight:1.4}}>⚠️ This client also has a pending cancellation for this same date below — resolve that too, or they'll end up booked for both.</div>
                 )}
                 {reqWarn[r.id]&&(
                   <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"8px 10px"}}>

@@ -2734,12 +2734,14 @@ function AppInner(){
         const allBooks=await getAllMyBookings(userId,token).catch(()=>[]);
         const completed=computeCompletedUsed(pkg,sessions,allBooks,Date.now());
         if(completed!==(pkg.sessions_used||0)){
+          const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
           const newLeft=pkg.sessions_total-completed;
           // Only alert once per threshold — a durable flag on the package row (not local
           // state) so repeated app loads (or TrainerApp doing the same settle) can't
-          // re-fire the same "N left" push notification.
+          // re-fire the same "N left" push notification. Still gated on newLeft<prevLeft
+          // so a downward correction to sessions_used can't look like a new depletion.
           const alreadyAlerted=(pkg.low_sessions_alert_level??99)<=newLeft;
-          const shouldAlert=!alreadyAlerted&&(newLeft===2||newLeft===1);
+          const shouldAlert=!alreadyAlerted&&newLeft<prevLeft&&(newLeft===2||newLeft===1);
           const patch={sessions_used:Math.max(completed,0),...(shouldAlert?{low_sessions_alert_level:newLeft}:{})};
           dbPatch("packages",`id=eq.${pkg.id}`,patch,token).catch(()=>{});
           pkgFixed={...pkg,...patch};

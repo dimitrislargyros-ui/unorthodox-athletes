@@ -40,6 +40,7 @@ export default async function handler(req, res) {
     `${SUPABASE_URL}/rest/v1/packages?id=eq.${package_id}&select=id,client_id,delivery_mode,is_active`,
     { headers: { apikey: svcKey, Authorization: `Bearer ${svcKey}` } }
   );
+  if (!pkgRes.ok) return res.status(502).json({ error: 'Could not verify package' });
   const pkgRows = await pkgRes.json().catch(() => []);
   const pkg = pkgRows[0];
   if (!pkg || pkg.client_id !== callerUser.id) return res.status(403).json({ error: 'Package not found or not yours' });
@@ -50,9 +51,22 @@ export default async function handler(req, res) {
   const trainerRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?role=eq.trainer&select=id&limit=1`, {
     headers: { apikey: svcKey, Authorization: `Bearer ${svcKey}` },
   });
+  if (!trainerRes.ok) return res.status(502).json({ error: 'Could not look up trainer' });
   const trainerRows = await trainerRes.json().catch(() => []);
   const trainerId = trainerRows[0]?.id;
   if (!trainerId) return res.status(500).json({ error: 'No trainer profile found' });
+
+  // Idempotency: the client explicitly retries this call after a dropped response
+  // (it can't tell a lost response apart from a real failure), so a retry must not
+  // create a second session for the same day — return the existing one instead.
+  const existingRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/sessions?client_id=eq.${callerUser.id}&session_date=eq.${session_date}&status=neq.cancelled&select=id`,
+    { headers: { apikey: svcKey, Authorization: `Bearer ${svcKey}` } }
+  );
+  const existingRows = await existingRes.json().catch(() => []);
+  if (Array.isArray(existingRows) && existingRows.length > 0) {
+    return res.status(200).json({ ok: true, session_id: existingRows[0].id });
+  }
 
   const sessRes = await fetch(`${SUPABASE_URL}/rest/v1/sessions`, {
     method: 'POST',
