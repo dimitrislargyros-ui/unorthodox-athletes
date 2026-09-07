@@ -1355,13 +1355,18 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   useEffect(()=>{
     if(!pkg||loading) return;
     if(reconciledUsed===(pkg.sessions_used||0)) return;
-    const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
     const newLeft=pkg.sessions_total-reconciledUsed;
-    dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:reconciledUsed},token).catch(()=>{});
-    const updPkg={...pkg,sessions_used:reconciledUsed};
+    // Only alert once per threshold — a durable flag on the package row (not local
+    // state) so repeated mounts/patches (or the client's own app doing the same
+    // settle) can't re-fire the same "N left" push notification.
+    const alreadyAlerted=(pkg.low_sessions_alert_level??99)<=newLeft;
+    const shouldAlert=!alreadyAlerted&&(newLeft===2||newLeft===1);
+    const patch={sessions_used:reconciledUsed,...(shouldAlert?{low_sessions_alert_level:newLeft}:{})};
+    dbPatch("packages",`id=eq.${pkg.id}`,patch,token).catch(()=>{});
+    const updPkg={...pkg,...patch};
     setPkg(updPkg);
     onClientUpdated({...client,_pkg:updPkg});
-    if(newLeft<prevLeft&&(newLeft===2||newLeft===1)){
+    if(shouldAlert){
       postNotification({client_id:client.id,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
     }
   },[reconciledUsed,loading]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3539,9 +3544,8 @@ function AppInner(){
       {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideCancelReq={handleDecideCancelReq} onClose={()=>setShowNotifPanel(false)}/>}
       {/* Cancel Request Modal — pops up wherever trainer is */}
       {cancelReqModal&&(
-        <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.65)"}} onClick={e=>{if(e.target===e.currentTarget)setCancelReqModal(null);}}>
-          <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",width:"100%",maxWidth:480,boxShadow:"0 -8px 40px rgba(0,0,0,0.6)"}}>
-            <div style={{width:40,height:4,borderRadius:2,background:C.border,margin:"0 auto 20px"}}/>
+        <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.65)",padding:"24px 20px"}} onClick={e=>{if(e.target===e.currentTarget)setCancelReqModal(null);}}>
+          <div className="ua-modal-panel" style={{background:C.surface,borderRadius:20,padding:"24px 20px",width:"100%",maxWidth:400,boxShadow:"0 8px 40px rgba(0,0,0,0.6)",boxSizing:"border-box"}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
               <div style={{width:44,height:44,borderRadius:12,background:C.amber+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>⚠️</div>
               <div>

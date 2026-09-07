@@ -243,7 +243,6 @@ const getSlotWaitlist  = (slotId,date,tk) => dbGet("waitlist",`slot_id=eq.${slot
 const getMyUpcomingBooks = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${date}&status=eq.booked&select=*,schedule_slots(start_time_min)`,tk);
 const getAllMyBookings   = (uid,tk) => dbGet("bookings",`client_id=eq.${uid}&status=neq.cancelled&select=book_date,schedule_slots(start_time_min)`,tk);
 const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,tk);
-const updatePkgUsed      = (pkgId,newUsed,tk) => dbPatch("packages",`id=eq.${pkgId}`,{sessions_used:Math.max(newUsed,0)},tk);
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
 const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
 const deleteNotification  =(id,tk)  => dbDelete("notifications",`id=eq.${id}`,tk);
@@ -433,9 +432,8 @@ const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
     setSending(false);
   };
   return(
-    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:500,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={sent?onClose:undefined}>
-      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:430,padding:"24px 24px 40px",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
-        <div style={{width:36,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px",opacity:.6}}/>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 20px"}} onClick={sent?onClose:undefined}>
+      <div className="ua-modal-panel" style={{background:C.surface,borderRadius:20,width:"100%",maxWidth:400,padding:"24px",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
         {sent?(
           <div style={{textAlign:"center",padding:"12px 0 8px"}}>
             <div style={{fontSize:48,marginBottom:12}}>✅</div>
@@ -2725,14 +2723,19 @@ function AppInner(){
         const allBooks=await getAllMyBookings(userId,token).catch(()=>[]);
         const completed=computeCompletedUsed(pkg,sessions,allBooks,Date.now());
         if(completed!==(pkg.sessions_used||0)){
-          const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
           const newLeft=pkg.sessions_total-completed;
-          updatePkgUsed(pkg.id,completed,token).catch(()=>{});
-          pkgFixed={...pkg,sessions_used:completed};
+          // Only alert once per threshold — a durable flag on the package row (not local
+          // state) so repeated app loads (or TrainerApp doing the same settle) can't
+          // re-fire the same "N left" push notification.
+          const alreadyAlerted=(pkg.low_sessions_alert_level??99)<=newLeft;
+          const shouldAlert=!alreadyAlerted&&(newLeft===2||newLeft===1);
+          const patch={sessions_used:Math.max(completed,0),...(shouldAlert?{low_sessions_alert_level:newLeft}:{})};
+          dbPatch("packages",`id=eq.${pkg.id}`,patch,token).catch(()=>{});
+          pkgFixed={...pkg,...patch};
           // Mirror TrainerApp's auto-settle notification — the trainer's app only fires this
           // when THEY open the client panel, which might not happen promptly. This covers
           // the case where the client's own session-completion is what crosses the threshold.
-          if(newLeft<prevLeft&&(newLeft===2||newLeft===1)){
+          if(shouldAlert){
             postNotification({client_id:userId,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
             getTrainerProfile(token).then(trainer=>{
               if(!trainer) return;

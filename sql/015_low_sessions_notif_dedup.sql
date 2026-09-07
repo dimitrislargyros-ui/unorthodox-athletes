@@ -1,0 +1,14 @@
+-- Bug found 2026-09-07: the low-sessions push notification ("You have N
+-- sessions left in your package") had no persistence-backed dedup — both
+-- ClientApp (on every app load) and TrainerApp (every time the trainer opens
+-- the client's package card) independently detect the sessions_used drift
+-- and fire it. If either side's write doesn't land before the next reload
+-- (or both sides reload close together), the same threshold gets detected
+-- and re-notified every time, e.g. a trainer got the same "1 session left"
+-- push 3 times in one day just from reopening the client card.
+--
+-- Fix: track the lowest remaining-count already alerted on the package row
+-- itself (not React state), so it survives reloads/remounts and is shared
+-- between both apps. Additive only, existing rows unaffected (NULL = never
+-- alerted yet, consistent with existing behavior for already-low packages).
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS low_sessions_alert_level smallint;
