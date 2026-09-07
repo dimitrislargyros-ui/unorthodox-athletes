@@ -198,7 +198,9 @@ const getProfile  = (uid,tk) => dbGet("profiles",`id=eq.${uid}&select=*`,tk).the
 const getPackage  = (uid,tk) => dbGet("packages",`client_id=eq.${uid}&is_active=eq.true&order=created_at.desc&limit=1&select=*,workout_templates(id,name,exercises)`,tk).then(r=>r?.[0]);
 const getSessions = (uid,tk) => dbGet("sessions",`client_id=eq.${uid}&order=session_date.desc&select=*,session_notes(*),exercises(*)`,tk);
 const getPRs      = (uid,tk) => dbGet("personal_records",`client_id=eq.${uid}&order=record_date.desc`,tk);
-const getSlots    = (dow,tk) => dbGet("schedule_slots",`day_of_week=eq.${dow}&is_active=eq.true&order=start_time_min.asc`,tk);
+// is_public=eq.true excludes slots auto-created from another client's custom-time
+// request — those exist only to hold that one booking, never a general bookable time.
+const getSlots    = (dow,tk) => dbGet("schedule_slots",`day_of_week=eq.${dow}&is_active=eq.true&is_public=eq.true&order=start_time_min.asc`,tk);
 const getActivePeriodForToday = (tk) => { const t=todayISO(); return dbGet("schedule_periods",`start_date=lte.${t}&end_date=gte.${t}&order=start_date.desc&limit=1`,tk).then(r=>r?.[0]); };
 const getAllSlotsForDay = (dow,tk) => dbGet("schedule_slots",`day_of_week=eq.${dow}&order=start_time_min.asc`,tk);
 // Uses the active Schedule Period's slots for today's date if one exists, else falls back to the default is_active slots
@@ -210,7 +212,7 @@ const getActiveSlots = async (dow,tk) => {
     getAllSlotsForDay(dow,tk),
   ]);
   const times = new Set((pslots||[]).map(p=>p.start_time_min));
-  return (allSlots||[]).filter(s=>times.has(s.start_time_min));
+  return (allSlots||[]).filter(s=>times.has(s.start_time_min)&&s.is_public!==false);
 };
 const getDayBooks = (date,tk)=> dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=slot_id`,tk);
 const getMyBooks  = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=eq.${date}&select=*`,tk);

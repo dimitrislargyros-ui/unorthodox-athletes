@@ -1,0 +1,14 @@
+-- Feature request 2026-09-07: approving a client's custom-time request that
+-- doesn't match an existing slot creates a brand-new PERMANENT weekly slot
+-- (schedule_slots has no date, only day_of_week) — it then shows up as a
+-- normal bookable time for every client, every week, forever, with nothing
+-- distinguishing it from a slot the trainer deliberately added. Trainer
+-- wants to keep offering custom times without this side effect.
+--
+-- Fix: mark auto-created custom slots as not public. They still exist
+-- (a real slot row is needed for the booking's FK) and the trainer still
+-- sees them everywhere they already look (day schedule, Standard Schedule
+-- management — tagged "Custom" there), but they're excluded from the
+-- booking grid every other client sees, so they stop quietly becoming a
+-- standing weekly option nobody meant to offer.
+ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT true;

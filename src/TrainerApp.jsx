@@ -1994,7 +1994,9 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
       // Find or create the custom slot at the requested time
       let slot=daySlots.find(s=>s.start_time_min===reqStart)||null;
       if(!slot){
-        const created=await addSlot({trainer_id:trainerId,day_of_week:dow,start_time_min:reqStart},token);
+        // is_public:false — this slot exists only to hold this one booking; it must
+        // never show up as a bookable time for other clients every week from now on.
+        const created=await addSlot({trainer_id:trainerId,day_of_week:dow,start_time_min:reqStart,is_public:false},token);
         slot=Array.isArray(created)?created[0]:created;
       } else {
         const cnt=await getSlotBookCount(slot.id,r.requested_date,token);
@@ -2433,8 +2435,9 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
                   ?<Empty msg="No active slots for this day"/>
                   :<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
                     {stdDaySlots.filter(s=>s.is_active).map(s=>(
-                      <div key={s.id} style={{display:"flex",alignItems:"center",gap:4,background:C.surface2,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px"}}>
+                      <div key={s.id} style={{display:"flex",alignItems:"center",gap:4,background:C.surface2,border:`1px solid ${s.is_public===false?C.amber+"66":C.border}`,borderRadius:7,padding:"6px 10px"}}>
                         <span style={{color:C.white,fontSize:12,fontWeight:700}}>{toTime(s.start_time_min)}</span>
+                        {s.is_public===false&&<span title="Created from a custom-time request — hidden from other clients' booking grid" style={{color:C.amber,fontSize:9,fontWeight:800,letterSpacing:.3,textTransform:"uppercase"}}>Custom</span>}
                         <button onClick={()=>setConf({msg:`Remove ${toSlot(s.start_time_min)} from Standard Schedule? Existing bookings are not deleted.`,okLabel:"Remove",onOk:()=>handleStdRemove(s)})} style={{background:"none",border:"none",color:C.pink,fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,fontFamily:"inherit"}}>✕</button>
                       </div>
                     ))}
