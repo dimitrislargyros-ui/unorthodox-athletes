@@ -2191,6 +2191,9 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
                     <button onClick={()=>handleRejectRequest(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
                   </div>
                 </div>
+                {cancelReqs.some(c=>c.client_id===r.client_id)&&(
+                  <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"6px 10px",color:C.amber,fontSize:11,fontWeight:600,lineHeight:1.4}}>⚠️ This client also has a pending cancellation request below — resolve that too, or they'll end up booked for both.</div>
+                )}
                 {reqWarn[r.id]&&(
                   <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"8px 10px"}}>
                     <div style={{color:C.amber,fontSize:11,fontWeight:600,marginBottom:6}}>{reqWarn[r.id]}</div>

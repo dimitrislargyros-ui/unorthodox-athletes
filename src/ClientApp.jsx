@@ -1980,8 +1980,9 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
     if(saving||!pkg) return;
     setSaving(true);
     let ok=false;
+    let res=null;
     try{
-      const res=await fetch('/api/log-remote-workout',{
+      res=await fetch('/api/log-remote-workout',{
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
         body:JSON.stringify({
@@ -1993,15 +1994,23 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
           checklist:lines.map((name,i)=>({name,done:checked.has(i)})),
         }),
       });
-      const data=await res.json().catch(()=>({}));
-      if(!res.ok) throw new Error(data.error||'Failed to save');
-      ok=true;
-    }catch(e){
-      // A dropped response after the server already committed the write looks identical
-      // to a real failure from here — reload below and let the screen self-correct
-      // (it'll flip to "already logged today" if the save actually went through).
+    }catch(networkErr){
+      // fetch() itself never got a response (dropped connection). The server may
+      // still have committed the write before the response was lost — reload below
+      // and let the screen self-correct instead of falsely claiming it failed.
       showToast('Connection hiccup — checking if it saved…');
-      console.error('[Remote workout] finish error:',e);
+      console.error('[Remote workout] finish network error:',networkErr);
+    }
+    if(res){
+      const data=await res.json().catch(()=>({}));
+      if(res.ok){
+        ok=true;
+      } else {
+        // A real, definitive rejection from the server (e.g. inactive package) — nothing
+        // was saved, so say so instead of the reassuring "checking if it saved" message.
+        showToast(data.error||'Something went wrong. Please try again.');
+        console.error('[Remote workout] finish rejected:',res.status,data.error);
+      }
     }
     if(ok){
       localStorage.removeItem(draftKey);
