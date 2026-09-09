@@ -141,6 +141,8 @@ export default async function handler(req, res) {
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${callerToken}` },
   }).catch(() => null);
   if (!userCheck || !userCheck.ok) return res.status(401).json({ error: 'Invalid token' });
+  const callerUser = await userCheck.json().catch(() => null);
+  if (!callerUser?.id) return res.status(401).json({ error: 'Invalid token' });
 
   let body;
   try {
@@ -151,6 +153,43 @@ export default async function handler(req, res) {
 
   const { client_id, broadcast, title, body: msgBody, notification } = body;
   if (!client_id && !broadcast) return res.status(400).json({ error: 'client_id or broadcast required' });
+
+  // ── Authorization ──
+  // The only check above is "is this any logged-in user" — this endpoint uses the
+  // service key below, which bypasses RLS entirely, so it must enforce ownership
+  // itself. Without the checks below, any client's own login could: broadcast-spam
+  // every other client; cancel a stranger's booking or resolve a stranger's
+  // cancel_requests row by POSTing a crafted notification.type:"cancel_accepted"/
+  // "cancel_declined" payload; or spoof an arbitrary notification (fake
+  // "payment_confirmed", etc.) to any other client.
+  const roleCheck = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${callerUser.id}&select=role`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${callerToken}` },
+  }).catch(() => null);
+  const roleRows = roleCheck && roleCheck.ok ? await roleCheck.json().catch(() => []) : [];
+  const isTrainer = roleRows[0]?.role === 'trainer';
+
+  // Broadcasting, and resolving a pending cancellation (which cancels the booking +
+  // updates cancel_requests via the service key), are trainer-only actions in the
+  // app's UI.
+  const PRIVILEGED_TYPES = ['cancel_accepted', 'cancel_declined'];
+  if (!isTrainer) {
+    if (broadcast) return res.status(403).json({ error: 'Trainer role required' });
+    if (PRIVILEGED_TYPES.includes(notification?.type)) return res.status(403).json({ error: 'Trainer role required' });
+
+    // A non-trainer caller may only target themselves or the trainer — except
+    // waitlist_promoted, the one legitimate client-notifies-another-client flow
+    // (a client who frees a slot promotes the next person on its waitlist).
+    if (notification?.type !== 'waitlist_promoted') {
+      const trainerCheck = await fetch(`${SUPABASE_URL}/rest/v1/profiles?role=eq.trainer&select=id&limit=1`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${callerToken}` },
+      }).catch(() => null);
+      const trainerRows = trainerCheck && trainerCheck.ok ? await trainerCheck.json().catch(() => []) : [];
+      const trainerId = trainerRows[0]?.id;
+      const allowedTarget = (id) => id === callerUser.id || id === trainerId;
+      if (client_id && !allowedTarget(client_id)) return res.status(403).json({ error: 'Cannot notify this client' });
+      if (notification?.client_id && !allowedTarget(notification.client_id)) return res.status(403).json({ error: 'Cannot notify this client' });
+    }
+  }
 
   // Save in-app notification server-side to bypass RLS (clients can't insert for other users)
   // Uses SUPABASE_SERVICE_KEY env var which skips RLS entirely.

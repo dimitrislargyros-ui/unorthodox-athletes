@@ -699,8 +699,9 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
       const r=await postAnnouncement({title:annTitle.trim(),body:annBody.trim()},token);
       const created=Array.isArray(r)?r[0]:r;
       if(created) setAnn(p=>[created,...p]);
-      // Broadcast push to all clients
-      fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({broadcast:true,title:'📣 '+annTitle.trim(),body:annBody.trim()})}).catch(()=>{});
+      // Broadcast push to all clients — needs the trainer's own token: the server
+      // requires it (verifies trainer role before allowing a broadcast).
+      fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify({broadcast:true,title:'📣 '+annTitle.trim(),body:annBody.trim()})}).catch(()=>{});
       setAnnTitle(""); setAnnBody(""); setShowAnnForm(false);
     }catch(e){ showAnnToast("Error: "+e.message); }
     setAnnPosting(false);
