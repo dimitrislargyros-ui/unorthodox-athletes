@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems } from "./sessionsMath.js";
 
 const pkg = { id: "p1", sessions_total: 8, start_date: "2026-01-01" };
 const NOW = new Date(2026, 0, 15, 12, 0, 0).getTime(); // 2026-01-15 12:00 local
@@ -62,6 +62,23 @@ describe("computeCompletedUsed / computeReservedCount", () => {
     const sessionStart = new Date(2026, 0, 15, 10, 0, 0).getTime();
     expect(computeCompletedUsed(pkg, [session], [], sessionStart + COMPLETION_GRACE_MS - 1)).toBe(0);
     expect(computeCompletedUsed(pkg, [session], [], sessionStart + COMPLETION_GRACE_MS)).toBe(1);
+  });
+
+  it("completedItems includes self-booked (bookings-table-only) attendance, unscoped by any package", () => {
+    // Regression: stats/history views that only read the `sessions` table were blind to
+    // a client who exclusively self-books and never gets a trainer-logged session row.
+    const bookings = [{ book_date: "2026-01-05", schedule_slots: { start_time_min: 600 } }];
+    const items = completedItems([], bookings, NOW);
+    expect(items).toEqual([{ session_date: "2026-01-05", start_time_min: 600 }]);
+  });
+
+  it("completedItems excludes future/in-progress items and dedupes same-date session+booking", () => {
+    const sessions = [{ session_date: "2026-01-10", start_time_min: 600, status: "completed" }];
+    const bookings = [
+      { book_date: "2026-01-10", schedule_slots: { start_time_min: 700 } }, // same date as session — deduped
+      { book_date: "2026-01-20", schedule_slots: { start_time_min: 600 } }, // future — excluded
+    ];
+    expect(completedItems(sessions, bookings, NOW)).toEqual([{ session_date: "2026-01-10", start_time_min: 600 }]);
   });
 
   it("does not cap reservedCount — over-booking should be visible, not silently clamped", () => {

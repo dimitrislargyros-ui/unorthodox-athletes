@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems } from "./sessionsMath.js";
 
 // ── Premium Design System (injected once) ──
 ;(()=>{
@@ -1460,8 +1460,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       </div>
 
       {/* Client Stats */}
-      {!loading&&sessions.length>0&&(()=>{
-        const completed=sessions.filter(s=>s.status==="completed");
+      {!loading&&(sessions.length>0||clientBooks.length>0)&&(()=>{
+        // Merge in self-booked (bookings-table) attendance — a client who only ever
+        // books via the calendar (never gets a trainer-logged `sessions` row) was
+        // otherwise invisible here, even though those days genuinely happened.
+        const completed=completedItems(sessions,clientBooks,Date.now());
         const nowDate=new Date();
         const thisMonthKey=`${nowDate.getFullYear()}-${String(nowDate.getMonth()+1).padStart(2,"0")}`;
         const thisMonthCount=completed.filter(s=>s.session_date.startsWith(thisMonthKey)).length;

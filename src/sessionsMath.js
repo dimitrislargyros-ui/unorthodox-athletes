@@ -10,26 +10,38 @@
 // they never disagree about when a session flips to "completed".
 export const COMPLETION_GRACE_MS = 90 * 60 * 1000;
 
+// Distinct non-cancelled session/booking days, deduped by date (earliest time wins),
+// that have actually happened (time + grace window already passed) — unscoped by any
+// package. Stats/history views need this too: a client who only ever self-books (never
+// gets a trainer-logged `sessions` row) would otherwise be invisible in any view that
+// only reads the `sessions` table, even though those days genuinely happened.
+// Returns {session_date, start_time_min} items, sorted ascending — shaped like a
+// `sessions` row's date/time fields so callers can treat them the same way.
+export function completedItems(sessions, bookings, nowMs) {
+  const byDate = {};
+  const add = (date, min) => {
+    if (!date) return;
+    if (byDate[date] == null || min < byDate[date]) byDate[date] = min;
+  };
+  (sessions || []).forEach(s => { if (s.status !== "cancelled") add(s.session_date, s.start_time_min || 0); });
+  (bookings || []).forEach(b => { add(b.book_date, b.schedule_slots?.start_time_min || 0); });
+  const out = [];
+  for (const date in byDate) {
+    const min = byDate[date];
+    const [y, mo, dy] = date.split('-').map(Number);
+    const dt = new Date(y, mo - 1, dy, Math.floor(min / 60), min % 60, 0).getTime();
+    if (dt + COMPLETION_GRACE_MS <= nowMs) out.push({ session_date: date, start_time_min: min });
+  }
+  return out.sort((a, b) => a.session_date.localeCompare(b.session_date));
+}
+
 // "Used" = distinct non-cancelled session/booking days (since package start) whose time
 // has already passed (plus the grace window). Future/in-progress bookings are reserved,
 // not yet charged.
 export function computeCompletedUsed(pkg, sessions, bookings, nowMs) {
   if (!pkg) return 0;
   const start = pkg.start_date || (pkg.created_at ? String(pkg.created_at).slice(0, 10) : "");
-  const byDate = {};
-  const add = (date, min) => {
-    if (!date) return;
-    if (start && date < start) return;
-    if (byDate[date] == null || min < byDate[date]) byDate[date] = min;
-  };
-  (sessions || []).forEach(s => { if (s.status !== "cancelled") add(s.session_date, s.start_time_min || 0); });
-  (bookings || []).forEach(b => { add(b.book_date, b.schedule_slots?.start_time_min || 0); });
-  let n = 0;
-  for (const d in byDate) {
-    const [y, mo, dy] = d.split('-').map(Number);
-    const dt = new Date(y, mo - 1, dy, Math.floor(byDate[d] / 60), byDate[d] % 60, 0).getTime();
-    if (dt + COMPLETION_GRACE_MS <= nowMs) n++;
-  }
+  const n = completedItems(sessions, bookings, nowMs).filter(it => !start || it.session_date >= start).length;
   return Math.min(n, pkg.sessions_total);
 }
 

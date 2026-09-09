@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems } from "./sessionsMath.js";
 
 // ── Premium Design System (injected once) ──
 ;(()=>{
@@ -196,6 +196,10 @@ const dbDelete   = (tbl,q,tk)   => sb(`/rest/v1/${tbl}?${q}`,"DELETE",null,tk,"r
 // ── Data helpers ──
 const getProfile  = (uid,tk) => dbGet("profiles",`id=eq.${uid}&select=*`,tk).then(r=>r?.[0]);
 const getPackage  = (uid,tk) => dbGet("packages",`client_id=eq.${uid}&is_active=eq.true&order=created_at.desc&limit=1&select=*,workout_templates(id,name,exercises)`,tk).then(r=>r?.[0]);
+// Fallback for a client with no active package — lets them keep viewing (read-only)
+// the program from their most recent package instead of a dead end, while booking
+// still requires an active package.
+const getLastAssignedProgram = (uid,tk) => dbGet("packages",`client_id=eq.${uid}&program_id=not.is.null&order=created_at.desc&limit=1&select=sessions_per_week,workout_templates(id,name,exercises)`,tk).then(r=>r?.[0]||null);
 const getSessions = (uid,tk) => dbGet("sessions",`client_id=eq.${uid}&order=session_date.desc&select=*,session_notes(*),exercises(*)`,tk);
 const getPRs      = (uid,tk) => dbGet("personal_records",`client_id=eq.${uid}&order=record_date.desc`,tk);
 // is_public=eq.true excludes slots auto-created from another client's custom-time
@@ -645,7 +649,7 @@ const HistorySheet=({sessions,spw,onClose,onOpen,label="Personal Training"})=>{
                   {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
+                  <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div><StatusBadge status="completed"/></div>
                   {onOpen&&<div style={{color:C.muted,fontSize:16}}>›</div>}
                 </div>
               </button>
@@ -1472,7 +1476,7 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
 };
 
 // ── Schedule ──
-const ScheduleScreen=({userId,token,sessions,pkg,reservedCount,onPkgUpdate,profile,initialWeekOffset,initialDayIdx,bookingsVer})=>{
+const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkgUpdate,profile,initialWeekOffset,initialDayIdx,bookingsVer})=>{
   const [weekOffset,setWeekOffset]=useState(initialWeekOffset||0);
   const [dayIdx,setDay]=useState(initialDayIdx!=null?initialDayIdx:todayDow());
   const [slots,setSlots]=useState([]);
@@ -1604,6 +1608,10 @@ const ScheduleScreen=({userId,token,sessions,pkg,reservedCount,onPkgUpdate,profi
       setCounts(p=>({...p,[existingDayBook.slot_id]:Math.max((p[existingDayBook.slot_id]||1)-1,0)}));
       try{ const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk; if(created){setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));setWeekBookDates(p=>new Set(p).add(selDay.iso));} }
       catch(e){ showSchedErr("Error: "+e.message); }
+      return;
+    }
+    if(!pkg){
+      showSchedErr("You don't have an active package yet. Contact your trainer to get one set up, then you can book.");
       return;
     }
     if(pkg&&reservedCount>=pkg.sessions_total){
@@ -1789,11 +1797,27 @@ const ScheduleScreen=({userId,token,sessions,pkg,reservedCount,onPkgUpdate,profi
 
       {!pkg
         ?<div style={{padding:"0 20px"}}>
-            <Card style={{textAlign:"center",padding:"32px 20px"}}>
+            <Card style={{textAlign:"center",padding:"32px 20px",marginBottom:lastProgram?.workout_templates?16:0}}>
               <div style={{fontSize:32,marginBottom:12}}>🔒</div>
               <div style={{color:C.white,fontSize:16,fontWeight:800}}>No Active Package</div>
               <div style={{color:C.muted,fontSize:14,marginTop:8,lineHeight:1.5}}>You need an active package to book sessions. Contact your trainer.</div>
             </Card>
+            {lastProgram?.workout_templates&&(()=>{
+              const plan=toDayPlan(lastProgram.workout_templates.exercises,lastProgram.sessions_per_week||3);
+              return(<>
+                <SL>{sessLabel(lastProgram.workout_templates.name)} · Your Program (read-only)</SL>
+                {plan.map(d=>(
+                  <Card key={d.day} style={{marginBottom:8}}>
+                    <div style={{color:C.cyan,fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Day {d.day}</div>
+                    {d.note&&d.note.trim()
+                      ?<div style={{color:C.white,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{d.note}</div>
+                      :d.exercises.length>0
+                        ?<div style={{display:"flex",flexDirection:"column",gap:4}}>{d.exercises.map((ex,i)=><div key={i} style={{color:C.white,fontSize:13}}>{i+1}. {ex.name}</div>)}</div>
+                        :<div style={{color:C.muted,fontSize:13}}>No program set for this day yet</div>}
+                  </Card>
+                ))}
+              </>);
+            })()}
           </div>
         :<>
       {/* Week navigation */}
@@ -2166,11 +2190,14 @@ const AnnouncementsScreen=({token,priorSeenAt})=>{
 };
 
 // ── Stats Panel ──
-const StatsPanel=({sessions,prs,pkg})=>{
+const StatsPanel=({sessions,bookings,prs,pkg})=>{
   const nowD=new Date();
   const [selYear,setSelYear]=useState(nowD.getFullYear());
   const [selMonth,setSelMonth]=useState(nowD.getMonth());
-  const completed=sessions.filter(s=>s.status==="completed");
+  // Merge in self-booked (bookings-table) attendance — a client who only ever books
+  // via the calendar (never gets a trainer-logged `sessions` row) was otherwise
+  // invisible in every stat here, even though those days genuinely happened.
+  const completed=completedItems(sessions,bookings,Date.now());
   const left=pkg?(pkg.sessions_total-pkg.sessions_used):0;
 
   // Summary
@@ -2426,7 +2453,7 @@ const NotifBellSheet=({userId,token,onClose})=>{
 };
 
 // ── Profile ──
-const ProfileScreen=({profile,pkg,sessions,reservedCount,prs:initPRs,userId,token,onLogout,onAvatarChange})=>{
+const ProfileScreen=({profile,pkg,sessions,reservedCount,allBooks,prs:initPRs,userId,token,onLogout,onAvatarChange})=>{
   const [prs,setPRs]=useState(initPRs||[]);
   const [showAddPR,setShowAddPR]=useState(false);
   const [newPR,setNew]=useState({exercise:"",weight:"",unit:"kg",reps:"1"});
@@ -2543,7 +2570,7 @@ const ProfileScreen=({profile,pkg,sessions,reservedCount,prs:initPRs,userId,toke
         </div>
       )}
 
-      <StatsPanel sessions={sessions} prs={prs} pkg={pkg}/>
+      <StatsPanel sessions={sessions} bookings={allBooks} prs={prs} pkg={pkg}/>
 
       {/* PRs */}
       <div style={{padding:"0 20px 16px"}}>
@@ -2595,7 +2622,7 @@ const ProfileScreen=({profile,pkg,sessions,reservedCount,prs:initPRs,userId,toke
                     {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)}</div><StatusBadge status="completed"/></div>
+                    <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div><StatusBadge status="completed"/></div>
                     <div style={{color:C.muted,fontSize:16}}>›</div>
                   </div>
                 </button>
@@ -2677,7 +2704,7 @@ class ErrorBoundary extends Component {
 }
 
 function AppInner(){
-  const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[],reservedCount:0});
+  const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[],reservedCount:0,allBooks:[],lastProgram:null});
   const [screen,setScreen]=useState("home");
   const [scheduleInitWeek,setScheduleInitWeek]=useState(0);
   const [scheduleInitDay,setScheduleInitDay]=useState(null);
@@ -2729,11 +2756,13 @@ function AppInner(){
       const prs=await getPRs(userId,token).catch(()=>[]);
       const notifs=await getMyNotifications(userId,token).catch(()=>[]);
       const anns=await getAnnouncements(token).catch(()=>[]);
+      // Fetched unconditionally (not just when a package is active) — stats/history
+      // views need a client's full attendance record even after their package ends.
+      const allBooks=await getAllMyBookings(userId,token).catch(()=>[]);
       // Settle package "used" to the completion-based count (charge at completion).
       let pkgFixed=pkg;
       let reservedCount=0;
       if(pkg){
-        const allBooks=await getAllMyBookings(userId,token).catch(()=>[]);
         const completed=computeCompletedUsed(pkg,sessions,allBooks,Date.now());
         if(completed!==(pkg.sessions_used||0)){
           const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
@@ -2760,7 +2789,10 @@ function AppInner(){
         }
         reservedCount=computeReservedCount(pkg,sessions,allBooks);
       }
-      setAuth({loading:false,token,userId,profile,pkg:pkgFixed||null,sessions:sessions||[],prs:prs||[],reservedCount});
+      // No active package — offer the last-assigned program read-only instead of a
+      // dead end (booking still requires an active package, checked separately).
+      const lastProgram=pkgFixed?null:await getLastAssignedProgram(userId,token).catch(()=>null);
+      setAuth({loading:false,token,userId,profile,pkg:pkgFixed||null,sessions:sessions||[],prs:prs||[],reservedCount,allBooks:allBooks||[],lastProgram});
       setNotifications(notifs||[]);
       // Show ImportantEventModal for any unread important notification already in DB on load
       // Skip any notification the user already dismissed (persisted across theme reloads).
@@ -2948,14 +2980,14 @@ function AppInner(){
     if(data.error) throw new Error(data.error_description||data.error);
     const {access_token,expires_at,user}=data;
     localStorage.setItem(UA_AUTH_KEY,JSON.stringify({token:access_token,userId:user.id,expiresAt:expires_at,refreshToken:data.refresh_token}));
-    setAuth({loading:false,token:access_token,userId:user.id,profile:null,pkg:null,sessions:[],prs:[],reservedCount:0});
+    setAuth({loading:false,token:access_token,userId:user.id,profile:null,pkg:null,sessions:[],prs:[],reservedCount:0,allBooks:[],lastProgram:null});
     loadData(access_token,user.id);
   };
 
   const handleLogout=async()=>{
     try{ await authLogout(auth.token); }catch(e){}
     localStorage.removeItem(UA_AUTH_KEY);
-    setAuth({loading:false,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[],reservedCount:0});
+    setAuth({loading:false,token:null,userId:null,profile:null,pkg:null,sessions:[],prs:[],reservedCount:0,allBooks:[],lastProgram:null});
     setScreen("home");
   };
 
@@ -2977,9 +3009,9 @@ function AppInner(){
       case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length} bookingsVer={bookingsVer}/>;
       case "schedule": return auth.pkg?.delivery_mode==='remote'
         ? <RemoteProgramScreen userId={auth.userId} token={auth.token} pkg={auth.pkg} sessions={auth.sessions} onReload={()=>loadData(auth.token,auth.userId)}/>
-        : <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} reservedCount={auth.reservedCount} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} initialDayIdx={scheduleInitDay} bookingsVer={bookingsVer}/>;
+        : <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} lastProgram={auth.lastProgram} reservedCount={auth.reservedCount} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} initialDayIdx={scheduleInitDay} bookingsVer={bookingsVer}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
-      case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
+      case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} allBooks={auth.allBooks} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
       default: return null;
     }
   };
