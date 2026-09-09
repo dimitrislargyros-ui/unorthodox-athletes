@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
-import { computeCompletedUsed, computeReservedCount } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS } from "./sessionsMath.js";
 
 // ── Premium Design System (injected once) ──
 ;(()=>{
@@ -500,8 +500,10 @@ const computeStatusMap=(items,now)=>{
   withDt.forEach(it=>{
     if(it.status==="cancelled") map[it._key]="cancelled";
     // Past booking never cancelled = attended (package already charged) → Completed.
-    else if(it._fromBooking&&it._dt<=nowMs) map[it._key]="completed";
-    else if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed";
+    // Grace window matches sessionsMath's charge-at-completion cutoff so the badge
+    // never says "Completed" before the session has actually been counted as used.
+    else if(it._fromBooking&&it._dt+COMPLETION_GRACE_MS<=nowMs) map[it._key]="completed";
+    else if(it.status==="completed"||it._dt+COMPLETION_GRACE_MS<=nowMs) map[it._key]="completed";
   });
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;

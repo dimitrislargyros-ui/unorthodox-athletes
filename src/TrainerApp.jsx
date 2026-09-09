@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
-import { computeCompletedUsed, computeReservedCount } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS } from "./sessionsMath.js";
 
 // ── Premium Design System (injected once) ──
 ;(()=>{
@@ -348,9 +348,11 @@ const computeStatusMap=(items,now)=>{
   withDt.forEach(it=>{
     if(it.status==="cancelled") map[it._key]="cancelled";
     // Past booking never cancelled = client attended (package already charged at
-    // booking time) → show Completed, not "Cancelled".
-    else if(it._type==="booking"&&it._dt<=nowMs) map[it._key]="completed";
-    else if(it.status==="completed"||it._dt<=nowMs) map[it._key]="completed";
+    // booking time) → show Completed, not "Cancelled". Grace window matches
+    // sessionsMath's charge-at-completion cutoff so the badge never says
+    // "Completed" before the session has actually been counted as used.
+    else if(it._type==="booking"&&it._dt+COMPLETION_GRACE_MS<=nowMs) map[it._key]="completed";
+    else if(it.status==="completed"||it._dt+COMPLETION_GRACE_MS<=nowMs) map[it._key]="completed";
   });
   future.forEach((it,i)=>{ map[it._key]=i===0?"upcoming":"booked"; });
   return map;
@@ -1137,7 +1139,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   },[logDate,showLog]);
 
   const handleRenew=async()=>{
-    const doRenew=async()=>{
+    const doRenew=async(startDate)=>{
       try{
         // Snapshot current active package before deactivating (package history tracking)
         if(pkg){
@@ -1154,7 +1156,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
         const total=parseInt(newPkgTotal),spwNum=parseInt(newSpw)||3;
         const weeks=Math.ceil(total/spwNum);
         const end=new Date(); end.setDate(end.getDate()+weeks*7);
-        const res=await createPkg({client_id:client.id,sessions_total:total,sessions_used:0,sessions_per_week:spwNum,weeks,start_date:todayISO(),end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null,delivery_mode:newPkgDeliveryMode},token);
+        const res=await createPkg({client_id:client.id,sessions_total:total,sessions_used:0,sessions_per_week:spwNum,weeks,start_date:startDate,end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null,delivery_mode:newPkgDeliveryMode},token);
         const created=Array.isArray(res)?res[0]:res;
         created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
         setPkg(created); setShowPkg(false); setCustomTotal(""); setCustomSpw("");
@@ -1170,11 +1172,24 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     };
     try{
       const pendingBooks=await getClientBooks(client.id,token).catch(()=>[]);
-      const futureBooks=(pendingBooks||[]).filter(b=>b.book_date>=todayISO());
+      const todayStr=todayISO();
+      const futureBooks=(pendingBooks||[]).filter(b=>b.book_date>=todayStr);
+      // If the client already has a session/booking dated today, it belongs to the
+      // package being replaced. If the new package also started today, charge-at-
+      // completion would attribute that same-day item to the brand-new package
+      // instead — silently eating one of the sessions the client just paid for.
+      // Push the new package's start to tomorrow whenever that's the case.
+      const hasToday=(sessions||[]).some(s=>s.session_date===todayStr&&s.status!=="cancelled")
+        ||(pendingBooks||[]).some(b=>b.book_date===todayStr);
+      const tomorrow=new Date(); tomorrow.setDate(tomorrow.getDate()+1);
+      const startDate=hasToday?localISO(tomorrow):todayStr;
+      const todayNote=hasToday?" The new package will start tomorrow so today's session isn't double-counted.":"";
       if(futureBooks.length>0){
-        setRenewDlg({msg:`⚠️ This client has ${futureBooks.length} upcoming booking${futureBooks.length>1?"s":""} from the current package. These bookings will remain — the old package will be deactivated and sessions_used will reset to 0 for the new package. Continue?`,okLabel:"Continue",onOk:doRenew});
+        setRenewDlg({msg:`⚠️ This client has ${futureBooks.length} upcoming booking${futureBooks.length>1?"s":""} from the current package. These bookings will remain — the old package will be deactivated and sessions_used will reset to 0 for the new package.${todayNote} Continue?`,okLabel:"Continue",onOk:()=>doRenew(startDate)});
+      }else if(hasToday){
+        setRenewDlg({msg:`⚠️ This client already has a session today.${todayNote} Continue?`,okLabel:"Continue",onOk:()=>doRenew(startDate)});
       }else{
-        await doRenew();
+        await doRenew(startDate);
       }
     }catch(e){ showUaToast("Error: "+e.message); }
   };

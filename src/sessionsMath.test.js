@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCompletedUsed, computeReservedCount } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS } from "./sessionsMath.js";
 
 const pkg = { id: "p1", sessions_total: 8, start_date: "2026-01-01" };
 const NOW = new Date(2026, 0, 15, 12, 0, 0).getTime(); // 2026-01-15 12:00 local
@@ -55,6 +55,13 @@ describe("computeCompletedUsed / computeReservedCount", () => {
       status: "completed",
     }));
     expect(computeCompletedUsed(pkg, sessions, [], NOW)).toBe(pkg.sessions_total);
+  });
+
+  it("does not charge a session until the grace window after its start time has elapsed", () => {
+    const session = { session_date: "2026-01-15", start_time_min: 10 * 60, status: "booked" }; // 10:00
+    const sessionStart = new Date(2026, 0, 15, 10, 0, 0).getTime();
+    expect(computeCompletedUsed(pkg, [session], [], sessionStart + COMPLETION_GRACE_MS - 1)).toBe(0);
+    expect(computeCompletedUsed(pkg, [session], [], sessionStart + COMPLETION_GRACE_MS)).toBe(1);
   });
 
   it("does not cap reservedCount — over-booking should be visible, not silently clamped", () => {
