@@ -1,0 +1,19 @@
+-- Migration 019: persistent manual adjustment to a package's "sessions used" count.
+--
+-- Bug found 2026-09-11: the trainer's "Override sessions used" field in Adjust
+-- Package looked like it worked, but any DOWNWARD override (e.g. forgiving a
+-- session as a credit/goodwill gesture) got silently reverted the next time the
+-- client's card was opened — the auto-settle effect recomputes sessions_used from
+-- the client's real session/booking history on every load, and always overwrote a
+-- manual value that disagreed with that raw count, in either direction. An UPWARD
+-- override (e.g. charging extra for a no-show that was never logged as a real
+-- session/booking) happened to survive only because it never conflicted with the
+-- raw count catching back up to it.
+--
+-- Fix: store the override as a persistent DELTA on top of the raw computed count,
+-- not as a one-off value that fights the raw count on every reload.
+-- sessionsMath.js's computeCompletedUsed() now adds this delta before capping at
+-- sessions_total, so a manual adjustment (either direction) survives reloads and
+-- any number of further real sessions completing — exactly like the "give 1
+-- session free" or "charge for this uncaptured no-show" the trainer intended.
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS sessions_used_adjustment int NOT NULL DEFAULT 0;

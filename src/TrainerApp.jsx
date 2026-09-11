@@ -1182,20 +1182,22 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const pendingBooks=await getClientBooks(client.id,token).catch(()=>[]);
       const todayStr=todayISO();
       const futureBooks=(pendingBooks||[]).filter(b=>b.book_date>=todayStr);
-      // If the client already has a session/booking dated today, it belongs to the
-      // package being replaced. If the new package also started today, charge-at-
-      // completion would attribute that same-day item to the brand-new package
-      // instead — silently eating one of the sessions the client just paid for.
-      // Push the new package's start to tomorrow whenever that's the case.
-      const hasToday=(sessions||[]).some(s=>s.session_date===todayStr&&s.status!=="cancelled")
-        ||(pendingBooks||[]).some(b=>b.book_date===todayStr);
-      const tomorrow=new Date(); tomorrow.setDate(tomorrow.getDate()+1);
-      const startDate=hasToday?localISO(tomorrow):todayStr;
-      const todayNote=hasToday?" The new package will start tomorrow so today's session isn't double-counted.":"";
+      const futureSessDates=(sessions||[]).filter(s=>s.status!=="cancelled"&&s.session_date>=todayStr).map(s=>s.session_date);
+      // Any session/booking still pending from the OLD package (today or later) must
+      // not fall inside the NEW package's counting window (start_date onward), or
+      // charge-at-completion will attribute it to the brand-new package once it
+      // happens — silently eating one of the sessions the client just paid for, even
+      // though the dialog below promises a clean "reset to 0". Push the new package's
+      // start_date past the LATEST such date — a booking 5 days out needs pushing
+      // just as much as one today, not just "tomorrow".
+      const pendingDates=[...futureBooks.map(b=>b.book_date),...futureSessDates].sort();
+      const latestPending=pendingDates.length?pendingDates[pendingDates.length-1]:null;
+      const startDate=latestPending?addDays(latestPending,1):todayStr;
+      const startNote=latestPending?` The new package will start ${startDate===todayStr?"tomorrow":`on ${fmtDate(startDate)}`} so ${pendingDates.length>1?"those aren't":"that isn't"} double-counted.`:"";
       if(futureBooks.length>0){
-        setRenewDlg({msg:`⚠️ This client has ${futureBooks.length} upcoming booking${futureBooks.length>1?"s":""} from the current package. These bookings will remain — the old package will be deactivated and sessions_used will reset to 0 for the new package.${todayNote} Continue?`,okLabel:"Continue",onOk:()=>doRenew(startDate)});
-      }else if(hasToday){
-        setRenewDlg({msg:`⚠️ This client already has a session today.${todayNote} Continue?`,okLabel:"Continue",onOk:()=>doRenew(startDate)});
+        setRenewDlg({msg:`⚠️ This client has ${futureBooks.length} upcoming booking${futureBooks.length>1?"s":""} from the current package. These bookings will remain and won't be charged against the new package — the old package will be deactivated and sessions_used will reset to 0 for the new package.${startNote} Continue?`,okLabel:"Continue",onOk:()=>doRenew(startDate)});
+      }else if(latestPending){
+        setRenewDlg({msg:`⚠️ This client already has a session today.${startNote} Continue?`,okLabel:"Continue",onOk:()=>doRenew(startDate)});
       }else{
         await doRenew(startDate);
       }
@@ -1288,6 +1290,16 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       const newUsed=editUsedOverride!==''?Math.max(0,Math.min(newTotal,parseInt(editUsedOverride)||0)):(pkg.sessions_used||0);
       const updates={sessions_total:newTotal,sessions_used:newUsed};
       if(editEndDate) updates.end_date=editEndDate;
+      if(editUsedOverride!==''){
+        // Persist the override as a DELTA on top of the raw completed-items count,
+        // not as a one-off value written into sessions_used — a one-off gets
+        // silently recomputed and overwritten by the very next auto-settle (the
+        // actual bug: forgiving a session as a credit reverted itself on reopen).
+        // See sessionsMath.js computeCompletedUsed() and sql/019.
+        const rawCompleted=completedItems(sessions,clientBooks,Date.now())
+          .filter(it=>!pkg.start_date||it.session_date>=pkg.start_date).length;
+        updates.sessions_used_adjustment=newUsed-rawCompleted;
+      }
       await dbPatch("packages",`id=eq.${pkg.id}`,updates,token);
       const updPkg={...pkg,...updates};
       setPkg(updPkg);
@@ -1297,6 +1309,17 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
       setEditUsedOverride("");
       setEditEndDate("");
       showUaToast("Package updated!",true);
+      // Package total/end-date changes were silently invisible to the client — a
+      // trainer adding sessions (or extending the deadline) is exactly the kind of
+      // thing they should be told about, not something they only notice by chance.
+      const changes=[];
+      if(editAddSessions>0) changes.push(`+${editAddSessions} session${editAddSessions>1?"s":""} added`);
+      else if(editAddSessions<0) changes.push(`${editAddSessions} session${editAddSessions<-1?"s":""} removed`);
+      if(editEndDate&&editEndDate!==pkg.end_date) changes.push(`new end date ${fmtDate(editEndDate)}`);
+      if(editUsedOverride!==""&&newUsed!==(pkg.sessions_used||0)) changes.push(`sessions used corrected to ${newUsed}`);
+      if(changes.length){
+        postNotification({client_id:client.id,type:"package_updated",message:`📦 Your package was updated: ${changes.join(", ")}. Now ${newTotal} sessions total.`},token).catch(()=>{});
+      }
     }catch(e){ showUaToast("Error: "+e.message); }
     setSavingEditPkg(false);
   };
@@ -1534,7 +1557,26 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           <SL style={{marginBottom:0}}>Package</SL>
           <div style={{display:"flex",gap:8}}>
             {pkg&&<button onClick={()=>showEditNotes?setShowEditNotes(false):handleOpenEditNotes()} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",color:C.cyan,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showEditNotes?"▲ Cancel":"✎ Notes"}</button>}
-            <button onClick={()=>{setShowPkg(p=>{if(p){setCustomTotal("");setCustomSpw("");}return !p;});}} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showPkg?"▲ Cancel":"↻ Renew"}</button>
+            <button onClick={()=>{setShowPkg(p=>{
+              if(p){ setCustomTotal(""); setCustomSpw(""); }
+              else if(pkg){
+                // Pre-fill from the client's CURRENT package so renewing starts from
+                // "same as now" instead of silently resetting injury flag/notes,
+                // program, delivery mode and session count/frequency to blank
+                // defaults — the trainer opts OUT of carrying these over instead of
+                // having to remember to opt back IN every single renewal.
+                const total=String(pkg.sessions_total||10),spwStr=String(pkg.sessions_per_week||3);
+                setNPT(total); setNSpw(spwStr);
+                if(![8,10,12].includes(pkg.sessions_total)) setCustomTotal(total);
+                if(![1,2,3,4].includes(pkg.sessions_per_week)) setCustomSpw(spwStr);
+                setHasInj(!!pkg.has_injury);
+                setInjNotes(pkg.injury_notes||"");
+                setPkgNotes(pkg.package_notes||"");
+                setNewPkgProgramId(pkg.program_id||null);
+                setNewPkgDeliveryMode(pkg.delivery_mode||'in_person');
+              }
+              return !p;
+            });}} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showPkg?"▲ Cancel":"↻ Renew"}</button>
           </div>
         </div>
         {showEditNotes&&(
@@ -1701,7 +1743,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           <div style={{padding:"14px 20px 0"}}>
             <SL>Package History</SL>
             {shown.map((p,i)=>{
-              const reasonLabel=p.deactivation_reason==="renewed"?"Renewed":p.deactivation_reason==="cancelled"?"Cancelled":p.deactivation_reason||"Ended";
+              const reasonLabel=p.deactivation_reason==="renewed"?"Renewed":p.deactivation_reason==="cancelled"?"Cancelled":p.deactivation_reason==="completed"?"Completed":p.deactivation_reason||"Ended";
               const usedAt=p.sessions_used??"-";
               return(
                 <div key={p.id||i} onClick={()=>{setSelectedPastPkg(p);setPastPkgPaid(!!p.paid);setPastPkgNotes(p.package_notes||"");}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer"}}>
@@ -1984,10 +2026,18 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
     setForceLogging(true);
     try{
       const dayNum=await calcDayNum(cl.id,selDay.iso,token,cl._pkg?.sessions_per_week||3).catch(()=>null);
-      const sessStatus=selDay.iso>todayISO()?"booked":"completed";
+      // Compare the full date+TIME of the slot, not just the date — a slot dated
+      // "today" can still be hours away, and marking it "completed" immediately (as
+      // a date-only comparison did) mislabeled it in the client's Session History as
+      // already done, before it actually happened. Matches handleLog's comparison.
+      const [sh,sm]=[Math.floor(forceLogSlot.start_time_min/60),forceLogSlot.start_time_min%60];
+      const slotDT=new Date(`${selDay.iso}T${String(sh).padStart(2,"0")}:${String(sm).padStart(2,"0")}:00`);
+      const sessStatus=slotDT>new Date()?"booked":"completed";
       await createSession({client_id:cl.id,trainer_id:trainerId,session_date:selDay.iso,start_time_min:forceLogSlot.start_time_min,day_num:dayNum,status:sessStatus},token);
       // sessions_used is derived (charge-at-completion) — the auto-settle effect corrects it.
-      const notifMsg=`🗓 Your trainer scheduled a session for you on ${fmtDate(selDay.iso)} at ${toTime(forceLogSlot.start_time_min)}.`;
+      const notifMsg=sessStatus==="booked"
+        ?`🗓 Your trainer scheduled a session for you on ${fmtDate(selDay.iso)} at ${toTime(forceLogSlot.start_time_min)}.`
+        :`💪 Your trainer logged a session for you on ${fmtDate(selDay.iso)} at ${toTime(forceLogSlot.start_time_min)}.`;
       postNotification({client_id:cl.id,type:"session_scheduled",message:notifMsg},token);
       showToast(`✓ Session logged for ${cl.name||"client"}`,true);
       setForceLogSlot(null); setForceLogClientId(""); setForceLogSearch("");
@@ -3469,11 +3519,20 @@ function AppInner(){
     try{
       const [profile,allClients,pkgs]=await Promise.all([getProfile(userId,token),getClients(token),getAllPkgs(token)]);
       if(profile?.role!=="trainer"){ localStorage.removeItem(UA_TRAINER_AUTH_KEY); setAuth({loading:false,token:null,userId:null,profile:null}); return; }
-      // Auto-deactivate packages whose end_date has passed
+      // Auto-deactivate packages that are BOTH past their end_date AND fully used.
+      // end_date is only an estimate (weeks*sessions_per_week from creation), not a
+      // hard cutoff — the thing the client actually paid for is sessions_total.
+      // Deactivating purely because the date passed (regardless of sessions left)
+      // silently stranded any unused sessions: no notification to anyone, and no
+      // "reactivate" action anywhere in the UI to undo it. A package that's genuinely
+      // out of sessions is already blocked from new bookings regardless of is_active
+      // (see ClientApp's booking guard), so this sweep only needs to archive it for
+      // tidiness once it's truly done — never while paid sessions remain unused.
       const today=todayISO();
-      const expiredPkgs=(pkgs||[]).filter(p=>p.end_date&&p.end_date<today);
+      const expiredPkgs=(pkgs||[]).filter(p=>p.end_date&&p.end_date<today&&(p.sessions_used||0)>=p.sessions_total);
       if(expiredPkgs.length>0){
-        await Promise.allSettled(expiredPkgs.map(p=>dbPatch("packages",`id=eq.${p.id}`,{is_active:false},token)));
+        const closedAt=new Date().toISOString();
+        await Promise.allSettled(expiredPkgs.map(p=>dbPatch("packages",`id=eq.${p.id}`,{is_active:false,deactivated_at:closedAt,deactivation_reason:"completed"},token)));
       }
       const activePkgIds=new Set(expiredPkgs.map(p=>p.id));
       const enriched=(allClients||[]).map(c=>({...c,_pkg:(pkgs||[]).find(p=>p.client_id===c.id&&!activePkgIds.has(p.id))||null}));

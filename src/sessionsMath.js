@@ -38,11 +38,20 @@ export function completedItems(sessions, bookings, nowMs) {
 // "Used" = distinct non-cancelled session/booking days (since package start) whose time
 // has already passed (plus the grace window). Future/in-progress bookings are reserved,
 // not yet charged.
+//
+// pkg.sessions_used_adjustment is a persistent manual correction (Adjust Package ->
+// Override sessions used) layered on top of that raw count, not a one-off value written
+// over it — a one-off gets silently recomputed and overwritten on the very next
+// auto-settle, which is exactly the bug reported 2026-09-11 (a trainer forgiving one
+// session as a credit had it revert the next time the client's card was reopened).
+// Stored as a delta so it keeps applying no matter how many more real sessions complete
+// afterward. Absent on older packages (undefined), which is equivalent to 0.
 export function computeCompletedUsed(pkg, sessions, bookings, nowMs) {
   if (!pkg) return 0;
   const start = pkg.start_date || (pkg.created_at ? String(pkg.created_at).slice(0, 10) : "");
   const n = completedItems(sessions, bookings, nowMs).filter(it => !start || it.session_date >= start).length;
-  return Math.min(n, pkg.sessions_total);
+  const adjusted = n + (pkg.sessions_used_adjustment || 0);
+  return Math.max(0, Math.min(adjusted, pkg.sessions_total));
 }
 
 // Booked = distinct non-cancelled session/booking days (since package start), regardless of time.

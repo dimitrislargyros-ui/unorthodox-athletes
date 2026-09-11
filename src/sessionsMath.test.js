@@ -81,6 +81,30 @@ describe("computeCompletedUsed / computeReservedCount", () => {
     expect(completedItems(sessions, bookings, NOW)).toEqual([{ session_date: "2026-01-10", start_time_min: 600 }]);
   });
 
+  it("applies a persistent sessions_used_adjustment on top of the raw completed count", () => {
+    // Regression 2026-09-11: a trainer's downward "override sessions used" (e.g.
+    // forgiving one session as a credit) used to get silently reverted by the next
+    // auto-settle, because it wrote a one-off value that fought the raw recomputed
+    // count. Storing it as a persistent delta instead means it keeps applying no
+    // matter how many times this gets recomputed.
+    const sessions = [
+      { session_date: "2026-01-05", start_time_min: 600, status: "completed" },
+      { session_date: "2026-01-10", start_time_min: 600, status: "completed" },
+    ];
+    const forgiven = { ...pkg, sessions_used_adjustment: -1 };
+    expect(computeCompletedUsed(forgiven, sessions, [], NOW)).toBe(1); // 2 raw - 1 credit
+    const chargedExtra = { ...pkg, sessions_used_adjustment: 2 };
+    expect(computeCompletedUsed(chargedExtra, sessions, [], NOW)).toBe(4); // 2 raw + 2 extra
+  });
+
+  it("clamps the adjusted count to [0, sessions_total] instead of going negative or over", () => {
+    const sessions = [{ session_date: "2026-01-10", start_time_min: 600, status: "completed" }];
+    const overForgiven = { ...pkg, sessions_used_adjustment: -5 };
+    expect(computeCompletedUsed(overForgiven, sessions, [], NOW)).toBe(0); // 1 - 5 -> floored at 0
+    const overCharged = { ...pkg, sessions_used_adjustment: 20 };
+    expect(computeCompletedUsed(overCharged, sessions, [], NOW)).toBe(pkg.sessions_total); // capped at total
+  });
+
   it("does not cap reservedCount — over-booking should be visible, not silently clamped", () => {
     const sessions = Array.from({ length: 10 }, (_, i) => ({
       session_date: `2026-01-${String(i + 1).padStart(2, "0")}`,
