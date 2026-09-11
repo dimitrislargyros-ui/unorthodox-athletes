@@ -242,6 +242,10 @@ const saveClientNote = async (sessId, note, tk) => {
 
 const getAnnouncements = (tk) => dbGet("announcements","order=created_at.desc&limit=20",tk);
 const postSlotRequest  = (d,tk) => dbPost("slot_requests",d,tk);
+// Most recent pending request (a client can only ever have one — enforced by a DB
+// unique index, see sql/018_slot_requests_single_pending.sql) so the Schedule screen
+// can show its live status instead of a stale local "sent!" flag that forgets on reload.
+const getMyPendingSlotRequest = (uid,tk) => dbGet("slot_requests",`client_id=eq.${uid}&status=eq.pending&order=created_at.desc&limit=1`,tk).then(r=>r?.[0]||null);
 const getMyWaitlistDay = (uid,date,tk) => dbGet("waitlist",`client_id=eq.${uid}&book_date=eq.${date}`,tk);
 const joinWaitlist     = (d,tk) => dbPost("waitlist",d,tk);
 const leaveWaitlist    = (id,tk) => dbDelete("waitlist",`id=eq.${id}`,tk);
@@ -291,6 +295,14 @@ const postNotification = (d,tk) => {
     body:JSON.stringify({client_id:d.client_id,title:'Unorthodox Athletes',body:d.message,notification:d})
   }).then(r=>r.json()).then(j=>console.log('[UA Push] result:',j)).catch(e=>console.warn('[UA Push] error:',e));
 };
+// Materializes a `sessions` row (status: completed) for every self-booked day that has
+// already happened but never got one — see api/backfill-sessions.js. Clients have no
+// INSERT policy on `sessions`, so this goes through a service-key endpoint. Idempotent
+// and safe to call on every load; resolves {created:0} (never rejects) when there's
+// nothing to backfill or the call fails, so callers can fire-and-forget it.
+const backfillSessions = (tk) =>
+  fetch('/api/backfill-sessions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${tk}`}})
+    .then(r=>r.json()).catch(()=>({created:0}));
 
 // Converts VAPID public key from base64url to Uint8Array for PushManager
 function urlBase64ToUint8Array(b64url){
@@ -1493,11 +1505,15 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   const [showCustom,setShowC]=useState(false);
   const [pickH,setPickH]=useState(null);
   const [pickM,setPickM]=useState(0);
-  const [reqSent,setReqSent]=useState(false);
   const [reqSending,setReqSending]=useState(false);
   const [cancelReqSlot,setCancelReqSlot]=useState(null); // {bookingId,date,startMin}
   const [activePeriod,setActivePeriod]=useState(null);
   const [allFutureBooks,setAllFutureBooks]=useState([]); // all upcoming bookings for global day# calc
+  // Client's own live custom-time request state — a client can only ever have one
+  // PENDING request at a time (DB-enforced), so this is a single row, not a list.
+  // Fetched fresh (not derived from local "just submitted" state) so it survives
+  // reloads and reflects the trainer's answer as soon as it happens.
+  const [myPendingReq,setMyPendingReq]=useState(null);
   const spw=pkg?.sessions_per_week||3;
 
   const weekDates=Array.from({length:7},(_,i)=>{
@@ -1533,6 +1549,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
     const todayIso=todayISO();
     dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${todayIso}&status=eq.booked&select=book_date,schedule_slots(start_time_min)`,token)
       .then(r=>setAllFutureBooks(r||[])).catch(()=>{});
+    getMyPendingSlotRequest(userId,token).then(setMyPendingReq).catch(()=>{});
   },[]);
 
   useEffect(()=>{
@@ -1544,7 +1561,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
 
   useEffect(()=>{
     if(isSun||isPastDay){ setSlots([]); setCounts({}); setMyB([]); setMyWaitlist([]); setLoad(false); return; }
-    setLoad(true); setReqSent(false);
+    setLoad(true);
     Promise.all([
       getActiveSlots(selDay.dow,token),
       getDayBooks(selDay.iso,token),
@@ -1567,6 +1584,10 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
     const todayIso=todayISO();
     dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${todayIso}&status=eq.booked&select=book_date,schedule_slots(start_time_min)`,token)
       .then(r=>setAllFutureBooks(r||[])).catch(()=>{});
+    // Also covers the trainer resolving a custom-time request (approved/rejected) —
+    // refetch so the pending-request card clears the moment it's answered, not just
+    // on the next full app reload.
+    getMyPendingSlotRequest(userId,token).then(setMyPendingReq).catch(()=>{});
     if(!isSun&&!isPastDay)
       getMyBooks(userId,selDay.iso,token).then(mb=>setMyB(mb||[])).catch(()=>{});
   },[bookingsVer]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1668,18 +1689,31 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   const customConflict=customStart!=null&&slots.find(s=>s.start_time_min===customStart);
 
   const handleSlotRequest=async()=>{
-    if(!customStart||customConflict||reqSending) return;
+    if(!customStart||customConflict||reqSending||myPendingReq) return;
     setReqSending(true);
     try{
-      await postSlotRequest({client_id:userId,requested_date:selDay.iso,requested_time_min:customStart,status:"pending"},token);
-      setReqSent(true);
-      // Notify trainer of custom time request
+      const created=await postSlotRequest({client_id:userId,requested_date:selDay.iso,requested_time_min:customStart,status:"pending"},token);
+      setMyPendingReq(Array.isArray(created)?created[0]:created||{client_id:userId,requested_date:selDay.iso,requested_time_min:customStart,status:"pending"});
+      // Notify trainer of custom time request — related_client_id lets the trainer app
+      // clear this notification precisely once THIS request is resolved, instead of
+      // leaving a stale "requested a custom time" entry sitting in their bell forever.
       getTrainerProfile(token).then(trainer=>{
         if(!trainer) return;
         const clientName=profile?.name||"Client";
-        postNotification({client_id:trainer.id,type:"slot_request",message:`${clientName} requested a custom time: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} at ${toTime(customStart)}`},token).catch(()=>{});
+        postNotification({client_id:trainer.id,type:"slot_request",related_client_id:userId,message:`${clientName} requested a custom time: ${weekDayShort(selDay.iso)}, ${fmtDate(selDay.iso)} at ${toTime(customStart)}`},token).catch(()=>{});
       }).catch(()=>{});
-    }catch(e){ showSchedErr("Error: "+e.message); }
+    }catch(e){
+      // A client can only have one pending request at a time (DB-enforced — see
+      // sql/018_slot_requests_single_pending.sql) so a race (two tabs, a retried
+      // double-tap) can hit the unique constraint here; surface it as the same
+      // friendly "you already have one pending" state rather than a raw DB error.
+      if(String(e.message).includes("duplicate key")||String(e.message).includes("uniq_pending_slot_request")){
+        getMyPendingSlotRequest(userId,token).then(setMyPendingReq).catch(()=>{});
+        showSchedErr("You already have a pending request — wait for your trainer to respond first.");
+      } else {
+        showSchedErr("Error: "+e.message);
+      }
+    }
     setReqSending(false);
   };
 
@@ -1745,6 +1779,13 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   };
 
   const pastDaySessions=sessions.filter(s=>s.session_date===selDay.iso&&(s.status==="completed"||s.status==="booked"));
+  // Today counts as a "past day" for display purposes once its session is actually
+  // completed (time + grace period already passed) — otherwise a client who finishes
+  // their workout and reopens Schedule the same day sees neither the booking grid
+  // (correctly hidden, the slot's time already passed) nor their completed appointment
+  // (isPastDay is strictly "before today"), i.e. nothing at all for today's tap.
+  const todayHasCompleted=selDay.iso===todayStr&&pastDaySessions.some(s=>s.status==="completed");
+  const showCompletedDay=isPastDay||todayHasCompleted;
   const weekLabel=weekOffset===0?"This week":`Week of ${fmtDate(weekDates[0].iso)}`;
 
   // Day# per date for the strip — ordered by date across all known sessions + bookings
@@ -1855,7 +1896,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
       <div style={{padding:"0 20px"}}>
         {isSun
           ?<Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>😴</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Rest Day</div><div style={{color:C.muted,fontSize:14,marginTop:6}}>Gym closed Sundays. See you Monday!</div></Card>
-          :isPastDay
+          :showCompletedDay
             ?pastDaySessions.length===0
               ?<Empty msg="No session on this day"/>
               :pastDaySessions.map((s,i)=>{
@@ -1868,7 +1909,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
                           <div style={{color:C.white,fontSize:14,fontWeight:600}}>{sessLabel(pkg?.workout_templates?.name)}</div>
                           {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
-                          <StatusBadge status="completed"/>
+                          <StatusBadge status={s.status}/>
                         </div>
                         <div style={{color:C.muted,fontSize:12}}>{weekDayShort(s.session_date)} · {toTime(s.start_time_min)}</div>
                       </div>
@@ -1908,7 +1949,19 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
             })()
         }
 
-        {!isSun&&!isPastDay&&(
+        {!isSun&&!isPastDay&&myPendingReq&&(
+          // Only one pending request allowed at a time (DB-enforced) — show its live
+          // status instead of the request form so it's always clear there's nothing
+          // more to do but wait, and so the client can't lose track and re-request the
+          // same thing (the exact "3 duplicate requests, no continuity" bug reported).
+          <div style={{background:C.amber+"14",border:`1px solid ${C.amber}44`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
+            <div style={{color:C.amber,fontSize:13,fontWeight:800,marginBottom:4}}>⏳ Request pending</div>
+            <div style={{color:C.white,fontSize:13,lineHeight:1.5}}>
+              {weekDayShort(myPendingReq.requested_date)}, {fmtDate(myPendingReq.requested_date)} at {toTime(myPendingReq.requested_time_min)} — waiting for your trainer to respond.
+            </div>
+          </div>
+        )}
+        {!isSun&&!isPastDay&&!myPendingReq&&(
           <>
             <button onClick={()=>setShowC(p=>!p)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:12,padding:"12px",color:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:10,fontFamily:"inherit"}}>
               {showCustom?"▲ Hide":"+ Request custom time"}
@@ -1925,9 +1978,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
                 </div>
                 {customStart!=null&&<div style={{background:C.surface,borderRadius:8,padding:"10px",textAlign:"center",marginBottom:10}}><div style={{color:customConflict?C.amber:C.white,fontSize:14,fontWeight:700}}>{customConflict?"⚠️ Slot already exists":`🗓 ${toSlot(customStart)}`}</div></div>}
                 {customStart!=null&&!customConflict&&(
-                  reqSent
-                    ?<div style={{textAlign:"center",padding:"10px",color:C.green,fontWeight:700,fontSize:13}}>✓ Request sent to your trainer!</div>
-                    :<GBtn label={reqSending?"Sending...":"Request This Time"} onClick={handleSlotRequest} disabled={reqSending} style={{width:"100%"}}/>
+                  <GBtn label={reqSending?"Sending...":"Request This Time"} onClick={handleSlotRequest} disabled={reqSending} style={{width:"100%"}}/>
                 )}
                 {(!customStart||customConflict)&&<div style={{color:C.muted,fontSize:12,lineHeight:1.5,textAlign:"center",marginTop:4}}>Select a time above to request it</div>}
               </div>
@@ -2767,23 +2818,33 @@ function AppInner(){
         if(completed!==(pkg.sessions_used||0)){
           const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
           const newLeft=pkg.sessions_total-completed;
-          // Only alert once per threshold — a durable flag on the package row (not local
-          // state) so repeated app loads (or TrainerApp doing the same settle) can't
-          // re-fire the same "N left" push notification. Still gated on newLeft<prevLeft
-          // so a downward correction to sessions_used can't look like a new depletion.
+          dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:Math.max(completed,0)},token).catch(()=>{});
+          pkgFixed={...pkg,sessions_used:Math.max(completed,0)};
+          // Only alert once per threshold. TrainerApp runs this exact same settle logic
+          // (opening the client's card), and this same effect can itself re-run from a
+          // pull-to-refresh or a realtime-triggered reload — so a plain "read the flag,
+          // then write it" check isn't enough: two near-simultaneous callers can both read
+          // "not yet alerted" before either one's write lands, and both fire a push.
+          // Claim the threshold atomically instead: scope the UPDATE itself to only match
+          // while low_sessions_alert_level still qualifies (compare-and-swap via the WHERE
+          // clause), and only notify if THIS call's UPDATE actually matched a row — any
+          // other caller racing the same threshold will match zero rows and stay silent.
           const alreadyAlerted=(pkg.low_sessions_alert_level??99)<=newLeft;
           const shouldAlert=!alreadyAlerted&&newLeft<prevLeft&&(newLeft===2||newLeft===1);
-          const patch={sessions_used:Math.max(completed,0),...(shouldAlert?{low_sessions_alert_level:newLeft}:{})};
-          dbPatch("packages",`id=eq.${pkg.id}`,patch,token).catch(()=>{});
-          pkgFixed={...pkg,...patch};
-          // Mirror TrainerApp's auto-settle notification — the trainer's app only fires this
-          // when THEY open the client panel, which might not happen promptly. This covers
-          // the case where the client's own session-completion is what crosses the threshold.
           if(shouldAlert){
-            postNotification({client_id:userId,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
-            getTrainerProfile(token).then(trainer=>{
-              if(!trainer) return;
-              postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`${profile?.name||"A client"} has only ${newLeft} session${newLeft>1?"s":""} left in their package. Consider renewing.`},token).catch(()=>{});
+            dbPatch("packages",
+              `id=eq.${pkg.id}&or=(low_sessions_alert_level.is.null,low_sessions_alert_level.gt.${newLeft})`,
+              {low_sessions_alert_level:newLeft},token
+            ).then(claimed=>{
+              if(!claimed||!claimed.length) return; // another caller already claimed this threshold
+              // Mirror TrainerApp's auto-settle notification — the trainer's app only fires this
+              // when THEY open the client panel, which might not happen promptly. This covers
+              // the case where the client's own session-completion is what crosses the threshold.
+              postNotification({client_id:userId,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+              getTrainerProfile(token).then(trainer=>{
+                if(!trainer) return;
+                postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`${profile?.name||"A client"} has only ${newLeft} session${newLeft>1?"s":""} left in their package. Consider renewing.`},token).catch(()=>{});
+              }).catch(()=>{});
             }).catch(()=>{});
           }
         }
@@ -2794,6 +2855,16 @@ function AppInner(){
       const lastProgram=pkgFixed?null:await getLastAssignedProgram(userId,token).catch(()=>null);
       setAuth({loading:false,token,userId,profile,pkg:pkgFixed||null,sessions:sessions||[],prs:prs||[],reservedCount,allBooks:allBooks||[],lastProgram});
       setNotifications(notifs||[]);
+      // Backfill `sessions` rows for any self-booked day that already happened but was
+      // never logged (see api/backfill-sessions.js) — fixes Profile "Session History" /
+      // Schedule's past-day view missing those days, and lets Notes attach to them.
+      // Fire-and-forget; re-pull sessions only if it actually created something.
+      backfillSessions(token).then(r=>{
+        if(!r?.created) return;
+        getSessions(userId,token).then(fresh=>{
+          if(fresh) setAuth(p=>({...p,sessions:fresh}));
+        }).catch(()=>{});
+      });
       // Show ImportantEventModal for any unread important notification already in DB on load
       // Skip any notification the user already dismissed (persisted across theme reloads).
       const MODAL_TYPES=['payment_confirmed','package_renewed','payment_reminder'];
@@ -2894,7 +2965,7 @@ function AppInner(){
     rt.subscribe('notifications','INSERT',`client_id=eq.${auth.userId}`,(row)=>{
       setNotifications(prev=>prev.some(n=>n.id===row.id)?prev:[row,...prev]);
       // Booking state changed — bump bookingsVer so schedule dots + upcoming list refresh
-      const BOOKING_REFRESH=['cancel_accepted','cancel_declined','session_cancelled','slot_request_approved'];
+      const BOOKING_REFRESH=['cancel_accepted','cancel_declined','session_cancelled','slot_request_approved','slot_request_rejected'];
       if(BOOKING_REFRESH.includes(row.type)){
         loadData(auth.token,auth.userId).catch(()=>{});
         setBookingsVer(v=>v+1);

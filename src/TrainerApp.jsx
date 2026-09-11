@@ -192,6 +192,10 @@ const postAnnouncement    = (d,tk)              => dbPost("announcements",d,tk);
 const deleteAnnouncement  = (id,tk)             => dbDelete("announcements",`id=eq.${id}`,tk);
 const getPendingRequests  = (tk)                => dbGet("slot_requests","status=eq.pending&select=*,profiles(name,initials)&order=created_at.asc",tk);
 const resolveRequest      = (id,status,tk)      => dbPatch("slot_requests",`id=eq.${id}`,{status},tk);
+// Clears the trainer's own "X requested a custom time" notification for this specific
+// client once resolved — otherwise it sits in the trainer's bell forever looking
+// exactly like an un-actioned request, with no way to tell it was already handled.
+const cleanSlotReqNotifs  = (trainerId,clientId,tk) => dbDelete("notifications",`client_id=eq.${trainerId}&type=eq.slot_request&related_client_id=eq.${clientId}`,tk);
 const getCancelRequests   = (trainerId,tk)       => dbGet("cancel_requests",`trainer_id=eq.${trainerId}&status=eq.pending&select=*,profiles!cancel_requests_client_id_fkey(id,name,initials)&order=created_at.asc`,tk);
 const resolveCancelReq    = (id,status,tk)       => dbPatch("cancel_requests",`id=eq.${id}`,{status},tk);
 const getSlotBookCount    = (slotId,date,tk)    => dbGet("bookings",`slot_id=eq.${slotId}&book_date=eq.${date}&status=eq.booked&select=id`,tk).then(r=>r?.length||0);
@@ -362,7 +366,7 @@ const typeIcon=(type)=>{
   const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳",remote_workout_logged:"📍"};
   return m[type]||"🔔";
 };
-const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq})=>{
+const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq,onDecideSlotReq})=>{
   const [notifs,setNotifs]=useState([]);
   const [loading,setLoading]=useState(true);
   useEffect(()=>{
@@ -400,6 +404,9 @@ const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq})=>{
                  {n.created_at&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{new Date(n.created_at).toLocaleDateString("el-GR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>}
                  {n.type==="cancel_request"&&onDecideCancelReq&&(
                    <button onClick={()=>{onDecideCancelReq();onClose();}} style={{marginTop:6,background:`${C.pink}18`,border:`1px solid ${C.pink}44`,borderRadius:8,padding:"4px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Decide →</button>
+                 )}
+                 {n.type==="slot_request"&&onDecideSlotReq&&(
+                   <button onClick={()=>{onDecideSlotReq();onClose();}} style={{marginTop:6,background:`${C.cyan}18`,border:`1px solid ${C.cyan}44`,borderRadius:8,padding:"4px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Decide →</button>
                  )}
                </div>
              </div>
@@ -1373,21 +1380,30 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     if(reconciledUsed===(pkg.sessions_used||0)) return;
     const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
     const newLeft=pkg.sessions_total-reconciledUsed;
-    // Only alert once per threshold — a durable flag on the package row (not local
-    // state) so repeated mounts/patches (or the client's own app doing the same
-    // settle) can't re-fire the same "N left" push notification. Still gated on
-    // newLeft<prevLeft so a downward correction to sessions_used (e.g. a booking
-    // that had been counted gets excluded, freeing up a session) can't look like a
-    // new depletion and fire a spurious "running low" alert.
-    const alreadyAlerted=(pkg.low_sessions_alert_level??99)<=newLeft;
-    const shouldAlert=!alreadyAlerted&&newLeft<prevLeft&&(newLeft===2||newLeft===1);
-    const patch={sessions_used:reconciledUsed,...(shouldAlert?{low_sessions_alert_level:newLeft}:{})};
-    dbPatch("packages",`id=eq.${pkg.id}`,patch,token).catch(()=>{});
-    const updPkg={...pkg,...patch};
+    dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:reconciledUsed},token).catch(()=>{});
+    const updPkg={...pkg,sessions_used:reconciledUsed};
     setPkg(updPkg);
     onClientUpdated({...client,_pkg:updPkg});
+    // Only alert once per threshold. ClientApp runs this exact same settle logic on its
+    // own load, and this effect can itself re-run on every remount of the client panel —
+    // so a plain "read the flag, then write it" check isn't enough: two near-simultaneous
+    // callers can both read "not yet alerted" before either write lands, and both fire a
+    // push (this is how one client got the same "N left" push 3 times). Claim the
+    // threshold atomically instead: scope the UPDATE to only match while
+    // low_sessions_alert_level still qualifies (compare-and-swap via the WHERE clause),
+    // and only notify if THIS call's UPDATE actually matched a row — a racing caller
+    // matches zero rows and stays silent. Gated on newLeft<prevLeft so a downward
+    // correction to sessions_used can't look like a new depletion.
+    const alreadyAlerted=(pkg.low_sessions_alert_level??99)<=newLeft;
+    const shouldAlert=!alreadyAlerted&&newLeft<prevLeft&&(newLeft===2||newLeft===1);
     if(shouldAlert){
-      postNotification({client_id:client.id,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+      dbPatch("packages",
+        `id=eq.${pkg.id}&or=(low_sessions_alert_level.is.null,low_sessions_alert_level.gt.${newLeft})`,
+        {low_sessions_alert_level:newLeft},token
+      ).then(claimed=>{
+        if(!claimed||!claimed.length) return; // another caller already claimed this threshold
+        postNotification({client_id:client.id,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+      }).catch(()=>{});
     }
   },[reconciledUsed,loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1883,6 +1899,14 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
   const selDay=weekDates[dayIdx]; const isSun=dayIdx===6;
   const isCurrentWeek=weekOffset===0;
   const weekLabel=weekOffset===0?"This week":`Week of ${fmtDate(weekDates[0].iso)}`;
+  // Jumps the day-grid below straight to an arbitrary date — used so a pending custom
+  // time request can be tapped to actually SEE that day (who's already booked, standard
+  // slots, etc.) before deciding, instead of approving/rejecting blind off a date string.
+  const jumpToDate=(iso)=>{
+    const diffDays=Math.round((new Date(iso+"T12:00:00")-new Date(WDATES_BASE[0].iso+"T12:00:00"))/86400000);
+    setWeekOffset(Math.floor(diffDays/7));
+    setDay(((diffDays%7)+7)%7);
+  };
 
   const [periods,setPeriods]=useState([]);
   const [periodsLoaded,setPeriodsLoaded]=useState(false);
@@ -2032,6 +2056,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
       await createBooking({slot_id:slot.id,client_id:r.client_id,book_date:r.requested_date,status:"booked"},token);
       await resolveRequest(r.id,"approved",token).catch(()=>{});
       await postNotification({client_id:r.client_id,type:"slot_request_approved",message:`Your custom time request for ${fmtDate(r.requested_date)} at ${toTime(r.requested_time_min)} was approved — it's on your schedule!`},token).catch(()=>{});
+      cleanSlotReqNotifs(trainerId,r.client_id,token).catch(()=>{});
       const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length);
       showToast("✓ Request approved!",true);
       if(r.requested_date===selDay.iso&&dow===selDay.dow) reloadDay();
@@ -2043,6 +2068,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
       setReqWarn(p=>{const n={...p};delete n[r.id];return n;});
       await resolveRequest(r.id,"rejected",token).catch(()=>{});
       await postNotification({client_id:r.client_id,type:"slot_request_rejected",message:`Your custom time request for ${fmtDate(r.requested_date)} at ${toTime(r.requested_time_min)} was declined. Talk to your trainer for alternatives.`},token).catch(()=>{});
+      cleanSlotReqNotifs(trainerId,r.client_id,token).catch(()=>{});
       const upd=pendingReqs.filter(x=>x.id!==r.id); setPendingReqs(upd); onPendingChange?.(upd.length);
     }catch(e){ showToast("Error: "+e.message); }
   };
@@ -2209,7 +2235,13 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div>
                     <div style={{color:C.white,fontSize:13,fontWeight:600}}>{r.profiles?.name||"Unknown"}</div>
-                    <div style={{color:C.muted,fontSize:12,marginTop:2}}>{r.requested_date} · {toTime(r.requested_time_min)}</div>
+                    {/* Tap the date to jump the day-grid below to it — lets the trainer see
+                        exactly who's already booked that day before approving/rejecting,
+                        instead of deciding blind off a bare date string. */}
+                    <button onClick={()=>jumpToDate(r.requested_date)} style={{background:"none",border:"none",padding:0,marginTop:2,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{color:C.muted,fontSize:12}}>{WDAYS[dowOf(r.requested_date)]}, {fmtDate(r.requested_date)} · {toTime(r.requested_time_min)}</span>
+                      <span style={{color:C.cyan,fontSize:10,fontWeight:700}}>view day ›</span>
+                    </button>
                   </div>
                   <div style={{display:"flex",gap:6}}>
                     <button onClick={()=>handleApproveRequest(r)} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 10px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓</button>
@@ -3570,7 +3602,7 @@ function AppInner(){
         </div>
         <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
       </div>
-      {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideCancelReq={handleDecideCancelReq} onClose={()=>setShowNotifPanel(false)}/>}
+      {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideCancelReq={handleDecideCancelReq} onDecideSlotReq={()=>handleNav("schedule")} onClose={()=>setShowNotifPanel(false)}/>}
       {/* Cancel Request Modal — pops up wherever trainer is */}
       {cancelReqModal&&(
         <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.65)",padding:"24px 20px"}} onClick={e=>{if(e.target===e.currentTarget)setCancelReqModal(null);}}>
