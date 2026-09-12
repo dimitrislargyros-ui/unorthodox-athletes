@@ -506,7 +506,7 @@ const STATUS_CFG={upcoming:{c:C.cyan,l:"Upcoming"},booked:{c:C.amber,l:"Booked"}
 const StatusBadge=({status})=>{
   const cfg=STATUS_CFG[status];
   if(!cfg) return null;
-  return <span style={{background:cfg.c+"22",color:cfg.c,fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:20,border:`1px solid ${cfg.c}44`}}>{cfg.l}</span>;
+  return <span style={{background:cfg.c+"22",color:cfg.c,fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:20,border:`1px solid ${cfg.c}44`,whiteSpace:"nowrap",flexShrink:0}}>{cfg.l}</span>;
 };
 // items: [{_key,session_date,start_time_min,status}] — the single soonest future item = upcoming, rest future = booked, everything else = completed
 const computeStatusMap=(items,now)=>{
@@ -575,7 +575,7 @@ const SessionSheet=({session,token,onClose})=>{
   const noteObj = Array.isArray(rawNotes) ? (rawNotes[0]||null) : (rawNotes||null);
   const exercises = session.exercises || [];
   const spw = session._pkg_spw || 3;
-  const dayNum = session.sessions_used_before!=null ? calcDayNum(session.sessions_used_before, spw) : session.day_num;
+  const dayNum = isPilates(session) ? null : (session.sessions_used_before!=null ? calcDayNum(session.sessions_used_before, spw) : session.day_num);
   const [clientNote, setClientNote] = useState(noteObj?.client_note||"");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -599,9 +599,9 @@ const SessionSheet=({session,token,onClose})=>{
       <div className="ua-modal-panel" onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:20,padding:"20px 20px 22px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box",width:"100%",maxWidth:430}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <div style={{color:C.white,fontSize:18,fontWeight:800}}>{sessLabel(session._program_name)}</div>
-              {dayNum&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20}}>Day {dayNum}</span>}
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <div style={{color:C.white,fontSize:18,fontWeight:800}}>{isPilates(session)?"Pilates":sessLabel(session._program_name)}</div>
+              {dayNum&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dayNum}</span>}
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:2}}>{fmtDate(session.session_date)} · {toTime(session.start_time_min)}</div>
           </div>
@@ -657,11 +657,11 @@ const HistorySheet=({sessions,spw,onClose,onOpen,label="Perform"})=>{
             return(
               <button key={i} onClick={()=>onOpen&&onOpen(s)}
                 style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${C.border}`,padding:"12px 0",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:onOpen?"pointer":"default",fontFamily:"inherit",textAlign:"left"}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                   <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Pilates":label}</div>
-                  {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                  {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>}
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
                   <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div><StatusBadge status="completed"/></div>
                   {onOpen&&<div style={{color:C.muted,fontSize:16}}>›</div>}
                 </div>
@@ -1407,8 +1407,8 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
                 <div style={{flex:1,cursor:s._fromBooking?undefined:"pointer"}} onClick={s._fromBooking?undefined:()=>onOpenSession(s)}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                     {dn
-                      ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,flexShrink:0}}>Day {dn}</span>
-                      :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,flexShrink:0}}>Pilates</span>}
+                      ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>
+                      :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Pilates</span>}
                     <StatusBadge status={statusMap[s.id]}/>
                   </div>
                   <div style={{color:C.white,fontSize:14,fontWeight:700}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
@@ -1920,18 +1920,18 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
                 const dn=computeDayNum(s,sessions,spw);
                 return(
                   <button key={i} onClick={()=>setAS(s)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginBottom:8,fontFamily:"inherit"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
-                      <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💪</div>
-                      <div>
-                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12,textAlign:"left",minWidth:0}}>
+                      <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>💪</div>
+                      <div style={{minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                           <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Pilates":sessLabel(pkg?.workout_templates?.name)}</div>
-                          {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                          {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>}
                           <StatusBadge status={s.status}/>
                         </div>
                         <div style={{color:C.muted,fontSize:12}}>{weekDayShort(s.session_date)} · {toTime(s.start_time_min)}</div>
                       </div>
                     </div>
-                    <span style={{color:C.cyan,fontSize:12,fontWeight:700}}>Notes →</span>
+                    <span style={{color:C.cyan,fontSize:12,fontWeight:700,flexShrink:0,marginLeft:8}}>Notes →</span>
                   </button>
                 );
               })
@@ -1947,17 +1947,17 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
               return(<>
                 {trainerSched.map((s,i)=>(
                   <div key={i} style={{background:C.pink+"18",border:`1px solid ${C.pink}44`,borderRadius:12,padding:"14px 16px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:12}}>
-                      <div style={{width:36,height:36,borderRadius:10,background:C.pink+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🏋️</div>
-                      <div>
-                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                    <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
+                      <div style={{width:36,height:36,borderRadius:10,background:C.pink+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>🏋️</div>
+                      <div style={{minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
                           <span style={{color:C.white,fontSize:14,fontWeight:700}}>{isPilates(s)?"Pilates":sessLabel(pkg?.workout_templates?.name)}</span>
-                          {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                          {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>}
                         </div>
                         <div style={{color:C.muted,fontSize:12}}>{toTime(s.start_time_min)} · Scheduled by trainer</div>
                       </div>
                     </div>
-                    <span style={{color:C.pink,fontSize:11,fontWeight:800}}>Booked ✓</span>
+                    <span style={{color:C.pink,fontSize:11,fontWeight:800,flexShrink:0,marginLeft:8}}>Booked ✓</span>
                   </div>
                 ))}
                 {visibleSlots.length===0&&trainerSched.length===0&&<Empty msg="No slots available for this day. Contact your trainer."/>}
@@ -2685,11 +2685,11 @@ const ProfileScreen=({profile,pkg,sessions,reservedCount,allBooks,prs:initPRs,us
               return(
                 <button key={i} onClick={()=>setOpenSess(s)}
                   style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${C.border}`,padding:"12px 0",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",minWidth:0}}>
                     <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Pilates":sessLabel(pkg?.workout_templates?.name)}</div>
-                    {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
+                    {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>}
                   </div>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
                     <div style={{textAlign:"right"}}><div style={{color:C.muted,fontSize:12,marginBottom:3}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div><StatusBadge status="completed"/></div>
                     <div style={{color:C.muted,fontSize:16}}>›</div>
                   </div>

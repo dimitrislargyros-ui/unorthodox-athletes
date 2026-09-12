@@ -347,7 +347,7 @@ const STATUS_CFG={upcoming:{c:C.amber,l:"Booked"},booked:{c:C.amber,l:"Booked"},
 const StatusBadge=({status})=>{
   const cfg=STATUS_CFG[status];
   if(!cfg) return null;
-  return <span style={{background:cfg.c+"22",color:cfg.c,fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:20,border:`1px solid ${cfg.c}44`}}>{cfg.l}</span>;
+  return <span style={{background:cfg.c+"22",color:cfg.c,fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:20,border:`1px solid ${cfg.c}44`,whiteSpace:"nowrap",flexShrink:0}}>{cfg.l}</span>;
 };
 // items: [{_key,session_date,start_time_min,status}] — the single soonest future item = upcoming, rest future = booked, everything else = completed
 const computeStatusMap=(items,now)=>{
@@ -522,11 +522,11 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
               <div style={{color:C.white,fontSize:18,fontWeight:800}}>Session Log</div>
               {dn
-                ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20}}>Day {dn}</span>
-                :isPilates(session)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20}}>Pilates</span>}
+                ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>
+                :isPilates(session)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Pilates</span>}
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:2}}>{fmtDate(session.session_date)} · {toTime(session.start_time_min)}</div>
           </div>
@@ -926,10 +926,10 @@ const ClientsScreen=({clients,onViewClient})=>{
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <Avatar initials={c.initials} avatarUrl={c.avatar_url}/>
                 <div>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     <div style={{color:C.white,fontSize:15,fontWeight:700}}>{c.name}</div>
-                    {currentDay&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:20}}>Day {currentDay}</span>}
-                    {pkg?.delivery_mode==='remote'&&<span style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,color:C.pink,fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:20,letterSpacing:0.5}}>📍 REMOTE</span>}
+                    {currentDay&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {currentDay}</span>}
+                    {pkg?.delivery_mode==='remote'&&<span style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,color:C.pink,fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:20,letterSpacing:0.5,whiteSpace:"nowrap",flexShrink:0}}>📍 REMOTE</span>}
                   </div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{pkg?`${pkg.sessions_total}-Session · ${pkg.sessions_per_week||3}x/week · ends ${fmtDate(pkg.end_date)}`:"No active package"}</div>
                   {pkg?.has_injury&&<div style={{color:C.amber,fontSize:11,marginTop:2}}>⚠️ {pkg.injury_notes}</div>}
@@ -1851,11 +1851,11 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
                     <div style={{width:36,height:36,borderRadius:10,background:iconBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{icon}</div>
                     <div>
-                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
                         {s._dayNum
-                          ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {s._dayNum}</span>
-                          :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Pilates</span>}
-                        <span style={{color:C.muted,fontSize:10,fontWeight:700}}>{s._sessionNum}/{timeline.length}</span>
+                          ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {s._dayNum}</span>
+                          :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Pilates</span>}
+                        <span style={{color:C.muted,fontSize:10,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>{s._sessionNum}/{timeline.length}</span>
                         <StatusBadge status={badgeStatus}/>
                       </div>
                       <div style={{color:C.muted,fontSize:12}}>{fmtDate(s.session_date)} · {toTime(s.start_time_min)}{!isBooking&&s.exercises?.length>0?` · ${s.exercises.length} exercises`:""}</div>
