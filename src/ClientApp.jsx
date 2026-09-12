@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates } from "./sessionsMath.js";
 
 // ── Premium Design System (injected once) ──
 ;(()=>{
@@ -348,8 +348,9 @@ const weekMon=(isoDate)=>{const d=new Date(isoDate+"T12:00:00");const dow=d.getD
 // Day numbering is sequential across ALL sessions — Day 1/2/3 cycles globally
 // and only resets when the full cycle completes (not every Monday).
 const computeDayNum = (session, allSessions, spw=3) => {
+  if(isPilates(session)) return null; // Pilates isn't part of the PT day rotation
   const ordered=[...allSessions]
-    .filter(s=>s.status==="completed"||s.status==="booked")
+    .filter(s=>(s.status==="completed"||s.status==="booked")&&!isPilates(s))
     .sort((a,b)=>a.session_date.localeCompare(b.session_date)||(a.start_time_min-b.start_time_min));
   const idx=ordered.findIndex(x=>x.id===session.id);
   return idx>=0?(idx%spw)+1:(session.day_num||null);
@@ -657,7 +658,7 @@ const HistorySheet=({sessions,spw,onClose,onOpen,label="Perform"})=>{
               <button key={i} onClick={()=>onOpen&&onOpen(s)}
                 style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${C.border}`,padding:"12px 0",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:onOpen?"pointer":"default",fontFamily:"inherit",textAlign:"left"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>{label}</div>
+                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Pilates":label}</div>
                   {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1132,16 +1133,23 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
   },[heroIsToday,heroItem?.start_time_min,myTodayBook?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const heroCd=heroItem&&!inTraining?countdownHMS(heroItem.start_time_min,heroItem.session_date):null;
-  // Day numbering: global sequential — Day 1/2/3 cycles across ALL sessions, never resets weekly
-  // completedCount = sessions already done; allUpcoming[i] is i steps ahead of that baseline
-  const completedCount=sessions.filter(s=>s.status==="completed").length;
-  const dayNumForIndex=(i)=>{
+  // Day numbering: global sequential — Day 1/2/3 cycles across ALL non-Pilates sessions,
+  // never resets weekly. Pilates sits outside this rotation entirely (see isPilates) — it
+  // never gets a Day N label itself, and never consumes a slot in the count for others.
+  const completedCount=sessions.filter(s=>s.status==="completed"&&!isPilates(s)).length;
+  const dayNumForCount=(n)=>{
     if(!pkg) return null;
-    return (completedCount+i)%spw+1;
+    return (completedCount+n)%spw+1;
   };
-  const heroDayNum=heroItem?dayNumForIndex(0):null;
-  // Day number for today's session during/after the session window
-  const todayActiveDay=(inSessionNow||sessionEndedToday)&&pkg?completedCount%spw+1:null;
+  // ptCountAt[k] = 1-based count of non-Pilates items in allUpcoming[0..k], or null if
+  // allUpcoming[k] itself is Pilates — lets each list item resolve its own Day N without
+  // a Pilates entry breaking the sequence for the ones that follow it.
+  let _ptRunning=0;
+  const ptCountAt=allUpcoming.map(s=>isPilates(s)?null:++_ptRunning);
+  const dayNumAt=(idx)=>ptCountAt[idx]==null?null:dayNumForCount(ptCountAt[idx]-1);
+  const heroDayNum=heroItem?dayNumAt(0):null;
+  // Day number for today's session during/after the session window (not for Pilates)
+  const todayActiveDay=(inSessionNow||sessionEndedToday)&&pkg&&!isPilates(myBookedSlot)?completedCount%spw+1:null;
 
   // Auto-open WOD sheet when session is actively in progress or just ended (once per mount)
   useEffect(()=>{
@@ -1151,7 +1159,7 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
     }
   },[todayActiveDay,inSessionNow,sessionEndedToday,wodAutoShown]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const nextBookDayNum=dayNumForIndex(allUpcoming.length);
+  const nextBookDayNum=dayNumForCount(_ptRunning);
 
   // Compute target date for "Book Day X" nav = day after last future booking
   const nextBookNavTarget=(()=>{
@@ -1271,7 +1279,9 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
           <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:20,padding:"18px 20px",boxSizing:"border-box"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Today</span>
-              {pkg?.workout_templates?.name&&<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>{sessLabel(pkg.workout_templates.name)}</span>}
+              {isPilates(myBookedSlot)
+                ?<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>Pilates</span>
+                :pkg?.workout_templates?.name&&<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>{sessLabel(pkg.workout_templates.name)}</span>}
               {todayActiveDay!=null&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Day {todayActiveDay}</span>}
             </div>
             <div style={{textAlign:"center",padding:"6px 0"}}>
@@ -1290,7 +1300,9 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
           <div style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,borderRadius:20,padding:"18px 20px",boxSizing:"border-box"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>{heroIsToday?"Today":new Date(heroItem.session_date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"})}</span>
-              {pkg?.workout_templates?.name&&<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>{sessLabel(pkg.workout_templates.name)}</span>}
+              {isPilates(heroItem)
+                ?<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>Pilates</span>
+                :pkg?.workout_templates?.name&&<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>{sessLabel(pkg.workout_templates.name)}</span>}
               {heroDayNum&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Day {heroDayNum}</span>}
             </div>
 
@@ -1331,7 +1343,9 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
           <div style={{background:C.green+"18",border:`1px solid ${C.green}44`,borderRadius:20,padding:"18px 20px",boxSizing:"border-box"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <div style={{color:C.green,fontSize:16,fontWeight:900,fontFamily:"'Oswald',sans-serif"}}>✅ Session Complete</div>
-              {todayActiveDay!=null&&<span style={{background:C.green+"33",borderRadius:20,padding:"4px 11px",color:C.green,fontSize:11,fontWeight:800}}>Day {todayActiveDay}</span>}
+              {todayActiveDay!=null
+                ?<span style={{background:C.green+"33",borderRadius:20,padding:"4px 11px",color:C.green,fontSize:11,fontWeight:800}}>Day {todayActiveDay}</span>
+                :isPilates(myBookedSlot)&&<span style={{background:C.green+"33",borderRadius:20,padding:"4px 11px",color:C.green,fontSize:11,fontWeight:800}}>Pilates</span>}
             </div>
             <div style={{color:C.muted,fontSize:12,lineHeight:1.5,marginBottom:todayActiveDay!=null&&pkg?.workout_templates?10:0}}>Great work today! Rest and recover 💪</div>
             {todayActiveDay!=null&&pkg?.workout_templates&&(
@@ -1387,12 +1401,14 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
         <div style={{padding:"14px 20px 0"}}>
           <SL>Your Next Sessions</SL>
           {middleUpcoming.map((s,i)=>{
-            const dn=dayNumForIndex(i+1);
+            const dn=dayNumAt(i+1);
             return(
               <div key={s.id||i} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,boxSizing:"border-box"}}>
                 <div style={{flex:1,cursor:s._fromBooking?undefined:"pointer"}} onClick={s._fromBooking?undefined:()=>onOpenSession(s)}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                    {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,flexShrink:0}}>Day {dn}</span>}
+                    {dn
+                      ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,flexShrink:0}}>Day {dn}</span>
+                      :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,flexShrink:0}}>Pilates</span>}
                     <StatusBadge status={statusMap[s.id]}/>
                   </div>
                   <div style={{color:C.white,fontSize:14,fontWeight:700}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
@@ -1734,9 +1750,10 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
     },[onWaitlist?.id]);
     // Global sequential day# — count ALL sessions/bookings before this slot
     const computeGlobalDayNum=(()=>{
-      const completedBefore=sessions.filter(s=>s.status==="completed").length;
-      const sessBookedBefore=sessions.filter(s=>s.status==="booked"&&(s.session_date<selDay.iso||(s.session_date===selDay.iso&&(s.start_time_min||0)<slot.start_time_min))).length;
-      const booksBefore=allFutureBooks.filter(b=>b.book_date<selDay.iso||(b.book_date===selDay.iso&&(b.schedule_slots?.start_time_min||0)<slot.start_time_min)).length;
+      if(slot.class_name) return null; // Pilates (or any special class) isn't part of the PT day rotation
+      const completedBefore=sessions.filter(s=>s.status==="completed"&&!isPilates(s)).length;
+      const sessBookedBefore=sessions.filter(s=>s.status==="booked"&&!isPilates(s)&&(s.session_date<selDay.iso||(s.session_date===selDay.iso&&(s.start_time_min||0)<slot.start_time_min))).length;
+      const booksBefore=allFutureBooks.filter(b=>!isPilates(b)&&(b.book_date<selDay.iso||(b.book_date===selDay.iso&&(b.schedule_slots?.start_time_min||0)<slot.start_time_min))).length;
       const globalIdx=completedBefore+sessBookedBefore+booksBefore;
       return globalIdx%spw+1;
     });
@@ -1765,7 +1782,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
               </button>
               :hasOtherBook
                 ?(!changeBlocked&&<GBtn label="Change →" onClick={()=>handleBook(slot)} sm/>)
-                :<GBtn label={`Book Day ${nextSlotDayNum} →`} onClick={()=>handleBook(slot)} sm/>
+                :<GBtn label={nextSlotDayNum?`Book Day ${nextSlotDayNum} →`:"Book →"} onClick={()=>handleBook(slot)} sm/>
           }
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1907,7 +1924,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
                       <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💪</div>
                       <div>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>{sessLabel(pkg?.workout_templates?.name)}</div>
+                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Pilates":sessLabel(pkg?.workout_templates?.name)}</div>
                           {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                           <StatusBadge status={s.status}/>
                         </div>
@@ -1934,7 +1951,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
                       <div style={{width:36,height:36,borderRadius:10,background:C.pink+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🏋️</div>
                       <div>
                         <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                          <span style={{color:C.white,fontSize:14,fontWeight:700}}>{sessLabel(pkg?.workout_templates?.name)}</span>
+                          <span style={{color:C.white,fontSize:14,fontWeight:700}}>{isPilates(s)?"Pilates":sessLabel(pkg?.workout_templates?.name)}</span>
                           {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                         </div>
                         <div style={{color:C.muted,fontSize:12}}>{toTime(s.start_time_min)} · Scheduled by trainer</div>
@@ -2669,7 +2686,7 @@ const ProfileScreen=({profile,pkg,sessions,reservedCount,allBooks,prs:initPRs,us
                 <button key={i} onClick={()=>setOpenSess(s)}
                   style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${C.border}`,padding:"12px 0",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>{sessLabel(pkg?.workout_templates?.name)}</div>
+                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Pilates":sessLabel(pkg?.workout_templates?.name)}</div>
                     {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {dn}</span>}
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>

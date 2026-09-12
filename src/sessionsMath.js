@@ -54,6 +54,24 @@ export function computeCompletedUsed(pkg, sessions, bookings, nowMs) {
   return Math.max(0, Math.min(adjusted, pkg.sessions_total));
 }
 
+// The Saturday Pilates class (sql/020_pilates_class_and_slot_duration.sql) sits outside
+// the Personal Training Day 1/2/3 rotation entirely: it should never get a "Day N" label
+// itself, and booking/completing it must not consume a slot in that rotation for other
+// sessions either. Prefer class_name when a slot/booking object carries it (most
+// accurate); `sessions` rows aren't linked to schedule_slots, so fall back to
+// day-of-week + time — the only identifying info they have.
+const PILATES_DOW = 5; // 0=Mon...6=Sun
+const PILATES_START_MIN = 645; // 10:45
+export function isPilates(item) {
+  const cls = item?.class_name ?? item?.schedule_slots?.class_name;
+  if (cls != null) return cls === 'Pilates';
+  const dateStr = item?.session_date || item?.book_date;
+  const startMin = item?.start_time_min ?? item?.schedule_slots?.start_time_min;
+  if (dateStr == null || startMin == null) return false;
+  const d = new Date(dateStr + "T12:00:00").getDay();
+  return startMin === PILATES_START_MIN && (d === 0 ? 6 : d - 1) === PILATES_DOW;
+}
+
 // Booked = distinct non-cancelled session/booking days (since package start), regardless of time.
 export function computeReservedCount(pkg, sessions, bookings) {
   if (!pkg) return 0;

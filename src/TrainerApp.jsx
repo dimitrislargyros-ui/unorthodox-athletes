@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates } from "./sessionsMath.js";
 
 // ── Premium Design System (injected once) ──
 ;(()=>{
@@ -263,9 +263,11 @@ const todayDow= ()    => { const d=new Date().getDay(); return d===0?6:d-1; };
 
 // Day num: (count of all client sessions up to date) % spw + 1
 const calcDayNum = async (clientId, date, tk, spw=3) => {
-  // Only count non-cancelled sessions so cancelled sessions don't skew the day rotation
+  // Only count non-cancelled, non-Pilates sessions — Pilates sits outside the PT
+  // Day 1/2/3 rotation and shouldn't skew it (see isPilates in sessionsMath.js).
   const all = await dbGet("sessions", `client_id=eq.${clientId}&session_date=lte.${date}&status=neq.cancelled`, tk).catch(()=>[]);
-  return ((all?.length||0) % spw) + 1;
+  const nonPilates=(all||[]).filter(s=>!isPilates(s));
+  return (nonPilates.length % spw) + 1;
 };
 
 const WDAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
@@ -474,7 +476,7 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
   const [tplConfirm,setTplConfirm]=useState(null);
   const [localToast,setLocalToast]=useState(null);
   const showLocalToast=(msg,ok=false)=>{setLocalToast({msg,ok});setTimeout(()=>setLocalToast(null),3500);};
-  const dn=session.day_num;
+  const dn=isPilates(session)?null:session.day_num;
 
   useEffect(()=>{ getTemplates(trainerId,token).then(r=>setTemplates(r||[])).catch(()=>{}); },[]);
 
@@ -522,7 +524,9 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <div style={{color:C.white,fontSize:18,fontWeight:800}}>Session Log</div>
-              {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20}}>Day {dn}</span>}
+              {dn
+                ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20}}>Day {dn}</span>
+                :isPilates(session)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20}}>Pilates</span>}
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:2}}>{fmtDate(session.session_date)} · {toTime(session.start_time_min)}</div>
           </div>
@@ -689,6 +693,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
   };
 
   const getDayNumForItem=(item,clients)=>{
+    if(isPilates(item)) return null;
     if(item.day_num) return item.day_num;
     const cl=clients.find(c=>c.id===item.client_id||c.id===item.profiles?.id);
     if(!cl?._pkg) return null;
@@ -845,7 +850,9 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
                       <Avatar initials={cp?.initials} size={28} avatarUrl={cp?.avatar_url}/>
                       <div>
                         <div style={{color:C.white,fontSize:13,fontWeight:600}}>{cp?.name||"Unknown"}</div>
-                        {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>Day {dn}</span>}
+                        {dn
+                          ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>Day {dn}</span>
+                          :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>Pilates</span>}
                       </div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1363,16 +1370,21 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     ...sessions.map(s=>({...s,_type:s.status})),
     ...bookOnlyItems,
   ].sort((a,b)=>a.session_date.localeCompare(b.session_date)||(a.start_time_min-b.start_time_min));
-  // Day number cycles only through non-cancelled items so cancellations don't shift the rotation
-  let _dayCount=0;
+  // Day number cycles only through non-cancelled, non-Pilates items so cancellations
+  // and Pilates (outside the PT rotation, see isPilates) don't shift the count. Pilates
+  // still gets a _sessionNum — it genuinely happened — just no Day N of its own.
+  let _dayCount=0,_sessCount=0;
   timeline.forEach((item)=>{
-    if(item.status!=="cancelled"){
-      item._dayNum=(_dayCount%spw)+1;
-      item._sessionNum=_dayCount+1;
-      _dayCount++;
-    } else {
+    if(item.status==="cancelled"){
+      item._dayNum=null; item._sessionNum=null;
+      return;
+    }
+    item._sessionNum=++_sessCount;
+    if(isPilates(item)){
       item._dayNum=null;
-      item._sessionNum=null;
+    } else {
+      item._dayNum=(_dayCount%spw)+1;
+      _dayCount++;
     }
   });
   const statusMap=computeStatusMap(timeline.filter(s=>s.session_date).map(s=>({...s,_key:s.id})),new Date());
@@ -1808,7 +1820,9 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                 {(logSlots.length>0?logSlots.map(s=>s.start_time_min):SLOT_TIMES).map(t=><button key={t} onClick={()=>setLogTime(t)} style={{background:logTime===t?C.cyan+"33":C.surface2,border:`1px solid ${logTime===t?C.cyan:C.border}`,borderRadius:7,padding:"7px 10px",color:logTime===t?C.cyan:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{toTime(t)}</button>)}
               </div>
             </div>
-            {logDayNum&&<div style={{color:C.muted,fontSize:12,marginBottom:10}}>Will be logged as <span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"2px 8px",borderRadius:20}}>Day {logDayNum}</span></div>}
+            {logSlots.find(s=>s.start_time_min===logTime)?.class_name
+              ?<div style={{color:C.muted,fontSize:12,marginBottom:10}}>Will be logged as <span style={{background:`${C.pink}33`,color:C.pink,fontSize:11,fontWeight:800,padding:"2px 8px",borderRadius:20}}>{logSlots.find(s=>s.start_time_min===logTime).class_name}</span></div>
+              :logDayNum&&<div style={{color:C.muted,fontSize:12,marginBottom:10}}>Will be logged as <span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"2px 8px",borderRadius:20}}>Day {logDayNum}</span></div>}
             <GBtn label={logging?"Logging...":"Log Session & Add Notes"} onClick={handleLog} disabled={logging} style={{width:"100%"}}/>
           </Card>
         )}
@@ -1838,7 +1852,9 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                     <div style={{width:36,height:36,borderRadius:10,background:iconBg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{icon}</div>
                     <div>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
-                        <span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {s._dayNum}</span>
+                        {s._dayNum
+                          ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Day {s._dayNum}</span>
+                          :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20}}>Pilates</span>}
                         <span style={{color:C.muted,fontSize:10,fontWeight:700}}>{s._sessionNum}/{timeline.length}</span>
                         <StatusBadge status={badgeStatus}/>
                       </div>
