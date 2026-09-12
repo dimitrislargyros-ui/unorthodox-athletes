@@ -45,6 +45,10 @@ const C = {
 };
 const GYM_CAP = 8;
 const SESS_MIN = 90;
+// Fixed package durations the owner wants regardless of sessions/week; anything
+// else (e.g. the 10-session preset) still falls back to ceil(sessions/spw).
+const PRESET_WEEKS = {8:8, 12:5};
+const weeksForPackage=(total,spwNum)=>PRESET_WEEKS[total]??Math.ceil(total/(spwNum||3));
 
 // ── Supabase ──
 const SB_URL = "https://hxyqvryuniqmvpjljrry.supabase.co";
@@ -235,7 +239,7 @@ const getClientPRs  = (uid,tk) => dbGet("personal_records",`client_id=eq.${uid}&
 
 // ── Time utils ──
 const toTime  = (min) => { const h=Math.floor(min/60),m=min%60; return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`; };
-const toSlot  = (s)   => `${toTime(s)} — ${toTime(s+SESS_MIN)}`;
+const toSlot  = (s,dur=SESS_MIN)   => `${toTime(s)} — ${toTime(s+dur)}`;
 const fmtDate = (iso) => { if(!iso) return ""; return new Date(iso+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"2-digit"}); };
 const fmtMemberSince=(iso)=>{ if(!iso) return ""; return new Date(iso).toLocaleDateString("en-US",{month:"long",year:"numeric"}); };
 // PostgREST returns embedded session_notes as an object (unique FK) or an array depending on schema-cache detection — normalize both
@@ -1056,6 +1060,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [newSpw,setNSpw]=useState("3");
   const [customTotal,setCustomTotal]=useState("");
   const [customSpw,setCustomSpw]=useState("");
+  const [customWeeks,setCustomWeeks]=useState("");
   const [editingName,setEditingName]=useState(false);
   const [nameVal,setNameVal]=useState(client.name||"");
   const [savingName,setSavingName]=useState(false);
@@ -1162,12 +1167,12 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           await dbPatch("packages",`client_id=eq.${client.id}&is_active=eq.true`,{is_active:false,deactivated_at:now,deactivation_reason:"renewed"},token).catch(()=>{});
         }
         const total=parseInt(newPkgTotal),spwNum=parseInt(newSpw)||3;
-        const weeks=Math.ceil(total/spwNum);
+        const weeks=customWeeks?(parseInt(customWeeks)||weeksForPackage(total,spwNum)):weeksForPackage(total,spwNum);
         const end=new Date(); end.setDate(end.getDate()+weeks*7);
         const res=await createPkg({client_id:client.id,sessions_total:total,sessions_used:0,sessions_per_week:spwNum,weeks,start_date:startDate,end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null,delivery_mode:newPkgDeliveryMode},token);
         const created=Array.isArray(res)?res[0]:res;
         created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
-        setPkg(created); setShowPkg(false); setCustomTotal(""); setCustomSpw("");
+        setPkg(created); setShowPkg(false); setCustomTotal(""); setCustomSpw(""); setCustomWeeks("");
         // Update local allPkgs: mark old as inactive (with snapshot), prepend new
         setAllPkgs(prev=>{
           const deactivatedAt=new Date().toISOString();
@@ -1558,17 +1563,20 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           <div style={{display:"flex",gap:8}}>
             {pkg&&<button onClick={()=>showEditNotes?setShowEditNotes(false):handleOpenEditNotes()} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 14px",color:C.cyan,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showEditNotes?"▲ Cancel":"✎ Notes"}</button>}
             <button onClick={()=>{setShowPkg(p=>{
-              if(p){ setCustomTotal(""); setCustomSpw(""); }
+              if(p){ setCustomTotal(""); setCustomSpw(""); setCustomWeeks(""); }
               else if(pkg){
                 // Pre-fill from the client's CURRENT package so renewing starts from
                 // "same as now" instead of silently resetting injury flag/notes,
                 // program, delivery mode and session count/frequency to blank
                 // defaults — the trainer opts OUT of carrying these over instead of
-                // having to remember to opt back IN every single renewal.
+                // having to remember to opt back IN every single renewal. Duration is
+                // NOT carried over — it stays on the fixed 8/5-week presets (or the
+                // formula) so renewing doesn't silently perpetuate an old override.
                 const total=String(pkg.sessions_total||10),spwStr=String(pkg.sessions_per_week||3);
                 setNPT(total); setNSpw(spwStr);
                 if(![8,10,12].includes(pkg.sessions_total)) setCustomTotal(total);
                 if(![1,2,3,4].includes(pkg.sessions_per_week)) setCustomSpw(spwStr);
+                setCustomWeeks("");
                 setHasInj(!!pkg.has_injury);
                 setInjNotes(pkg.injury_notes||"");
                 setPkgNotes(pkg.package_notes||"");
@@ -1609,16 +1617,17 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                 {[8,10,12].map(n=><button key={n} onClick={()=>setNPT(String(n))} style={{flex:1,background:newPkgTotal===String(n)?C.pink+"33":C.surface2,border:`1px solid ${newPkgTotal===String(n)?C.pink:C.border}`,borderRadius:8,padding:"10px",color:newPkgTotal===String(n)?C.pink:C.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{n}<br/><span style={{fontSize:10}}>sessions</span></button>)}
               </div>
               <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6}}>Sessions per Week</div>
-              <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <div style={{display:"flex",gap:8,marginBottom:8}}>
                 {[1,2,3,4].map(n=><button key={n} onClick={()=>setNSpw(String(n))} style={{flex:1,background:newSpw===String(n)?C.cyan+"33":C.surface2,border:`1px solid ${newSpw===String(n)?C.cyan:C.border}`,borderRadius:8,padding:"10px",color:newSpw===String(n)?C.cyan:C.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{n}x</button>)}
               </div>
+              <div style={{color:C.muted,fontSize:11,marginBottom:12}}>Duration: <span style={{color:C.cyan,fontWeight:700}}>{weeksForPackage(parseInt(newPkgTotal),parseInt(newSpw)||3)} weeks</span></div>
             </>)}
             {/* --- Custom package section --- */}
             {(customTotal||customSpw)?(
               <div style={{background:C.surface2,borderRadius:10,border:"1px solid #C89AFF55",padding:"12px",marginBottom:12}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                   <span style={{color:"#C89AFF",fontSize:12,fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>✏️ Custom Package</span>
-                  <button onClick={()=>{setCustomTotal("");setCustomSpw("");setNPT("10");setNSpw("3");}} style={{background:"none",border:"none",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>← Back to presets</button>
+                  <button onClick={()=>{setCustomTotal("");setCustomSpw("");setCustomWeeks("");setNPT("10");setNSpw("3");}} style={{background:"none",border:"none",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>← Back to presets</button>
                 </div>
                 <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
                   {/* Total Sessions stepper */}
@@ -1640,9 +1649,18 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                     </div>
                   </div>
                 </div>
+                {/* Duration stepper — decoupled from sessions/week, trainer sets it directly */}
+                <div style={{marginTop:10}}>
+                  <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Duration <span style={{color:C.muted,fontWeight:400}}>(weeks, 1–52)</span></div>
+                  <div style={{display:"flex",alignItems:"center",background:C.bg,border:"1px solid #C89AFF",borderRadius:8,overflow:"hidden"}}>
+                    <button onClick={()=>{const v=Math.max(1,(parseInt(customWeeks)||1)-1);setCustomWeeks(String(v));}} style={{background:"none",border:"none",borderRight:`1px solid #C89AFF44`,color:"#C89AFF",fontSize:22,fontWeight:700,cursor:"pointer",padding:"8px 14px",fontFamily:"inherit",lineHeight:1,flexShrink:0}}>−</button>
+                    <input type="number" min="1" max="52" value={customWeeks} onChange={e=>{const v=Math.max(1,Math.min(52,parseInt(e.target.value)||1));setCustomWeeks(String(v));}} style={{flex:1,background:"none",border:"none",color:"#C89AFF",fontSize:18,fontWeight:700,outline:"none",fontFamily:"inherit",textAlign:"center",padding:"10px 0",minWidth:0,MozAppearance:"textfield",WebkitAppearance:"none"}}/>
+                    <button onClick={()=>{const v=Math.min(52,(parseInt(customWeeks)||1)+1);setCustomWeeks(String(v));}} style={{background:"none",border:"none",borderLeft:`1px solid #C89AFF44`,color:"#C89AFF",fontSize:22,fontWeight:700,cursor:"pointer",padding:"8px 14px",fontFamily:"inherit",lineHeight:1,flexShrink:0}}>+</button>
+                  </div>
+                </div>
               </div>
             ):(
-              <button onClick={()=>{setCustomTotal(newPkgTotal);setCustomSpw(newSpw);}} style={{width:"100%",background:"none",border:`1px dashed ${C.border}`,borderRadius:8,padding:"8px",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>✏️ Custom package (any number of sessions)</button>
+              <button onClick={()=>{setCustomTotal(newPkgTotal);setCustomSpw(newSpw);setCustomWeeks(String(weeksForPackage(parseInt(newPkgTotal),parseInt(newSpw)||3)));}} style={{width:"100%",background:"none",border:`1px dashed ${C.border}`,borderRadius:8,padding:"8px",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>✏️ Custom package (any number of sessions)</button>
             )}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderTop:`1px solid ${C.border}`,marginBottom:8}}>
               <span style={{color:C.white,fontSize:14,fontWeight:600}}>⚠️ Injury / Limitation</span>
@@ -1658,7 +1676,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             {programPicker(newPkgProgramId,setNewPkgProgramId)}
             <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:6,marginTop:4}}>Training Notes</div>
             <textarea value={pkgNotes} onChange={e=>setPkgNotes(e.target.value)} placeholder="Focus areas, goals..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,fontFamily:"inherit",resize:"none",height:70,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:12}}/>
-            <GBtn label={`Assign ${newPkgTotal} Session${parseInt(newPkgTotal)===1?"":"s"} · ${newSpw}x/week`} onClick={handleRenew} style={{width:"100%"}}/>
+            <GBtn label={`Assign ${newPkgTotal} Session${parseInt(newPkgTotal)===1?"":"s"} · ${newSpw}x/week · ${customWeeks||weeksForPackage(parseInt(newPkgTotal),parseInt(newSpw)||3)}w`} onClick={handleRenew} style={{width:"100%"}}/>
           </Card>
         )}
         {pkg?(
@@ -2077,7 +2095,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
       // (custom time people physically occupy those slots too)
       const overlapSlots=(daySlots||[]).filter(s=>
         s.start_time_min!==reqStart && // not the exact custom slot itself
-        reqStart<s.start_time_min+SESS_MIN &&
+        reqStart<s.start_time_min+(s.duration_min||SESS_MIN) &&
         s.start_time_min<reqEnd
       );
 
@@ -2139,9 +2157,9 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
         });
       }
       await resolveCancelReq(r.id,"accepted",token).catch(()=>{});
-      postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your cancellation request for ${label} was approved. You can rebook anytime.`,cancel_req_id:r.id,booking_id:r.booking_id||null,booking_client_id:r.client_id,booking_date:r.book_date},token);
+      postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your rearrange request for ${label} was approved. You can rebook anytime.`,cancel_req_id:r.id,booking_id:r.booking_id||null,booking_client_id:r.client_id,booking_date:r.book_date},token);
       setCancelReqs(p=>p.filter(x=>x.id!==r.id));
-      showToast("✓ Cancellation approved",true);
+      showToast("✓ Rearrange approved",true);
     }catch(e){ showToast("Error: "+e.message); }
   };
 
@@ -2149,7 +2167,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
     try{
       const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
       await resolveCancelReq(r.id,"declined",token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your cancellation request for ${label} was declined. Please contact your trainer.`,cancel_req_id:r.id},token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your rearrange request for ${label} was declined. Please contact your trainer.`,cancel_req_id:r.id},token).catch(()=>{});
       setCancelReqs(p=>p.filter(x=>x.id!==r.id));
       showToast("Request declined");
     }catch(e){ showToast("Error: "+e.message); }
@@ -2250,7 +2268,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
         <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
           <div className="ua-modal-panel" style={{background:C.surface,borderRadius:16,padding:"24px",width:"100%",maxWidth:340}}>
             <div style={{color:C.white,fontSize:16,fontWeight:700,marginBottom:8}}>Remove Slot?</div>
-            <div style={{color:C.muted,fontSize:13,marginBottom:20}}>Remove {toSlot(confirm.start_time_min)}? Existing bookings will not be deleted.</div>
+            <div style={{color:C.muted,fontSize:13,marginBottom:20}}>Remove {toSlot(confirm.start_time_min,confirm.duration_min)}? Existing bookings will not be deleted.</div>
             <div style={{display:"flex",gap:8}}>
               <GBtn label="Remove" onClick={()=>handleRemove(confirm)} ghost color={C.pink} style={{flex:1}}/>
               <GBtn label="Keep" onClick={()=>setConf(null)} sm style={{flex:1}}/>
@@ -2299,7 +2317,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
                   </div>
                 </div>
                 {cancelReqs.some(c=>c.client_id===r.client_id&&c.book_date===r.requested_date)&&(
-                  <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"6px 10px",color:C.amber,fontSize:11,fontWeight:600,lineHeight:1.4}}>⚠️ This client also has a pending cancellation for this same date below — resolve that too, or they'll end up booked for both.</div>
+                  <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"6px 10px",color:C.amber,fontSize:11,fontWeight:600,lineHeight:1.4}}>⚠️ This client also has a pending rearrange request for this same date below — resolve that too, or they'll end up booked for both.</div>
                 )}
                 {reqWarn[r.id]&&(
                   <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"8px 10px"}}>
@@ -2315,11 +2333,11 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
           </div>
         </div>
       )}
-      {/* Cancellation Requests */}
+      {/* Rearrange Requests */}
       {cancelReqsLoaded&&cancelReqs.length>0&&(
         <div style={{padding:"0 20px 4px"}}>
           <div style={{background:C.surface,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"13px 16px"}}>
-            <div style={{color:C.amber,fontSize:12,fontWeight:700,marginBottom:8}}>⚠️ Cancellation Requests ({cancelReqs.length})</div>
+            <div style={{color:C.amber,fontSize:12,fontWeight:700,marginBottom:8}}>⚠️ Rearrange Requests ({cancelReqs.length})</div>
             {cancelReqs.map((r,i)=>(
               <div key={r.id} style={{padding:"9px 0",borderBottom:i<cancelReqs.length-1?`1px solid ${C.border}`:"none"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2367,12 +2385,12 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
           {loading?<Spinner/>:slots.length===0?<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"24px",textAlign:"center",marginBottom:10,color:C.muted,fontSize:14}}>No slots for this day</div>:
             slots.map((slot,i)=>{
               const slotStart=slot.start_time_min;
-              const slotEnd=slotStart+SESS_MIN;
+              const slotEnd=slotStart+(slot.duration_min||SESS_MIN);
               const slotBks=bookingsMap[slot.id]||[];
               // Include clients from OTHER slots whose custom session overlaps this slot's window
               const seenIds=new Set(slotBks.map(b=>b.client_id));
               const overlapBks=slots
-                .filter(s=>s.id!==slot.id&&s.start_time_min<slotEnd&&s.start_time_min+SESS_MIN>slotStart)
+                .filter(s=>s.id!==slot.id&&s.start_time_min<slotEnd&&s.start_time_min+(s.duration_min||SESS_MIN)>slotStart)
                 .flatMap(s=>(bookingsMap[s.id]||[]).map(b=>({...b,_customTime:s.start_time_min,_customSlotId:s.id})))
                 .filter(b=>!seenIds.has(b.client_id)); // dedup — don't count same person twice
               const cnt=slotBks.length+overlapBks.length;
@@ -2381,7 +2399,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
               const isForceOpen=forceLogSlot?.id===slot.id;
               return(<Card key={i} style={{marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-                  <div><div style={{color:C.white,fontSize:15,fontWeight:800}}>{toSlot(slot.start_time_min)}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{cnt}/{GYM_CAP} booked{overlapBks.length>0&&<span style={{color:C.amber,fontSize:10,marginLeft:5}}>+{overlapBks.length} custom</span>}</div></div>
+                  <div><div style={{color:C.white,fontSize:15,fontWeight:800}}>{slot.class_name&&<span style={{color:C.pink}}>{slot.class_name} · </span>}{toSlot(slot.start_time_min,slot.duration_min)}</div><div style={{color:C.muted,fontSize:12,marginTop:2}}>{cnt}/{GYM_CAP} booked{overlapBks.length>0&&<span style={{color:C.amber,fontSize:10,marginLeft:5}}>+{overlapBks.length} custom</span>}</div></div>
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
                     <button onClick={()=>{ setForceLogSlot(isForceOpen?null:slot); setForceLogClientId(""); setForceLogSearch(""); }} style={{background:isForceOpen?C.amber+"33":C.surface2,border:`1px solid ${isForceOpen?C.amber+"66":C.border}`,borderRadius:8,padding:"6px 10px",color:isForceOpen?C.amber:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}} title="Force-log extra client (trainer only, not visible to clients)">+ Log</button>
                     <button onClick={()=>setConf(slot)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"6px 10px",color:C.pink,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Remove</button>
@@ -2541,9 +2559,10 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
                   :<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
                     {stdDaySlots.filter(s=>s.is_active).map(s=>(
                       <div key={s.id} style={{display:"flex",alignItems:"center",gap:4,background:C.surface2,border:`1px solid ${s.is_public===false?C.amber+"66":C.border}`,borderRadius:7,padding:"6px 10px"}}>
+                        {s.class_name&&<span style={{color:C.pink,fontSize:11,fontWeight:800}}>{s.class_name}</span>}
                         <span style={{color:C.white,fontSize:12,fontWeight:700}}>{toTime(s.start_time_min)}</span>
                         {s.is_public===false&&<span title="Created from a custom-time request — hidden from other clients' booking grid" style={{color:C.amber,fontSize:9,fontWeight:800,letterSpacing:.3,textTransform:"uppercase"}}>Custom</span>}
-                        <button onClick={()=>setConf({msg:`Remove ${toSlot(s.start_time_min)} from Standard Schedule? Existing bookings are not deleted.`,okLabel:"Remove",onOk:()=>handleStdRemove(s)})} style={{background:"none",border:"none",color:C.pink,fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,fontFamily:"inherit"}}>✕</button>
+                        <button onClick={()=>setConf({msg:`Remove ${toSlot(s.start_time_min,s.duration_min)} from Standard Schedule? Existing bookings are not deleted.`,okLabel:"Remove",onOk:()=>handleStdRemove(s)})} style={{background:"none",border:"none",color:C.pink,fontSize:13,cursor:"pointer",padding:"0 2px",lineHeight:1,fontFamily:"inherit"}}>✕</button>
                       </div>
                     ))}
                   </div>
@@ -3382,7 +3401,7 @@ function AppInner(){
       await postNotification({
         client_id:r.client_id,
         type:"cancel_accepted",
-        message:`Your cancellation for ${label} was approved. You can rebook anytime.`,
+        message:`Your rearrange for ${label} was approved. You can rebook anytime.`,
         booking_id:r.booking_id||null,
         booking_client_id:r.client_id,
         booking_date:r.book_date,
@@ -3390,7 +3409,7 @@ function AppInner(){
       },auth.token).catch(()=>{});
       cleanCancelReqNotifs();
       setCancelReqModal(null);
-      showRtToast("✓ Cancellation approved");
+      showRtToast("✓ Rearrange approved");
     }catch(e){ showRtToast("Error: "+e.message); }
     setCancelReqActing(false);
   };
@@ -3399,7 +3418,7 @@ function AppInner(){
     try{
       const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
       await resolveCancelReq(r.id,"declined",auth.token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your cancellation request for ${label} was declined. Please contact your trainer.`,cancel_req_id:r.id},auth.token).catch(()=>{});
+      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your rearrange request for ${label} was declined. Please contact your trainer.`,cancel_req_id:r.id},auth.token).catch(()=>{});
       cleanCancelReqNotifs();
       setCancelReqModal(null);
       showRtToast("Request declined");
@@ -3669,7 +3688,7 @@ function AppInner(){
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
               <div style={{width:44,height:44,borderRadius:12,background:C.amber+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>⚠️</div>
               <div>
-                <div style={{color:C.white,fontSize:16,fontWeight:800}}>Cancellation Request</div>
+                <div style={{color:C.white,fontSize:16,fontWeight:800}}>Rearrange Request</div>
                 <div style={{color:C.muted,fontSize:12,marginTop:2}}>Within 48 hours of session</div>
               </div>
             </div>

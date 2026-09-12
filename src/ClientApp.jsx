@@ -316,7 +316,7 @@ const toTime = (min) => {
   const h=Math.floor(min/60),m=min%60;
   return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
 };
-const toSlot = (s) => `${toTime(s)} — ${toTime(s+SESS_MIN)}`;
+const toSlot = (s,dur=SESS_MIN) => `${toTime(s)} — ${toTime(s+dur)}`;
 const fmtDate= (iso) => { if(!iso) return ""; return new Date(iso+"T12:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short"}); };
 const fmtMemberSince=(iso)=>{ if(!iso) return ""; return new Date(iso).toLocaleDateString("en-US",{month:"long",year:"numeric"}); };
 const friendlyAuthError=(raw)=>{
@@ -340,7 +340,7 @@ const todayDow = () => { const d=new Date().getDay(); return d===0?6:d-1; };
 const calcDayNum = (sessionsUsedBefore, sessionsPerWeek=3) => (sessionsUsedBefore % sessionsPerWeek) + 1;
 const GR_DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const weekDayShort=dateStr=>GR_DAYS[new Date(dateStr+"T12:00:00").getDay()];
-const sessLabel=tmplName=>tmplName?tmplName+" Training":"Personal Training";
+const sessLabel=tmplName=>tmplName?tmplName+" Training":"Perform";
 
 // Returns the ISO date of the Monday of the week containing isoDate
 const weekMon=(isoDate)=>{const d=new Date(isoDate+"T12:00:00");const dow=d.getDay()===0?6:d.getDay()-1;const m=new Date(d.getTime()-dow*86400000);return localISO(m);};
@@ -444,7 +444,7 @@ const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
       // Save cancel request row (requires cancel_requests table)
       await postCancelRequest({client_id:userId,trainer_id:trainer.id,booking_id:bookingId||null,book_date:bookDate,start_time_min:startMin,status:"pending"},token).catch(()=>{});
       // Notify trainer in-app + push (single server call handles both)
-      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} requested cancellation: ${label}`},token).catch(()=>{});
+      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} requested to rearrange: ${label}`},token).catch(()=>{});
       setSent(true);
     }catch(e){ setErr("Failed to send. Please try again."); }
     setSending(false);
@@ -461,13 +461,13 @@ const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
           </div>
         ):(
           <>
-            <div style={{color:C.pink,fontSize:13,fontWeight:800,letterSpacing:.5,marginBottom:8,textTransform:"uppercase"}}>Cancellation Request</div>
+            <div style={{color:C.pink,fontSize:13,fontWeight:800,letterSpacing:.5,marginBottom:8,textTransform:"uppercase"}}>Rearrange Request</div>
             <div style={{color:C.white,fontSize:16,fontWeight:700,marginBottom:6}}>Session within 48 hours</div>
             <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px 14px",marginBottom:14}}>
               <div style={{color:C.cyan,fontSize:14,fontWeight:700}}>{fmtDate(bookDate)}</div>
               <div style={{color:C.muted,fontSize:13,marginTop:2}}>{toTime(startMin)}</div>
             </div>
-            <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:20}}>You can't cancel a session within 48 hours directly. Would you like to send a cancellation request to your trainer?</div>
+            <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:20}}>You can't rearrange a session within 48 hours directly. Would you like to send a rearrange request to your trainer?</div>
             {err&&<div style={{color:C.pink,fontSize:12,fontWeight:700,marginBottom:10}}>{err}</div>}
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               <button onClick={sendRequest} disabled={sending} style={{width:"100%",background:sending?"rgba(255,255,255,0.05)":`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"14px",color:sending?C.muted:"#fff",fontSize:15,fontWeight:800,cursor:sending?"not-allowed":"pointer",fontFamily:"inherit"}}>{sending?"Sending...":"Yes, send request"}</button>
@@ -640,7 +640,7 @@ const SessionSheet=({session,token,onClose})=>{
 };
 
 // ── Notification Modal ──
-const HistorySheet=({sessions,spw,onClose,onOpen,label="Personal Training"})=>{
+const HistorySheet=({sessions,spw,onClose,onOpen,label="Perform"})=>{
   const completed=sessions.filter(s=>s.status==="completed");
   return(
     <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
@@ -1754,11 +1754,11 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
       <Card glow={booked?C.cyan:null} style={{marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
           <div>
-            <div style={{color:C.white,fontSize:15,fontWeight:800}}>{sessLabel(pkg?.workout_templates?.name)}</div>
-            <div style={{color:C.muted,fontSize:13,marginTop:2}}>{toSlot(slot.start_time_min)}</div>
+            <div style={{color:C.white,fontSize:15,fontWeight:800}}>{slot.class_name||sessLabel(pkg?.workout_templates?.name)}</div>
+            <div style={{color:C.muted,fontSize:13,marginTop:2}}>{toSlot(slot.start_time_min,slot.duration_min)}</div>
           </div>
           {booked
-            ?<GBtn label="✕ Cancel" onClick={()=>handleBook(slot)} sm ghost color={C.muted}/>
+            ?<GBtn label="↻ Rearrange" onClick={()=>handleBook(slot)} sm ghost color={C.muted}/>
             :full
               ?<button onClick={()=>handleWaitlist(slot)} style={{background:onWaitlist?C.amber+"33":C.pink+"20",border:`1px solid ${onWaitlist?C.amber+"55":C.pink+"44"}`,borderRadius:8,padding:"8px 14px",color:onWaitlist?C.amber:C.pink,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
                 {onWaitlist?(waitlistRank?`#${waitlistRank} on waitlist`:"On Waitlist ✓"):"Join Waitlist"}
@@ -1824,7 +1824,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
       {toast&&(
         <div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.pink}66`,borderRadius:14,padding:"16px",zIndex:200}}>
           <div style={{color:C.white,fontWeight:700,fontSize:14,marginBottom:6}}>⚠️ That slot is full ({GYM_CAP}/{GYM_CAP})</div>
-          {toast.next?<><div style={{color:C.muted,fontSize:13,marginBottom:12}}>Next available: <span style={{color:C.cyan,fontWeight:700}}>{toSlot(toast.next.start_time_min)}</span></div><div style={{display:"flex",gap:8}}><GBtn label="Book that instead" onClick={confirmNext} sm style={{flex:1}}/><GBtn label="Cancel" onClick={()=>setToast(null)} sm ghost color={C.muted} style={{flex:1}}/></div></>
+          {toast.next?<><div style={{color:C.muted,fontSize:13,marginBottom:12}}>Next available: <span style={{color:C.cyan,fontWeight:700}}>{toSlot(toast.next.start_time_min,toast.next.duration_min)}</span></div><div style={{display:"flex",gap:8}}><GBtn label="Book that instead" onClick={confirmNext} sm style={{flex:1}}/><GBtn label="Cancel" onClick={()=>setToast(null)} sm ghost color={C.muted} style={{flex:1}}/></div></>
             :<><div style={{color:C.muted,fontSize:13,marginBottom:10}}>No other slots available.</div><GBtn label="Close" onClick={()=>setToast(null)} sm ghost color={C.muted}/></>}
         </div>
       )}
@@ -1832,7 +1832,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
 
       <div style={{padding:"22px 20px 12px"}}>
         <div style={{color:C.white,fontSize:22,fontWeight:800,fontFamily:"'Oswald',sans-serif"}}>Book a Session</div>
-        <div style={{color:C.muted,fontSize:13,marginTop:2}}>Personal training · 90 min · Max {GYM_CAP} in gym</div>
+        <div style={{color:C.muted,fontSize:13,marginTop:2}}>Perform · 90 min · Max {GYM_CAP} in gym</div>
         {pkg?.workout_templates?.name&&<div style={{color:C.cyan,fontSize:13,fontWeight:700,marginTop:6}}>🏋️ Program: {pkg.workout_templates.name}</div>}
       </div>
 
