@@ -200,8 +200,6 @@ const resolveRequest      = (id,status,tk)      => dbPatch("slot_requests",`id=e
 // client once resolved — otherwise it sits in the trainer's bell forever looking
 // exactly like an un-actioned request, with no way to tell it was already handled.
 const cleanSlotReqNotifs  = (trainerId,clientId,tk) => dbDelete("notifications",`client_id=eq.${trainerId}&type=eq.slot_request&related_client_id=eq.${clientId}`,tk);
-const getCancelRequests   = (trainerId,tk)       => dbGet("cancel_requests",`trainer_id=eq.${trainerId}&status=eq.pending&select=*,profiles!cancel_requests_client_id_fkey(id,name,initials)&order=created_at.asc`,tk);
-const resolveCancelReq    = (id,status,tk)       => dbPatch("cancel_requests",`id=eq.${id}`,{status},tk);
 const getSlotBookCount    = (slotId,date,tk)    => dbGet("bookings",`slot_id=eq.${slotId}&book_date=eq.${date}&status=eq.booked&select=id`,tk).then(r=>r?.length||0);
 const createBooking       = (d,tk)              => dbPost("bookings",d,tk);
 const cancelBookingRow    = (id,tk)              => dbPatch("bookings",`id=eq.${id}`,{status:"cancelled"},tk);
@@ -372,7 +370,7 @@ const typeIcon=(type)=>{
   const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳",remote_workout_logged:"📍"};
   return m[type]||"🔔";
 };
-const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq,onDecideSlotReq})=>{
+const TrainerNotifPanel=({userId,token,count,onClose,onDecideSlotReq})=>{
   const [notifs,setNotifs]=useState([]);
   const [loading,setLoading]=useState(true);
   useEffect(()=>{
@@ -408,9 +406,6 @@ const TrainerNotifPanel=({userId,token,count,onClose,onDecideCancelReq,onDecideS
                <div style={{minWidth:0}}>
                  <div style={{color:C.white,fontSize:13,lineHeight:1.4}}>{n.message}</div>
                  {n.created_at&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>{new Date(n.created_at).toLocaleDateString("el-GR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>}
-                 {n.type==="cancel_request"&&onDecideCancelReq&&(
-                   <button onClick={()=>{onDecideCancelReq();onClose();}} style={{marginTop:6,background:`${C.pink}18`,border:`1px solid ${C.pink}44`,borderRadius:8,padding:"4px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Decide →</button>
-                 )}
                  {n.type==="slot_request"&&onDecideSlotReq&&(
                    <button onClick={()=>{onDecideSlotReq();onClose();}} style={{marginTop:6,background:`${C.cyan}18`,border:`1px solid ${C.cyan}44`,borderRadius:8,padding:"4px 10px",color:C.cyan,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Decide →</button>
                  )}
@@ -1698,6 +1693,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                 <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.8}}>{pkg.sessions_total}-Session Pack{pkg.delivery_mode==='remote'?" · 📍 Remote":""}</div>
                 <div style={{color:C.bg,fontSize:20,fontWeight:900,marginTop:3}}>{pkg.sessions_per_week||3}x per week · {pkg.weeks} weeks</div>
                 <div style={{color:C.bg,fontSize:12,opacity:0.8,marginTop:4}}>{fmtDate(pkg.start_date)} → {fmtDate(pkg.end_date)}</div>
+                <div style={{color:C.bg,fontSize:11,opacity:0.65,marginTop:4}}>↻ {pkg.rearranges_used||0}/3 rearranges used</div>
                 {pkg.workout_templates?.name&&<div style={{color:C.bg,fontSize:11,fontWeight:700,marginTop:4}}>🏋️ {pkg.workout_templates.name}</div>}
                 {pkg.package_notes&&<div style={{color:C.bg,fontSize:11,opacity:0.8,marginTop:4}}>📋 {pkg.package_notes}</div>}
                 {pkg.has_injury&&<div style={{color:"rgba(0,0,0,0.7)",fontSize:11,marginTop:4}}>⚠️ {pkg.injury_notes}</div>}
@@ -1963,8 +1959,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
   const [pendingReqs,setPendingReqs]=useState([]);
   const [reqsLoaded,setReqsLoaded]=useState(false);
   const [reqWarn,setReqWarn]=useState({}); // reqId → warning message for overlap
-  const [cancelReqs,setCancelReqs]=useState([]);
-  const [cancelReqsLoaded,setCancelReqsLoaded]=useState(false);
   const [toast,setToast]=useState(null);  // {msg,ok} for inline feedback
   const showToast=(msg,ok=false)=>{setToast({msg,ok});setTimeout(()=>setToast(null),3500);};
   const weekDates=Array.from({length:7},(_,i)=>{
@@ -2007,7 +2001,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
   useEffect(()=>{
     getPendingRequests(token).then(r=>{ const reqs=r||[]; setPendingReqs(reqs); setReqsLoaded(true); onPendingChange?.(reqs.length); }).catch(()=>setReqsLoaded(true));
     getAllPeriods(token).then(r=>{ const all=r||[]; setPeriods(all); const today=todayISO(); const active=all.find(p=>today>=p.start_date&&today<=p.end_date)||null; setActivePeriod(active); }).catch(()=>{}).finally(()=>setPeriodsLoaded(true));
-    getCancelRequests(trainerId,token).then(r=>{ setCancelReqs(r||[]); setCancelReqsLoaded(true); }).catch(()=>setCancelReqsLoaded(true));
   },[]);
 
   useEffect(()=>{
@@ -2157,38 +2150,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
     }catch(e){ showToast("Error: "+e.message); }
   };
 
-  const handleAcceptCancelReq=async(r)=>{
-    try{
-      const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
-      // Cancel the booking if booking_id exists
-      if(r.booking_id){
-        await cancelBookingRow(r.booking_id,token).catch(()=>{});
-        // Remove from bookingsMap so the schedule view updates immediately
-        setBookingsMap(p=>{
-          const next={...p};
-          for(const slotId of Object.keys(next)){
-            next[slotId]=(next[slotId]||[]).filter(b=>b.id!==r.booking_id);
-          }
-          return next;
-        });
-      }
-      await resolveCancelReq(r.id,"accepted",token).catch(()=>{});
-      postNotification({client_id:r.client_id,type:"cancel_accepted",message:`Your rearrange request for ${label} was approved. You can rebook anytime.`,cancel_req_id:r.id,booking_id:r.booking_id||null,booking_client_id:r.client_id,booking_date:r.book_date},token);
-      setCancelReqs(p=>p.filter(x=>x.id!==r.id));
-      showToast("✓ Rearrange approved",true);
-    }catch(e){ showToast("Error: "+e.message); }
-  };
-
-  const handleDeclineCancelReq=async(r)=>{
-    try{
-      const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
-      await resolveCancelReq(r.id,"declined",token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your rearrange request for ${label} was declined. Please contact your trainer.`,cancel_req_id:r.id},token).catch(()=>{});
-      setCancelReqs(p=>p.filter(x=>x.id!==r.id));
-      showToast("Request declined");
-    }catch(e){ showToast("Error: "+e.message); }
-  };
-
   const handleCancelBooking=async(b,slot)=>{
     setConf({msg:`Cancel ${b.profiles?.name||"this client"}'s booking on ${fmtDate(b.book_date)}?`,onOk:async()=>{
       try{
@@ -2332,9 +2293,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
                     <button onClick={()=>handleRejectRequest(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 10px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
                   </div>
                 </div>
-                {cancelReqs.some(c=>c.client_id===r.client_id&&c.book_date===r.requested_date)&&(
-                  <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"6px 10px",color:C.amber,fontSize:11,fontWeight:600,lineHeight:1.4}}>⚠️ This client also has a pending rearrange request for this same date below — resolve that too, or they'll end up booked for both.</div>
-                )}
                 {reqWarn[r.id]&&(
                   <div style={{marginTop:6,background:C.amber+"22",border:`1px solid ${C.amber}55`,borderRadius:8,padding:"8px 10px"}}>
                     <div style={{color:C.amber,fontSize:11,fontWeight:600,marginBottom:6}}>{reqWarn[r.id]}</div>
@@ -2344,29 +2302,6 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
                     </div>
                   </div>
                 )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {/* Rearrange Requests */}
-      {cancelReqsLoaded&&cancelReqs.length>0&&(
-        <div style={{padding:"0 20px 4px"}}>
-          <div style={{background:C.surface,border:`1px solid ${C.amber}44`,borderRadius:12,padding:"13px 16px"}}>
-            <div style={{color:C.amber,fontSize:12,fontWeight:700,marginBottom:8}}>⚠️ Rearrange Requests ({cancelReqs.length})</div>
-            {cancelReqs.map((r,i)=>(
-              <div key={r.id} style={{padding:"9px 0",borderBottom:i<cancelReqs.length-1?`1px solid ${C.border}`:"none"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div>
-                    <div style={{color:C.white,fontSize:13,fontWeight:600}}>{r.profiles?.name||"Unknown"}</div>
-                    <div style={{color:C.muted,fontSize:12,marginTop:2}}>{fmtDate(r.book_date)} · {toTime(r.start_time_min)}</div>
-                    <div style={{color:C.amber,fontSize:11,marginTop:1}}>Within 48 hours</div>
-                  </div>
-                  <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>handleAcceptCancelReq(r)} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,padding:"5px 11px",color:C.green,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✓ Approve</button>
-                    <button onClick={()=>handleDeclineCancelReq(r)} style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:6,padding:"5px 11px",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕ Decline</button>
-                  </div>
-                </div>
               </div>
             ))}
           </div>
@@ -3393,62 +3328,12 @@ function AppInner(){
   const ptrStartY=useRef(null);
   const rtToastTimer=useRef(null);
   const [rtToast,setRtToast]=useState(null);
-  const [cancelReqModal,setCancelReqModal]=useState(null); // pending cancel request to show modal for
-  const [cancelReqActing,setCancelReqActing]=useState(false);
   const [slotReqBanner,setSlotReqBanner]=useState(null); // slot_request popup banner
   const slotBannerTimer=useRef(null);
   const showRtToast=(msg)=>{
     clearTimeout(rtToastTimer.current);
     setRtToast(msg);
     rtToastTimer.current=setTimeout(()=>setRtToast(null),4000);
-  };
-  // Remove all cancel_request notifications from panel after resolving
-  const cleanCancelReqNotifs=()=>{
-    setTrainerNotifs(prev=>prev.filter(n=>n.type!=="cancel_request"));
-    dbDelete("notifications",`client_id=eq.${auth.userId}&type=eq.cancel_request`,auth.token).catch(()=>{});
-  };
-  const handleCancelReqAccept=async(r)=>{
-    setCancelReqActing(true);
-    try{
-      const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
-      await resolveCancelReq(r.id,"accepted",auth.token).catch(()=>{});
-      // Pass booking info in the notification payload so the server cancels it
-      // using the service key (bypasses all RLS — 100% reliable)
-      await postNotification({
-        client_id:r.client_id,
-        type:"cancel_accepted",
-        message:`Your rearrange for ${label} was approved. You can rebook anytime.`,
-        booking_id:r.booking_id||null,
-        booking_client_id:r.client_id,
-        booking_date:r.book_date,
-        cancel_req_id:r.id,
-      },auth.token).catch(()=>{});
-      cleanCancelReqNotifs();
-      setCancelReqModal(null);
-      showRtToast("✓ Rearrange approved");
-    }catch(e){ showRtToast("Error: "+e.message); }
-    setCancelReqActing(false);
-  };
-  const handleCancelReqDecline=async(r)=>{
-    setCancelReqActing(true);
-    try{
-      const label=`${fmtDate(r.book_date)} at ${toTime(r.start_time_min)}`;
-      await resolveCancelReq(r.id,"declined",auth.token).catch(()=>{});
-      await postNotification({client_id:r.client_id,type:"cancel_declined",message:`Your rearrange request for ${label} was declined. Please contact your trainer.`,cancel_req_id:r.id},auth.token).catch(()=>{});
-      cleanCancelReqNotifs();
-      setCancelReqModal(null);
-      showRtToast("Request declined");
-    }catch(e){ showRtToast("Error: "+e.message); }
-    setCancelReqActing(false);
-  };
-  const handleDecideCancelReq=()=>{
-    dbGet("cancel_requests",`trainer_id=eq.${auth.userId}&status=eq.pending&order=created_at.asc`,auth.token)
-      .then(rows=>{
-        if(!rows||!rows.length) return showRtToast("No pending requests");
-        const r=rows[0];
-        const client=clients.find(c=>c.id===r.client_id);
-        setCancelReqModal({...r,_clientName:client?.name||"Client"});
-      }).catch(e=>showRtToast("Error: "+e.message));
   };
 
   // Poll pending custom-time requests at app level every 60s so badge updates
@@ -3491,18 +3376,9 @@ function AppInner(){
         clearTimeout(slotBannerTimer.current);
         setSlotReqBanner(row.message);
         slotBannerTimer.current=setTimeout(()=>setSlotReqBanner(null),10000);
-      } else if(row.type!=='cancel_request'){
+      } else {
         showRtToast(row.message);
       }
-    });
-
-    // Cancel requests → show modal immediately wherever trainer is
-    rt.subscribe('cancel_requests','INSERT',`trainer_id=eq.${auth.userId}`,(row)=>{
-      // Fetch client name from clients list or profiles
-      getClients(auth.token).then(allClients=>{
-        const client=allClients?.find(c=>c.id===row.client_id);
-        setCancelReqModal({...row,_clientName:client?.name||"Client"});
-      }).catch(()=>setCancelReqModal({...row,_clientName:"Client"}));
     });
 
     // Bookings changes → refresh today's schedule view
@@ -3575,15 +3451,6 @@ function AppInner(){
       setAuth({loading:false,token,userId,profile});
       // Load trainer's notifications
       getTrainerNotifications(userId,token).then(r=>setTrainerNotifs(r||[])).catch(()=>{});
-      // Auto-popup any pending cancel request created in the last 3 days
-      const cutoff=new Date(Date.now()-3*24*3600*1000).toISOString();
-      dbGet("cancel_requests",`trainer_id=eq.${userId}&status=eq.pending&created_at=gte.${cutoff}&order=created_at.asc`,token)
-        .then(rows=>{
-          if(!rows||!rows.length) return;
-          const r=rows[0];
-          const client=(enriched||[]).find(c=>c.id===r.client_id);
-          setCancelReqModal({...r,_clientName:client?.name||"Client"});
-        }).catch(()=>{});
       // Register push notifications for trainer
       registerTrainerPush(userId,token).catch(()=>{});
     }catch(e){ setAuth(p=>({...p,loading:false})); }
@@ -3696,38 +3563,7 @@ function AppInner(){
         </div>
         <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
       </div>
-      {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideCancelReq={handleDecideCancelReq} onDecideSlotReq={()=>handleNav("schedule")} onClose={()=>setShowNotifPanel(false)}/>}
-      {/* Cancel Request Modal — pops up wherever trainer is */}
-      {cancelReqModal&&(
-        <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,zIndex:900,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.65)",padding:"24px 20px"}} onClick={e=>{if(e.target===e.currentTarget)setCancelReqModal(null);}}>
-          <div className="ua-modal-panel" style={{background:C.surface,borderRadius:20,padding:"24px 20px",width:"100%",maxWidth:400,boxShadow:"0 8px 40px rgba(0,0,0,0.6)",boxSizing:"border-box"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-              <div style={{width:44,height:44,borderRadius:12,background:C.amber+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>⚠️</div>
-              <div>
-                <div style={{color:C.white,fontSize:16,fontWeight:800}}>Rearrange Request</div>
-                <div style={{color:C.muted,fontSize:12,marginTop:2}}>Within 48 hours of session</div>
-              </div>
-            </div>
-            <div style={{background:C.surface2,borderRadius:12,padding:"14px 16px",marginBottom:20}}>
-              <div style={{color:C.white,fontSize:15,fontWeight:700,marginBottom:4}}>{cancelReqModal._clientName}</div>
-              <div style={{color:C.amber,fontSize:13,fontWeight:700}}>{new Date(cancelReqModal.book_date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"short"})}, {fmtDate(cancelReqModal.book_date)} · {toTime(cancelReqModal.start_time_min)}</div>
-              {cancelReqModal.message&&<div style={{color:C.muted,fontSize:12,marginTop:8,lineHeight:1.5}}>"{cancelReqModal.message}"</div>}
-            </div>
-            <div style={{display:"flex",gap:10}}>
-              <button
-                onClick={()=>handleCancelReqDecline(cancelReqModal)}
-                disabled={cancelReqActing}
-                style={{flex:1,background:C.pink+"22",border:`1px solid ${C.pink}44`,borderRadius:12,padding:"14px",color:C.pink,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:cancelReqActing?0.6:1}}
-              >✕ Decline</button>
-              <button
-                onClick={()=>handleCancelReqAccept(cancelReqModal)}
-                disabled={cancelReqActing}
-                style={{flex:1,background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:12,padding:"14px",color:C.green,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:cancelReqActing?0.6:1}}
-              >{cancelReqActing?"…":"✓ Approve"}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideSlotReq={()=>handleNav("schedule")} onClose={()=>setShowNotifPanel(false)}/>}
       {/* Slot Request Banner — tappable, navigates to Schedule */}
       {slotReqBanner&&(
         <div onClick={()=>{setSlotReqBanner(null);handleNav("schedule");}} style={{position:"fixed",top:0,left:0,right:0,zIndex:950,background:C.surface,borderBottom:`2px solid ${C.cyan}`,padding:"14px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",boxShadow:"0 4px 24px rgba(0,0,0,0.5)"}}>

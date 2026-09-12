@@ -257,7 +257,6 @@ const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid
 const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
 const deleteNotification  =(id,tk)  => dbDelete("notifications",`id=eq.${id}`,tk);
 const getTrainerProfile   = (tk)    => dbGet("profiles","role=eq.trainer&select=id,name&limit=1",tk).then(r=>r?.[0]);
-const postCancelRequest   = (d,tk)  => dbPost("cancel_requests",d,tk);
 const VAPID_PUBLIC_KEY   = 'BNKaPdypI6pDPj7QQgVHhAAGxQgyjVpNcFIGu6N58WgZG05y9UTG4pwFIMu_9yDa8hMjhqtyUmJvE_84jASmVu0';
 // Use raw fetch for push subscription save — avoids the sb() auto-reload on 4xx errors
 const savePushSub = async (client_id, subscription, tk) => {
@@ -425,57 +424,6 @@ const UaConfirm=({dialog,setDialog,c})=>{
           <button onClick={()=>{close();dialog.onOk?.();}} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:c.pink+"20",border:`1px solid ${c.pink}55`,color:c.pink}}>{dialog.okLabel||"Confirm"}</button>
           <button onClick={close} style={{flex:1,borderRadius:8,cursor:"pointer",padding:"12px",fontWeight:800,fontSize:14,fontFamily:"inherit",background:`linear-gradient(135deg,${c.cyan},${c.pink})`,border:"none",color:"#fff"}}>{dialog.cancelLabel||"Cancel"}</button>
         </div>
-      </div>
-    </div>
-  );
-};
-
-// ── Cancel Request Sheet (within-48h cancellation flow) ──
-const CancelRequestSheet=({bookDate,startMin,bookingId,userId,token,onClose})=>{
-  const [sending,setSending]=useState(false);
-  const [sent,setSent]=useState(false);
-  const [err,setErr]=useState(null);
-  const sendRequest=async()=>{
-    setSending(true); setErr(null);
-    try{
-      const trainer=await getTrainerProfile(token);
-      if(!trainer) throw new Error("Trainer not found");
-      const myProfile=await getProfile(userId,token).catch(()=>null);
-      const label=`${fmtDate(bookDate)} at ${toTime(startMin)}`;
-      // Save cancel request row (requires cancel_requests table)
-      await postCancelRequest({client_id:userId,trainer_id:trainer.id,booking_id:bookingId||null,book_date:bookDate,start_time_min:startMin,status:"pending"},token).catch(()=>{});
-      // Notify trainer in-app + push (single server call handles both)
-      await postNotification({client_id:trainer.id,type:"cancel_request",message:`${myProfile?.name||"Client"} requested to rearrange: ${label}`},token).catch(()=>{});
-      setSent(true);
-    }catch(e){ setErr("Failed to send. Please try again."); }
-    setSending(false);
-  };
-  return(
-    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 20px"}} onClick={sent?onClose:undefined}>
-      <div className="ua-modal-panel" style={{background:C.surface,borderRadius:20,width:"100%",maxWidth:400,padding:"24px",boxSizing:"border-box"}} onClick={e=>e.stopPropagation()}>
-        {sent?(
-          <div style={{textAlign:"center",padding:"12px 0 8px"}}>
-            <div style={{fontSize:48,marginBottom:12}}>✅</div>
-            <div style={{color:C.white,fontSize:17,fontWeight:800,marginBottom:8}}>Request sent!</div>
-            <div style={{color:C.muted,fontSize:14,lineHeight:1.6,marginBottom:24}}>Your trainer will review your request and let you know their decision.</div>
-            <button onClick={onClose} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"14px",color:"#fff",fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>OK</button>
-          </div>
-        ):(
-          <>
-            <div style={{color:C.pink,fontSize:13,fontWeight:800,letterSpacing:.5,marginBottom:8,textTransform:"uppercase"}}>Rearrange Request</div>
-            <div style={{color:C.white,fontSize:16,fontWeight:700,marginBottom:6}}>Session within 48 hours</div>
-            <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px 14px",marginBottom:14}}>
-              <div style={{color:C.cyan,fontSize:14,fontWeight:700}}>{fmtDate(bookDate)}</div>
-              <div style={{color:C.muted,fontSize:13,marginTop:2}}>{toTime(startMin)}</div>
-            </div>
-            <div style={{color:C.muted,fontSize:13,lineHeight:1.6,marginBottom:20}}>You can't rearrange a session within 48 hours directly. Would you like to send a rearrange request to your trainer?</div>
-            {err&&<div style={{color:C.pink,fontSize:12,fontWeight:700,marginBottom:10}}>{err}</div>}
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <button onClick={sendRequest} disabled={sending} style={{width:"100%",background:sending?"rgba(255,255,255,0.05)":`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:12,padding:"14px",color:sending?C.muted:"#fff",fontSize:15,fontWeight:800,cursor:sending?"not-allowed":"pointer",fontFamily:"inherit"}}>{sending?"Sending...":"Yes, send request"}</button>
-              <button onClick={onClose} style={{width:"100%",background:"none",border:`1px solid ${C.border}`,borderRadius:12,padding:"13px",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>No, go back</button>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );
@@ -973,7 +921,7 @@ const SignUpScreen=({onSignUp,onBack})=>{
 };
 
 // ── Home ──
-const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpenSession,token,userId,onPkgUpdate,onOpenNotif,notifCount,bookingsVer})=>{
+const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpenSession,token,userId,onOpenNotif,notifCount,bookingsVer})=>{
   const [now,setNow]=useState(new Date());
   const [todaySlots,setTodaySlots]=useState([]);
   const [myTodayBook,setMyBook]=useState(null);
@@ -982,10 +930,6 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
   const [todaySlotCount,setTodaySlotCount]=useState(null);
   const [wodDay,setWodDay]=useState(null); // day number to show WOD for, or null
   const [wodAutoShown,setWodAutoShown]=useState(false); // prevent re-opening after user closes
-  const [cancelReDlg,setCancelReDlg]=useState(null);
-  const [cancelReqSess,setCancelReqSess]=useState(null); // 48h cancel request session
-  const [homeToast,setHomeToast]=useState(null);
-  const showHomeToast=(msg,ok=false)=>{setHomeToast({msg,ok});setTimeout(()=>setHomeToast(null),3500);};
 
   useEffect(()=>{
     const dow=todayDow(); const today=todayISO();
@@ -1076,42 +1020,6 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
     const totalSec=Math.floor((sessionDT({session_date:dateStr,start_time_min:startMin})-now.getTime())/1000);
     if(totalSec<=0) return null;
     return {h:Math.floor(totalSec/3600),m:Math.floor((totalSec%3600)/60),s:totalSec%60};
-  };
-
-  const cancelAndReschedule=(s)=>{
-    // Check if session is within 48 hours
-    const msToSession=sessionDT({session_date:s.session_date,start_time_min:s.start_time_min})-Date.now();
-    if(msToSession<48*3600000&&msToSession>0){
-      // Within 48h — show cancel request dialog instead
-      setCancelReqSess({bookingId:s._bookingId||null,date:s.session_date,startMin:s.start_time_min});
-      return;
-    }
-    const dateLabel=`${s.session_date} ${s.start_time_min!=null?toTime(s.start_time_min):""}`.trim();
-    setCancelReDlg({
-      msg:"Cancel this booking and go to schedule to rebook?",
-      okLabel:"Cancel & Rebook",
-      onOk:async()=>{
-        try{
-          if(s._fromBooking&&s._bookingId){
-            await dbPatch("bookings",`id=eq.${s._bookingId}`,{status:"cancelled"},token);
-          } else {
-            await dbPatch("sessions",`id=eq.${s.id}`,{status:"cancelled"},token);
-          }
-          if(pkg){
-            const newUsed=Math.max((pkg.sessions_used||0)-1,0);
-            await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:newUsed},token);
-            onPkgUpdate?.({...pkg,sessions_used:newUsed});
-          }
-          // Notify trainer
-          getTrainerProfile(token).then(trainer=>{
-            if(!trainer) return;
-            const clientName=profile?.name||"Client";
-            postNotification({client_id:trainer.id,type:"cancel_request",message:`${clientName} cancelled their booking: ${dateLabel}.`},token).catch(()=>{});
-          }).catch(()=>{});
-          onNav("schedule");
-        }catch(e){ showHomeToast("Error: "+e.message); }
-      }
-    });
   };
 
   const heroItem=allUpcoming[0]||null;
@@ -1486,19 +1394,6 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
           </button>
         </div>
       )}
-
-      <UaToast toast={homeToast} c={C}/>
-      <UaConfirm dialog={cancelReDlg} setDialog={setCancelReDlg} c={C}/>
-      {cancelReqSess&&(
-        <CancelRequestSheet
-          bookDate={cancelReqSess.date}
-          startMin={cancelReqSess.startMin}
-          bookingId={cancelReqSess.bookingId}
-          userId={userId}
-          token={token}
-          onClose={()=>setCancelReqSess(null)}
-        />
-      )}
     </div>
   );
 };
@@ -1522,7 +1417,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   const [pickH,setPickH]=useState(null);
   const [pickM,setPickM]=useState(0);
   const [reqSending,setReqSending]=useState(false);
-  const [cancelReqSlot,setCancelReqSlot]=useState(null); // {bookingId,date,startMin}
   const [activePeriod,setActivePeriod]=useState(null);
   const [allFutureBooks,setAllFutureBooks]=useState([]); // all upcoming bookings for global day# calc
   // Client's own live custom-time request state — a client can only ever have one
@@ -1611,17 +1505,23 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   const handleBook=async(slot)=>{
     const already=myBooks.find(b=>b.slot_id===slot.id&&b.status==="booked");
     if(already){
-      const msToSession=sessionDT({session_date:selDay.iso,start_time_min:slot.start_time_min})-Date.now();
-      if(msToSession<48*3600000){
-        setCancelReqSlot({bookingId:already.id,date:selDay.iso,startMin:slot.start_time_min});
+      // No cancel, no 48h rule — a client can freely rearrange a booking, up to 3
+      // times per package. Simpler for everyone than the old approval-based flow.
+      if(pkg&&(pkg.rearranges_used||0)>=3){
+        showSchedErr("You've used all 3 rearranges for this package. Contact your trainer.");
         return;
       }
       await cancelBook(already.id,token).catch(()=>{});
+      if(pkg){
+        const rearranges_used=(pkg.rearranges_used||0)+1;
+        await dbPatch("packages",`id=eq.${pkg.id}`,{rearranges_used},token).catch(()=>{});
+        onPkgUpdate?.({...pkg,rearranges_used});
+      }
       setMyB(p=>p.filter(b=>b.id!==already.id));
       setCounts(p=>({...p,[slot.id]:Math.max((p[slot.id]||1)-1,0)}));
       if(isCurrentWeek) setMyWeekBookDates(p=>{ const n=new Set(p); n.delete(selDay.iso); return n; });
       setWeekBookDates(p=>{ const n=new Set(p); n.delete(selDay.iso); return n; });
-      // No package change on cancel — a future booking was never charged (charge at completion).
+      // No package session change — a future booking was never charged (charge at completion).
       const waitlist=await getSlotWaitlist(slot.id,selDay.iso,token).catch(()=>[]);
       if(waitlist?.length>0){
         const first=waitlist[0];
@@ -1775,7 +1675,9 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
             <div style={{color:C.muted,fontSize:13,marginTop:2}}>{toSlot(slot.start_time_min,slot.duration_min)}</div>
           </div>
           {booked
-            ?<GBtn label="↻ Rearrange" onClick={()=>handleBook(slot)} sm ghost color={C.muted}/>
+            ?(pkg&&(pkg.rearranges_used||0)>=3
+                ?<span style={{color:C.muted,fontSize:11,fontWeight:700}}>No rearranges left</span>
+                :<GBtn label="↻ Rearrange" onClick={()=>handleBook(slot)} sm ghost color={C.muted}/>)
             :full
               ?<button onClick={()=>handleWaitlist(slot)} style={{background:onWaitlist?C.amber+"33":C.pink+"20",border:`1px solid ${onWaitlist?C.amber+"55":C.pink+"44"}`,borderRadius:8,padding:"8px 14px",color:onWaitlist?C.amber:C.pink,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
                 {onWaitlist?(waitlistRank?`#${waitlistRank} on waitlist`:"On Waitlist ✓"):"Join Waitlist"}
@@ -1827,16 +1729,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
         <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.amber}66`,borderRadius:14,padding:"14px 16px",zIndex:200,textAlign:"center"}}>
           <div style={{color:C.amber,fontWeight:700,fontSize:14}}>Week quota reached — rest up! Contact trainer for extras.</div>
         </div>
-      )}
-      {cancelReqSlot&&(
-        <CancelRequestSheet
-          bookDate={cancelReqSlot.date}
-          startMin={cancelReqSlot.startMin}
-          bookingId={cancelReqSlot.bookingId}
-          userId={userId}
-          token={token}
-          onClose={()=>setCancelReqSlot(null)}
-        />
       )}
       {toast&&(
         <div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.pink}66`,borderRadius:14,padding:"16px",zIndex:200}}>
@@ -2623,6 +2515,7 @@ const ProfileScreen=({profile,pkg,sessions,reservedCount,allBooks,prs:initPRs,us
                 <div style={{color:C.bg,fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",opacity:0.8,marginTop:pkg.workout_templates?.name?4:0}}>{pkg.sessions_total}-Session Pack</div>
                 <div style={{color:C.bg,fontSize:14,fontWeight:700,marginTop:3}}>{spw}x per week · {pkg.weeks} weeks</div>
                 <div style={{color:C.bg,fontSize:12,opacity:0.8,marginTop:4}}>{fmtDate(pkg.start_date)} → {fmtDate(pkg.end_date)}</div>
+                <div style={{color:C.bg,fontSize:11,opacity:0.65,marginTop:4}}>↻ {pkg.rearranges_used||0}/3 rearranges used</div>
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{color:C.bg,fontSize:11,opacity:0.8}}>Remaining</div>
@@ -3094,7 +2987,7 @@ function AppInner(){
 
   const renderScreen=()=>{
     switch(screen){
-      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length} bookingsVer={bookingsVer}/>;
+      case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length} bookingsVer={bookingsVer}/>;
       case "schedule": return auth.pkg?.delivery_mode==='remote'
         ? <RemoteProgramScreen userId={auth.userId} token={auth.token} pkg={auth.pkg} sessions={auth.sessions} onReload={()=>loadData(auth.token,auth.userId)}/>
         : <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} lastProgram={auth.lastProgram} reservedCount={auth.reservedCount} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} initialDayIdx={scheduleInitDay} bookingsVer={bookingsVer}/>;
