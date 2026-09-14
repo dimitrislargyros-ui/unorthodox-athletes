@@ -3,6 +3,11 @@ import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
 import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates } from "./sessionsMath.js";
 
+// Paid/Unpaid tracking and payment-reminder notifications are temporarily off — the
+// trainer now invoices clients directly (μπλοκάκι) outside the app. Code stays in place,
+// just not rendered, so it's a one-line flip to bring back if that changes.
+const SHOW_PAYMENT_TRACKING = false;
+
 // ── Premium Design System (injected once) ──
 ;(()=>{
   if(document.getElementById("ua-premium-styles")) return;
@@ -1004,7 +1009,7 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,allPkgs,prs,spw,onClose
                 {reportPkg.workout_templates?.name&&<div style={{color:C.cyan,fontSize:12,marginTop:3}}>🏋️ {reportPkg.workout_templates.name}</div>}
                 <div style={{color:C.muted,fontSize:12,marginTop:4}}>{fmtDate(reportPkg.start_date)} → {fmtDate(reportPkg.end_date)}</div>
               </div>
-              <span style={{background:reportPkg.paid?C.cyan+"22":C.pink+"22",color:reportPkg.paid?C.cyan:C.pink,border:`1px solid ${reportPkg.paid?C.cyan+"55":C.pink+"55"}`,borderRadius:8,padding:"4px 12px",fontSize:13,fontWeight:800,flexShrink:0,marginLeft:12}}>{reportPkg.paid?"✓ Paid":"⚠ Unpaid"}</span>
+              {SHOW_PAYMENT_TRACKING&&<span style={{background:reportPkg.paid?C.cyan+"22":C.pink+"22",color:reportPkg.paid?C.cyan:C.pink,border:`1px solid ${reportPkg.paid?C.cyan+"55":C.pink+"55"}`,borderRadius:8,padding:"4px 12px",fontSize:13,fontWeight:800,flexShrink:0,marginLeft:12}}>{reportPkg.paid?"✓ Paid":"⚠ Unpaid"}</span>}
             </div>
             <div style={{height:4,background:C.border,borderRadius:2,marginTop:10}}>
               <div style={{width:`${Math.min(100,(cumCompleted/reportPkg.sessions_total)*100)}%`,height:"100%",borderRadius:2,background:`linear-gradient(90deg,${C.cyan},${C.pink})`}}/>
@@ -1709,8 +1714,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               <div style={{width:`${(pkg.sessions_used/pkg.sessions_total)*100}%`,height:"100%",borderRadius:3,background:"white"}}/>
             </div>
             <div style={{display:"flex",gap:8,marginTop:12}}>
-              <button onClick={handleTogglePaid} style={{flex:1,background:pkg.paid?"rgba(0,0,0,0.25)":"rgba(0,0,0,0.4)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{pkg.paid?"✓ Paid":"⚠ Unpaid"}</button>
-              <button onClick={handleSendPaymentReminder} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>💳 Payment Reminder</button>
+              {SHOW_PAYMENT_TRACKING&&<button onClick={handleTogglePaid} style={{flex:1,background:pkg.paid?"rgba(0,0,0,0.25)":"rgba(0,0,0,0.4)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{pkg.paid?"✓ Paid":"⚠ Unpaid"}</button>}
+              {SHOW_PAYMENT_TRACKING&&<button onClick={handleSendPaymentReminder} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>💳 Payment Reminder</button>}
               <button onClick={()=>setShowAssignProgram(p=>!p)} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>🏋️ {pkg.workout_templates?.name?"Change":"Assign"} Program</button>
               <button onClick={()=>{setShowEditPkg(p=>!p);setEditAddSessions(0);setEditUsedOverride("");setEditEndDate(pkg?.end_date||"");}} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✏️ Adjust</button>
             </div>
@@ -1786,7 +1791,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                         <span style={{background:C.muted+"22",border:`1px solid ${C.muted}44`,borderRadius:20,padding:"1px 8px",color:C.muted,fontSize:10,fontWeight:800}}>{reasonLabel}</span>
                       </div>
                       <div style={{color:C.muted,fontSize:11,marginTop:4}}>{usedAt}/{p.sessions_total} used</div>
-                      {p.paid!=null&&<div style={{color:p.paid?C.green:C.amber,fontSize:10,fontWeight:700,marginTop:3}}>{p.paid?"✓ Paid":"⚠ Unpaid"}</div>}
+                      {SHOW_PAYMENT_TRACKING&&p.paid!=null&&<div style={{color:p.paid?C.green:C.amber,fontSize:10,fontWeight:700,marginTop:3}}>{p.paid?"✓ Paid":"⚠ Unpaid"}</div>}
                     </div>
                   </div>
                 </div>
@@ -1891,7 +1896,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
             </div>
 
             {/* Paid toggle */}
-            <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            {SHOW_PAYMENT_TRACKING&&<div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div>
                 <div style={{color:C.white,fontSize:14,fontWeight:700}}>Payment Status</div>
                 <div style={{color:pastPkgPaid?C.green:C.amber,fontSize:12,marginTop:2,fontWeight:700}}>{pastPkgPaid?"✓ Paid":"⚠ Unpaid"}</div>
@@ -1899,7 +1904,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
               <button onClick={()=>setPastPkgPaid(p=>!p)} style={{background:pastPkgPaid?C.green+"22":C.amber+"22",border:`1.5px solid ${pastPkgPaid?C.green:C.amber}`,borderRadius:20,padding:"7px 18px",color:pastPkgPaid?C.green:C.amber,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
                 {pastPkgPaid?"Mark Unpaid":"Mark Paid"}
               </button>
-            </div>
+            </div>}
 
             {/* Notes */}
             <div style={{marginBottom:14}}>
