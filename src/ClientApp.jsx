@@ -1506,9 +1506,11 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
     const already=myBooks.find(b=>b.slot_id===slot.id&&b.status==="booked");
     if(already){
       // No cancel, no 48h rule — a client can freely rearrange a booking, up to 3
-      // times per package. Simpler for everyone than the old approval-based flow.
+      // times since their last completed session (resets to 0 the moment a session
+      // completes — see the auto-settle effects in both apps). Same-day swaps go
+      // through the "Change" branch below instead and never touch this counter.
       if(pkg&&(pkg.rearranges_used||0)>=3){
-        showSchedErr("You've used all 3 rearranges for this package. Contact your trainer.");
+        showSchedErr("You've used all 3 rearranges since your last session. Contact your trainer.");
         return;
       }
       await cancelBook(already.id,token).catch(()=>{});
@@ -1516,6 +1518,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
         const rearranges_used=(pkg.rearranges_used||0)+1;
         await dbPatch("packages",`id=eq.${pkg.id}`,{rearranges_used},token).catch(()=>{});
         onPkgUpdate?.({...pkg,rearranges_used});
+        showSchedErr(`↻ Rearranged — ${rearranges_used}/3 used`,true);
       }
       setMyB(p=>p.filter(b=>b.id!==already.id));
       setCounts(p=>({...p,[slot.id]:Math.max((p[slot.id]||1)-1,0)}));
@@ -1660,13 +1663,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
     const bookedDayNum=booked?computeGlobalDayNum():null;
     // Day number that WOULD be assigned when booking this slot (before booking)
     const nextSlotDayNum=booked?null:computeGlobalDayNum();
-    // Disallow "Change" within 2 hours of the OTHER booked slot's start time
-    const otherBookedSlot=hasOtherBook?slots.find(s=>s.id===myDayBook.slot_id):null;
-    const otherMsToStart=otherBookedSlot?(()=>{
-      const [yr,mo,dy]=selDay.iso.split('-').map(Number);
-      return new Date(yr,mo-1,dy,Math.floor(otherBookedSlot.start_time_min/60),otherBookedSlot.start_time_min%60,0)-Date.now();
-    })():Infinity;
-    const changeBlocked=hasOtherBook&&otherMsToStart<2*3600000;
     return(
       <Card glow={booked?C.cyan:null} style={{marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -1683,7 +1679,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
                 {onWaitlist?(waitlistRank?`#${waitlistRank} on waitlist`:"On Waitlist ✓"):"Join Waitlist"}
               </button>
               :hasOtherBook
-                ?(!changeBlocked&&<GBtn label="Change →" onClick={()=>handleBook(slot)} sm/>)
+                ?<GBtn label="Change →" onClick={()=>handleBook(slot)} sm/>
                 :<GBtn label={nextSlotDayNum?`Book Day ${nextSlotDayNum} →`:"Book →"} onClick={()=>handleBook(slot)} sm/>
           }
         </div>
@@ -2728,8 +2724,13 @@ function AppInner(){
         if(completed!==(pkg.sessions_used||0)){
           const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
           const newLeft=pkg.sessions_total-completed;
-          dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:Math.max(completed,0)},token).catch(()=>{});
-          pkgFixed={...pkg,sessions_used:Math.max(completed,0)};
+          // A session completing resets the rearrange counter — the 3x cap is "since your
+          // last completed session," not lifetime-per-package. Only reset on an actual
+          // completion (used count going UP); a downward manual correction isn't one.
+          const patch={sessions_used:Math.max(completed,0)};
+          if(completed>(pkg.sessions_used||0)) patch.rearranges_used=0;
+          dbPatch("packages",`id=eq.${pkg.id}`,patch,token).catch(()=>{});
+          pkgFixed={...pkg,...patch};
           // Only alert once per threshold. TrainerApp runs this exact same settle logic
           // (opening the client's card), and this same effect can itself re-run from a
           // pull-to-refresh or a realtime-triggered reload — so a plain "read the flag,

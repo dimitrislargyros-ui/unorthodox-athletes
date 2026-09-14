@@ -1405,8 +1405,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     if(!pkg||reconciling||!needsReconcile) return;
     setReconciling(true);
     try{
-      await dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:reconciledUsed},token);
-      const updPkg={...pkg,sessions_used:reconciledUsed};
+      const patch={sessions_used:reconciledUsed};
+      if(reconciledUsed>(pkg.sessions_used||0)) patch.rearranges_used=0;
+      await dbPatch("packages",`id=eq.${pkg.id}`,patch,token);
+      const updPkg={...pkg,...patch};
       setPkg(updPkg);
       onClientUpdated({...client,_pkg:updPkg});
       showUaToast(`Synced — ${reconciledUsed}/${pkg.sessions_total} sessions counted.`,true);
@@ -1420,8 +1422,13 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     if(reconciledUsed===(pkg.sessions_used||0)) return;
     const prevLeft=pkg.sessions_total-(pkg.sessions_used||0);
     const newLeft=pkg.sessions_total-reconciledUsed;
-    dbPatch("packages",`id=eq.${pkg.id}`,{sessions_used:reconciledUsed},token).catch(()=>{});
-    const updPkg={...pkg,sessions_used:reconciledUsed};
+    // A session completing resets the rearrange counter — the 3x cap is "since the
+    // last completed session," not lifetime-per-package. Only on an actual completion
+    // (used count going UP); a downward correction isn't one.
+    const patch={sessions_used:reconciledUsed};
+    if(reconciledUsed>(pkg.sessions_used||0)) patch.rearranges_used=0;
+    dbPatch("packages",`id=eq.${pkg.id}`,patch,token).catch(()=>{});
+    const updPkg={...pkg,...patch};
     setPkg(updPkg);
     onClientUpdated({...client,_pkg:updPkg});
     // Only alert once per threshold. ClientApp runs this exact same settle logic on its
