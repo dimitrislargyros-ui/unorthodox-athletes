@@ -630,7 +630,7 @@ const SwipeNotifRow=({n,onDelete})=>{
   const [gone,setGone]=useState(false);
   const startX=useRef(null);
   const THRESHOLD=75; // px to snap open
-  const typeIcon=n.type==="session_scheduled"?"🗓":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":n.type==="program_assigned"?"🏋️":n.type==="package_renewed"?"🎯":n.type==="package_updated"?"📦":n.type==="slot_request_approved"?"✅":n.type==="slot_request_rejected"?"🚫":n.type==="session_rearranged"?"↻":"🔔";
+  const typeIcon=n.type==="session_scheduled"?"🗓":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":n.type==="program_assigned"?"🏋️":n.type==="package_renewed"?"🎯":n.type==="package_updated"?"📦":n.type==="slot_request_approved"?"✅":n.type==="slot_request_rejected"?"🚫":"🔔";
 
   const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; setDragging(true); };
   const onTouchMove=(e)=>{
@@ -1524,9 +1524,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
         return;
       }
       await cancelBook(already.id,token).catch(()=>{});
-      // Persisted (not just an ephemeral toast) so the client always has a record of
-      // the cancellation even if they miss the toast or this fires unexpectedly.
-      postNotification({client_id:userId,type:"session_rearranged",message:`You cancelled your session on ${fmtDate(already.book_date)} at ${toTime(slot.start_time_min)}.`},token).catch(()=>{});
       if(pkg){
         const rearranges_used=(pkg.rearranges_used||0)+1;
         await dbPatch("packages",`id=eq.${pkg.id}`,{rearranges_used},token).catch(()=>{});
@@ -1559,15 +1556,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
       await cancelBook(existingDayBook.id,token).catch(()=>{});
       setMyB(p=>p.filter(b=>b.id!==existingDayBook.id));
       setCounts(p=>({...p,[existingDayBook.slot_id]:Math.max((p[existingDayBook.slot_id]||1)-1,0)}));
-      try{
-        const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk;
-        if(created){
-          setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));setWeekBookDates(p=>new Set(p).add(selDay.iso));
-          // Persisted record of the swap — same "no cancellation without notification" rule as above.
-          const oldSlot=slots.find(s=>s.id===existingDayBook.slot_id);
-          postNotification({client_id:userId,type:"session_rearranged",message:`Your session on ${fmtDate(selDay.iso)} was moved from ${oldSlot?toTime(oldSlot.start_time_min):"your old time"} to ${toTime(slot.start_time_min)}.`},token).catch(()=>{});
-        }
-      }
+      try{ const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk; if(created){setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));setWeekBookDates(p=>new Set(p).add(selDay.iso));} }
       catch(e){ showSchedErr("Error: "+e.message); }
       return;
     }
