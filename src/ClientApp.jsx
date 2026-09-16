@@ -630,7 +630,7 @@ const SwipeNotifRow=({n,onDelete})=>{
   const [gone,setGone]=useState(false);
   const startX=useRef(null);
   const THRESHOLD=75; // px to snap open
-  const typeIcon=n.type==="session_scheduled"?"🗓":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":n.type==="program_assigned"?"🏋️":n.type==="package_renewed"?"🎯":n.type==="package_updated"?"📦":n.type==="slot_request_approved"?"✅":n.type==="slot_request_rejected"?"🚫":"🔔";
+  const typeIcon=n.type==="session_scheduled"?"🗓":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":n.type==="program_assigned"?"🏋️":n.type==="package_renewed"?"🎯":n.type==="package_updated"?"📦":n.type==="slot_request_approved"?"✅":n.type==="slot_request_rejected"?"🚫":n.type==="session_rearranged"?"↻":"🔔";
 
   const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; setDragging(true); };
   const onTouchMove=(e)=>{
@@ -1469,7 +1469,12 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
       .catch(()=>{});
   },[weekOffset]);
 
+  // Guards against a slow fetch for a day the user has since navigated away from
+  // resolving late and clobbering myBooks/slots with stale data (e.g. rapid day
+  // taps) — only the response for the most recently requested day is applied.
+  const dayFetchSeq=useRef(0);
   useEffect(()=>{
+    const seq=++dayFetchSeq.current;
     if(isSun||isPastDay){ setSlots([]); setCounts({}); setMyB([]); setMyWaitlist([]); setLoad(false); return; }
     setLoad(true);
     Promise.all([
@@ -1478,11 +1483,12 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
       getMyBooks(userId,selDay.iso,token),
       getMyWaitlistDay(userId,selDay.iso,token),
     ]).then(([sl,bks,mb,wl])=>{
+      if(seq!==dayFetchSeq.current) return; // a newer day's fetch has since started
       setSlots(sl||[]);
       const c={}; (bks||[]).forEach(b=>{c[b.slot_id]=(c[b.slot_id]||0)+1;}); setCounts(c);
       setMyB(mb||[]);
       setMyWaitlist(wl||[]);
-    }).catch(()=>{}).finally(()=>setLoad(false));
+    }).catch(()=>{}).finally(()=>{ if(seq===dayFetchSeq.current) setLoad(false); });
   },[dayIdx,weekOffset]);
 
   // Re-fetch bookings when a booking is cancelled externally (e.g. trainer approves cancel request)
@@ -1503,7 +1509,11 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   },[bookingsVer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBook=async(slot)=>{
-    const already=myBooks.find(b=>b.slot_id===slot.id&&b.status==="booked");
+    // Matched on slot_id AND book_date: schedule_slots is a weekly template, so the
+    // same slot_id recurs every week — matching on slot_id alone previously caused
+    // booking the *next* week's same weekday/time to silently cancel *this* week's
+    // booking instead (they share a slot_id but are different book_date rows).
+    const already=myBooks.find(b=>b.slot_id===slot.id&&b.book_date===selDay.iso&&b.status==="booked");
     if(already){
       // No cancel, no 48h rule — a client can freely rearrange a booking, up to 3
       // times since their last completed session (resets to 0 the moment a session
@@ -1514,6 +1524,9 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
         return;
       }
       await cancelBook(already.id,token).catch(()=>{});
+      // Persisted (not just an ephemeral toast) so the client always has a record of
+      // the cancellation even if they miss the toast or this fires unexpectedly.
+      postNotification({client_id:userId,type:"session_rearranged",message:`You cancelled your session on ${fmtDate(already.book_date)} at ${toTime(slot.start_time_min)}.`},token).catch(()=>{});
       if(pkg){
         const rearranges_used=(pkg.rearranges_used||0)+1;
         await dbPatch("packages",`id=eq.${pkg.id}`,{rearranges_used},token).catch(()=>{});
@@ -1539,14 +1552,22 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
       return;
     }
     // "Change" case: already have a booking on a different slot today — net zero on package credits
-    const existingDayBook=myBooks.find(b=>b.status==="booked");
+    const existingDayBook=myBooks.find(b=>b.book_date===selDay.iso&&b.status==="booked");
     if(existingDayBook){
       const cnt=counts[slot.id]||0;
       if(cnt>=GYM_CAP){ setToast({slot,next:null}); return; }
       await cancelBook(existingDayBook.id,token).catch(()=>{});
       setMyB(p=>p.filter(b=>b.id!==existingDayBook.id));
       setCounts(p=>({...p,[existingDayBook.slot_id]:Math.max((p[existingDayBook.slot_id]||1)-1,0)}));
-      try{ const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk; if(created){setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));setWeekBookDates(p=>new Set(p).add(selDay.iso));} }
+      try{
+        const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk;
+        if(created){
+          setMyB(p=>[...p,created]);setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));setWeekBookDates(p=>new Set(p).add(selDay.iso));
+          // Persisted record of the swap — same "no cancellation without notification" rule as above.
+          const oldSlot=slots.find(s=>s.id===existingDayBook.slot_id);
+          postNotification({client_id:userId,type:"session_rearranged",message:`Your session on ${fmtDate(selDay.iso)} was moved from ${oldSlot?toTime(oldSlot.start_time_min):"your old time"} to ${toTime(slot.start_time_min)}.`},token).catch(()=>{});
+        }
+      }
       catch(e){ showSchedErr("Error: "+e.message); }
       return;
     }
@@ -1637,8 +1658,8 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   };
 
   const SlotCard=({slot})=>{
-    const booked=myBooks.find(b=>b.slot_id===slot.id&&b.status==="booked");
-    const myDayBook=myBooks.find(b=>b.status==="booked");
+    const booked=myBooks.find(b=>b.slot_id===slot.id&&b.book_date===selDay.iso&&b.status==="booked");
+    const myDayBook=myBooks.find(b=>b.book_date===selDay.iso&&b.status==="booked");
     const hasOtherBook=myDayBook&&!booked;
     const onWaitlist=myWaitlist.find(w=>w.slot_id===slot.id);
     const cnt=(counts[slot.id]||0);
@@ -1717,7 +1738,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
     return idx>=0?idx%spw+1:null;
   };
   const nowMin=(()=>{const d=new Date();return d.getHours()*60+d.getMinutes();})();
-  const visibleSlots=selDay.iso===todayStr?slots.filter(s=>s.start_time_min>=nowMin||myBooks.some(b=>b.slot_id===s.id&&b.status==="booked")):slots;
+  const visibleSlots=selDay.iso===todayStr?slots.filter(s=>s.start_time_min>=nowMin||myBooks.some(b=>b.slot_id===s.id&&b.book_date===selDay.iso&&b.status==="booked")):slots;
 
   return(
     <div style={{paddingBottom:80}}>
