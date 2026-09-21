@@ -592,7 +592,7 @@ const HistorySheet=({sessions,spw,onClose,onOpen,label="Perform"})=>{
   const completed=sessions.filter(s=>s.status==="completed");
   return(
     <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px max(env(safe-area-inset-bottom),40px)",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box"}}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <div style={{color:C.white,fontSize:17,fontWeight:800}}>Session History</div>

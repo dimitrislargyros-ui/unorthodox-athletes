@@ -461,7 +461,7 @@ const BottomNav=({active,onNav,scheduleBadge=0})=>{
 };
 
 // ── Session Editor ──
-const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
+const SessionEditor=({session,spw,token,trainerId,onClose,onSaved,onDeleted})=>{
   const note=firstNote(session.session_notes);
   const [tNote,setTNote]=useState(note?.trainer_note||"");
   const [exs,setExs]=useState(session.exercises||[]);
@@ -474,6 +474,8 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
   const [savingTemplate,setSavingTemplate]=useState(false);
   const [tplPrompt,setTplPrompt]=useState(null);
   const [tplConfirm,setTplConfirm]=useState(null);
+  const [delConfirm,setDelConfirm]=useState(null);
+  const [deleting,setDeleting]=useState(false);
   const [localToast,setLocalToast]=useState(null);
   const showLocalToast=(msg,ok=false)=>{setLocalToast({msg,ok});setTimeout(()=>setLocalToast(null),3500);};
   const dn=isPilates(session)?null:session.day_num;
@@ -514,11 +516,20 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
     }catch(e){ showLocalToast("Error: "+e.message); }
     setSaving(false);
   };
+  const handleDelete=async()=>{
+    if(deleting) return;
+    setDeleting(true);
+    try{
+      const res=await fetch('/api/delete-session',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify({session_id:session.id})});
+      if(!res.ok){ const err=await res.json().catch(()=>({})); throw new Error(err.error||String(res.status)); }
+      onDeleted?.(session.id);
+    }catch(e){ showLocalToast("Error: "+e.message); setDeleting(false); }
+  };
   const inp=(val,set,ph)=>(<input value={val} onChange={e=>set(e.target.value)} placeholder={ph} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",flex:1}}/>);
 
   return(
     <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"92vh",overflowY:"auto"}}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px max(env(safe-area-inset-bottom),40px)",maxHeight:"92vh",overflowY:"auto"}}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div>
@@ -587,10 +598,12 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
           {note?.client_note||"Client hasn't added notes yet."}
         </div>
         <GBtn label={saving?"Saving...":saved?"✓ Saved!":"Save Session"} onClick={save} disabled={saving} style={{width:"100%"}}/>
+        <button onClick={()=>setDelConfirm({msg:"Delete this session log? This cannot be undone.",okLabel:"Delete",onOk:handleDelete})} disabled={deleting} style={{display:"block",margin:"14px auto 0",background:"none",border:"none",color:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",opacity:0.6}}>{deleting?"Deleting…":"Delete Session"}</button>
       </div>
       <UaToast toast={localToast}/>
       <UaPrompt prompt={tplPrompt} setPrompt={setTplPrompt}/>
       <UaConfirm dialog={tplConfirm} setDialog={setTplConfirm}/>
+      <UaConfirm dialog={delConfirm} setDialog={setDelConfirm}/>
     </div>
   );
 };
@@ -986,7 +999,7 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,allPkgs,prs,spw,onClose
 
   return(
     <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 40px",maxHeight:"90vh",overflowY:"auto"}}>
+      <div className="ua-sheet-panel" style={{background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px max(env(safe-area-inset-bottom),40px)",maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{width:40,height:4,background:C.border,borderRadius:2,margin:"0 auto 20px"}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
           <div>
@@ -1054,7 +1067,7 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,allPkgs,prs,spw,onClose
 };
 
 // ── Client Detail ──
-const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
+const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDeleted})=>{
   const [sessions,setSessions]=useState([]);
   const [clientBooks,setClientBooks]=useState([]);
   const [pkg,setPkg]=useState(client._pkg||null);
@@ -1102,6 +1115,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
   const [uaToast,setUaToast]=useState(null);
   const [renewDlg,setRenewDlg]=useState(null);
   const [progPrompt,setProgPrompt]=useState(null);
+  const [delClientPrompt,setDelClientPrompt]=useState(null);
+  const [deletingClient,setDeletingClient]=useState(false);
   const showUaToast=(msg,ok=false)=>{setUaToast({msg,ok});setTimeout(()=>setUaToast(null),3500);};
   const hiddenKey=`ua_hidden_sess_${client.id}`;
   const [hiddenSessIds,setHiddenSessIds]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem(hiddenKey)||"[]"));}catch{return new Set();}});
@@ -1484,9 +1499,29 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
     });
   };
 
+  // Deliberately tucked at the bottom of the page (see JSX below) and gated by
+  // typing the client's exact name — this permanently wipes every table's rows for
+  // them (packages, sessions, bookings, notes, PRs...) plus their login, via
+  // api/delete-client.js. Not reachable by a single accidental tap.
+  const handleDeleteClient=()=>{
+    setDelClientPrompt({
+      msg:`Type "${client.name}" to permanently delete this client and ALL their data (packages, sessions, bookings, notes). This cannot be undone.`,
+      placeholder:client.name||"",
+      onOk:async(typed)=>{
+        if(typed!==(client.name||"")){ showUaToast("Name didn't match — nothing deleted."); return; }
+        setDeletingClient(true);
+        try{
+          const res=await fetch('/api/delete-client',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify({client_id:client.id})});
+          if(!res.ok){ const err=await res.json().catch(()=>({})); throw new Error(err.error||String(res.status)); }
+          onClientDeleted?.(client.id);
+        }catch(e){ showUaToast("Error: "+e.message); setDeletingClient(false); }
+      }
+    });
+  };
+
   return(
     <div style={{paddingBottom:80}}>
-      {activeSession&&<SessionEditor session={activeSession} spw={spw} token={token} trainerId={trainerId} onClose={()=>setAS(null)} onSaved={updated=>setSessions(p=>p.map(s=>s.id===updated.id?updated:s))}/>}
+      {activeSession&&<SessionEditor session={activeSession} spw={spw} token={token} trainerId={trainerId} onClose={()=>setAS(null)} onSaved={updated=>setSessions(p=>p.map(s=>s.id===updated.id?updated:s))} onDeleted={id=>{setSessions(p=>p.filter(s=>s.id!==id));setAS(null);showUaToast("Session deleted",true);}}/>}
       {showReport&&<MonthlyReportModal client={client} timeline={timeline} statusMap={statusMap} pkg={pkg} allPkgs={allPkgs} prs={prs} spw={spw} onClose={()=>setShowReport(false)}/>}
 
       <div style={{padding:"22px 20px 0",display:"flex",alignItems:"center",gap:12}}>
@@ -1891,15 +1926,23 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
           </>);
         })()}
       </div>
+
+      {/* Deliberately unlabeled/muted — a permanent, whole-account delete has no
+          business being one accidental tap away. */}
+      <div style={{padding:"28px 20px 0",textAlign:"center"}}>
+        <button onClick={handleDeleteClient} disabled={deletingClient} style={{background:"none",border:"none",color:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",opacity:0.5}}>{deletingClient?"Deleting…":"Delete Client"}</button>
+      </div>
+
       <UaToast toast={uaToast}/>
       <UaConfirm dialog={cancelDlg} setDialog={setCancelDlg}/>
       <UaConfirm dialog={renewDlg} setDialog={setRenewDlg}/>
       <UaPrompt prompt={progPrompt} setPrompt={setProgPrompt}/>
+      <UaPrompt prompt={delClientPrompt} setPrompt={setDelClientPrompt}/>
 
       {/* Past Package Action Sheet */}
       {selectedPastPkg&&(
         <div onClick={()=>setSelectedPastPkg(null)} className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
-          <div onClick={e=>e.stopPropagation()} className="ua-sheet-panel" style={{width:"100%",background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px 36px",boxSizing:"border-box",maxHeight:"85vh",overflowY:"auto"}}>
+          <div onClick={e=>e.stopPropagation()} className="ua-sheet-panel" style={{width:"100%",background:C.surface,borderRadius:"20px 20px 0 0",padding:"20px 20px max(env(safe-area-inset-bottom),36px)",boxSizing:"border-box",maxHeight:"85vh",overflowY:"auto"}}>
             {/* Handle */}
             <div style={{width:40,height:4,borderRadius:2,background:C.muted+"44",margin:"0 auto 16px"}}/>
             {/* Header */}
@@ -2649,7 +2692,7 @@ const LibrarySheet=({trainerId,onClose})=>{
         {/* Search */}
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search exercises…" style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",marginBottom:10}}/>
         {/* List */}
-        <div style={{overflowY:"auto",flex:1}}>
+        <div style={{overflowY:"auto",flex:1,paddingBottom:"max(env(safe-area-inset-bottom),0px)"}}>
           {filtered.map(name=>{
             const isHidden=hidden.has(name);
             return(
@@ -3507,13 +3550,14 @@ function AppInner(){
 
   const handleNav=(s)=>{ setScreen(s); setSel(null); };
   const handleClientUpdated=(updated)=>{ setClients(p=>p.map(c=>c.id===updated.id?updated:c)); setSel(updated); };
+  const handleClientDeleted=(deletedId)=>{ setClients(p=>p.filter(c=>c.id!==deletedId)); setSel(null); };
 
   if(auth.loading) return(<div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif"}}><Spinner size={88} fullscreen/></div>);
 
   if(!auth.token) return(<div className="ua-app" style={{fontFamily:"'Inter',-apple-system,sans-serif",background:C.bg,minHeight:"100vh"}}><LoginScreen onLogin={handleLogin}/></div>);
 
   const renderScreen=()=>{
-    if(selClient) return <ClientDetail client={selClient} trainerId={auth.userId} token={auth.token} onBack={()=>setSel(null)} onClientUpdated={handleClientUpdated}/>;
+    if(selClient) return <ClientDetail client={selClient} trainerId={auth.userId} token={auth.token} onBack={()=>setSel(null)} onClientUpdated={handleClientUpdated} onClientDeleted={handleClientDeleted}/>;
     switch(screen){
       case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onTrainerNameUpdated={name=>setAuth(p=>({...p,profile:{...p.profile,name}}))} notifCount={trainerNotifs.filter(n=>n.read===false).length} onOpenNotif={()=>{ setShowNotifPanel(true); setTrainerNotifs(p=>p.map(n=>({...n,read:true}))); dbPatch("notifications",`client_id=eq.${auth.userId}&read=eq.false`,{read:true},auth.token).catch(()=>{}); }}/>;
       case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel}/>;
