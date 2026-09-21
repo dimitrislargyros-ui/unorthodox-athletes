@@ -526,7 +526,7 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved})=>{
               <div style={{color:C.white,fontSize:18,fontWeight:800}}>Session Log</div>
               {dn
                 ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>
-                :isPilates(session)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Pilates</span>}
+                :isPilates(session)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Move Well</span>}
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:2}}>{fmtDate(session.session_date)} · {toTime(session.start_time_min)}</div>
           </div>
@@ -658,6 +658,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
   const [annTitle,setAnnTitle]=useState("");
   const [annBody,setAnnBody]=useState("");
   const [annPosting,setAnnPosting]=useState(false);
+  const postingAnnRef=useRef(false);
   const [annConfirm,setAnnConfirm]=useState(null);
   const [annToast,setAnnToast]=useState(null);
   const showAnnToast=(msg,ok=false)=>{setAnnToast({msg,ok});setTimeout(()=>setAnnToast(null),3500);};
@@ -709,7 +710,12 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
   const todayStr=new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"});
 
   const handlePostAnn=async()=>{
-    if(!annTitle.trim()||!annBody.trim()||annPosting) return;
+    // Guard with a ref, not just the annPosting state: a fast double-tap can fire both
+    // clicks before React commits the disabled state, so two identical announcements
+    // (and two broadcast pushes) went out from one tap. A ref updates synchronously,
+    // so the second call sees it immediately regardless of render timing.
+    if(!annTitle.trim()||!annBody.trim()||annPosting||postingAnnRef.current) return;
+    postingAnnRef.current=true;
     setAnnPosting(true);
     try{
       const r=await postAnnouncement({title:annTitle.trim(),body:annBody.trim()},token);
@@ -720,6 +726,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
       fetch('/api/send-push',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify({broadcast:true,title:'📣 '+annTitle.trim(),body:annBody.trim()})}).catch(()=>{});
       setAnnTitle(""); setAnnBody(""); setShowAnnForm(false);
     }catch(e){ showAnnToast("Error: "+e.message); }
+    postingAnnRef.current=false;
     setAnnPosting(false);
   };
 
@@ -776,6 +783,39 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
           </button>
           <Logo size={44}/>
         </div>
+      </div>
+
+      {/* Announcements — kept at the very top so posting a new one never requires
+          scrolling past Today's Sessions/Alerts */}
+      <div style={{padding:"14px 20px 0"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <SL style={{marginBottom:0}}>Announcements</SL>
+          <button onClick={()=>setShowAnnForm(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showAnnForm?"▲ Cancel":"+ Post"}</button>
+        </div>
+        {showAnnForm&&(
+          <Card style={{marginBottom:10}}>
+            <input value={annTitle} onChange={e=>setAnnTitle(e.target.value)} placeholder="Title" style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>
+            <textarea value={annBody} onChange={e=>setAnnBody(e.target.value)} placeholder="Message..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,fontFamily:"inherit",resize:"none",height:80,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:10}}/>
+            <GBtn label={annPosting?"Posting...":"Post Announcement"} onClick={handlePostAnn} disabled={annPosting} style={{width:"100%"}}/>
+          </Card>
+        )}
+        {announcements.length===0?<Empty msg="No announcements yet"/>:
+          announcements.map((a,i)=>(
+            <Card key={i} glow={C.cyan} style={{marginBottom:8}}>
+              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                <div style={{width:32,height:32,borderRadius:9,background:`linear-gradient(135deg,${C.cyan}33,${C.pink}33)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>📣</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                    <div style={{color:C.white,fontSize:14,fontWeight:700}}>{a.title}</div>
+                    <span style={{color:C.cyan,fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}>{fmtDate(a.created_at?.split("T")[0])}</span>
+                  </div>
+                  <div style={{color:C.muted,fontSize:13,lineHeight:1.5,marginTop:4}}>{a.body}</div>
+                  <button onClick={()=>handleDeleteAnn(a)} style={{background:"none",border:"none",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0,marginTop:8}}>Delete</button>
+                </div>
+              </div>
+            </Card>
+          ))
+        }
       </div>
 
       {/* Summary */}
@@ -852,7 +892,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
                         <div style={{color:C.white,fontSize:13,fontWeight:600}}>{cp?.name||"Unknown"}</div>
                         {dn
                           ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>Day {dn}</span>
-                          :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>Pilates</span>}
+                          :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>Move Well</span>}
                       </div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -864,38 +904,6 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
               </div>
             </Card>);
           })
-        }
-      </div>
-
-      {/* Announcements */}
-      <div style={{padding:"14px 20px 0"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <SL style={{marginBottom:0}}>Announcements</SL>
-          <button onClick={()=>setShowAnnForm(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showAnnForm?"▲ Cancel":"+ Post"}</button>
-        </div>
-        {showAnnForm&&(
-          <Card style={{marginBottom:10}}>
-            <input value={annTitle} onChange={e=>setAnnTitle(e.target.value)} placeholder="Title" style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>
-            <textarea value={annBody} onChange={e=>setAnnBody(e.target.value)} placeholder="Message..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,fontFamily:"inherit",resize:"none",height:80,outline:"none",boxSizing:"border-box",lineHeight:1.5,marginBottom:10}}/>
-            <GBtn label={annPosting?"Posting...":"Post Announcement"} onClick={handlePostAnn} disabled={annPosting} style={{width:"100%"}}/>
-          </Card>
-        )}
-        {announcements.length===0?<Empty msg="No announcements yet"/>:
-          announcements.map((a,i)=>(
-            <Card key={i} glow={C.cyan} style={{marginBottom:8}}>
-              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-                <div style={{width:32,height:32,borderRadius:9,background:`linear-gradient(135deg,${C.cyan}33,${C.pink}33)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>📣</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                    <div style={{color:C.white,fontSize:14,fontWeight:700}}>{a.title}</div>
-                    <span style={{color:C.cyan,fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}>{fmtDate(a.created_at?.split("T")[0])}</span>
-                  </div>
-                  <div style={{color:C.muted,fontSize:13,lineHeight:1.5,marginTop:4}}>{a.body}</div>
-                  <button onClick={()=>handleDeleteAnn(a)} style={{background:"none",border:"none",color:C.pink,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",padding:0,marginTop:8}}>Delete</button>
-                </div>
-              </div>
-            </Card>
-          ))
         }
       </div>
       <UaToast toast={annToast}/>
@@ -1862,7 +1870,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated})=>{
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
                         {s._dayNum
                           ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {s._dayNum}</span>
-                          :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Pilates</span>}
+                          :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Move Well</span>}
                         <span style={{color:C.muted,fontSize:10,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>{s._sessionNum}/{timeline.length}</span>
                         <StatusBadge status={badgeStatus}/>
                       </div>

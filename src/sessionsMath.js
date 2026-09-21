@@ -64,7 +64,7 @@ const PILATES_DOW = 5; // 0=Mon...6=Sun
 const PILATES_START_MIN = 645; // 10:45
 export function isPilates(item) {
   const cls = item?.class_name ?? item?.schedule_slots?.class_name;
-  if (cls != null) return cls === 'Pilates';
+  if (cls != null) return cls === 'Move Well';
   const dateStr = item?.session_date || item?.book_date;
   const startMin = item?.start_time_min ?? item?.schedule_slots?.start_time_min;
   if (dateStr == null || startMin == null) return false;

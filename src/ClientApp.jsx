@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, Component } from "react";
+import React, { useState, useEffect, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates } from "./sessionsMath.js";
 
@@ -252,7 +252,6 @@ const leaveWaitlist    = (id,tk) => dbDelete("waitlist",`id=eq.${id}`,tk);
 const getSlotWaitlist  = (slotId,date,tk) => dbGet("waitlist",`slot_id=eq.${slotId}&book_date=eq.${date}&order=position.asc`,tk);
 const getMyUpcomingBooks = (uid,date,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${date}&status=eq.booked&select=*,schedule_slots(start_time_min)`,tk);
 const getAllMyBookings   = (uid,tk) => dbGet("bookings",`client_id=eq.${uid}&status=neq.cancelled&select=book_date,schedule_slots(start_time_min)`,tk);
-const getMyWeekBooks     = (uid,ws,we,tk) => dbGet("bookings",`client_id=eq.${uid}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,tk);
 const getMyNotifications = (uid,tk) => dbGet("notifications",`client_id=eq.${uid}&read=eq.false&order=created_at.desc`,tk);
 const markNotificationRead=(id,tk)  => dbPatch("notifications",`id=eq.${id}`,{read:true},tk);
 const deleteNotification  =(id,tk)  => dbDelete("notifications",`id=eq.${id}`,tk);
@@ -548,7 +547,7 @@ const SessionSheet=({session,token,onClose})=>{
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-              <div style={{color:C.white,fontSize:18,fontWeight:800}}>{isPilates(session)?"Pilates":sessLabel(session._program_name)}</div>
+              <div style={{color:C.white,fontSize:18,fontWeight:800}}>{isPilates(session)?"Move Well":sessLabel(session._program_name)}</div>
               {dayNum&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dayNum}</span>}
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:2}}>{fmtDate(session.session_date)} · {toTime(session.start_time_min)}</div>
@@ -606,7 +605,7 @@ const HistorySheet=({sessions,spw,onClose,onOpen,label="Perform"})=>{
               <button key={i} onClick={()=>onOpen&&onOpen(s)}
                 style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${C.border}`,padding:"12px 0",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:onOpen?"pointer":"default",fontFamily:"inherit",textAlign:"left"}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Pilates":label}</div>
+                  <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Move Well":label}</div>
                   {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
@@ -926,26 +925,22 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
   const [todaySlots,setTodaySlots]=useState([]);
   const [myTodayBook,setMyBook]=useState(null);
   const [myUpcomingBooks,setMyUpcomingBooks]=useState([]);
-  const [myWeekBooks,setMyWeekBooks]=useState([]);
   const [todaySlotCount,setTodaySlotCount]=useState(null);
   const [wodDay,setWodDay]=useState(null); // day number to show WOD for, or null
   const [wodAutoShown,setWodAutoShown]=useState(false); // prevent re-opening after user closes
 
   useEffect(()=>{
     const dow=todayDow(); const today=todayISO();
-    const ws=WDATES_BASE[0].iso; const we=WDATES_BASE[6].iso;
     Promise.all([
       getActiveSlots(dow,token),
       getMyBooks(userId,today,token),
       getMyUpcomingBooks(userId,today,token),
-      getMyWeekBooks(userId,ws,we,token),
       getDayBooks(today,token),
-    ]).then(([slots,myBooks,upBooks,wkBooks,dayBooks])=>{
+    ]).then(([slots,myBooks,upBooks,dayBooks])=>{
       setTodaySlots(slots||[]);
       const booked=(myBooks||[]).find(b=>b.status==="booked")||null;
       setMyBook(booked);
       setMyUpcomingBooks(upBooks||[]);
-      setMyWeekBooks(wkBooks||[]);
       if(booked) setTodaySlotCount((dayBooks||[]).filter(b=>b.slot_id===booked.slot_id).length);
     }).catch(()=>{});
   },[token,userId,bookingsVer]);
@@ -985,18 +980,6 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
     const tb=new Date(b.session_date+"T00:00:00").getTime()+b.start_time_min*60000;
     return ta-tb;
   });
-  const weekStart=WDATES_BASE[0].iso;
-  const weekEnd=WDATES_BASE[5].iso;
-  const thisWeekSessions=sessions.filter(s=>
-    (s.status==="booked"||s.status==="completed")&&
-    s.session_date>=weekStart&&s.session_date<=weekEnd
-  ).sort((a,b)=>a.session_date.localeCompare(b.session_date));
-  const weekBookedDates=new Set([
-    ...thisWeekSessions.map(s=>s.session_date),
-    ...(myWeekBooks||[]).map(b=>b.book_date),
-  ]);
-  const weekCount=weekBookedDates.size;
-  const weekFull=!!pkg&&weekCount>=spw;
 
   const myBookedSlot=myTodayBook?todaySlots.find(s=>s.id===myTodayBook.slot_id):null;
   // Reliable session-window detection: uses myBookedSlot directly because sessions that have
@@ -1188,7 +1171,7 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Today</span>
               {isPilates(myBookedSlot)
-                ?<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>Pilates</span>
+                ?<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>Move Well</span>
                 :pkg?.workout_templates?.name&&<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>{sessLabel(pkg.workout_templates.name)}</span>}
               {todayActiveDay!=null&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Day {todayActiveDay}</span>}
             </div>
@@ -1209,7 +1192,7 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>{heroIsToday?"Today":new Date(heroItem.session_date+"T12:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short"})}</span>
               {isPilates(heroItem)
-                ?<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>Pilates</span>
+                ?<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>Move Well</span>
                 :pkg?.workout_templates?.name&&<span style={{color:"rgba(255,255,255,0.85)",fontSize:11,fontWeight:700,fontFamily:"'Oswald',sans-serif",letterSpacing:1,textTransform:"uppercase"}}>{sessLabel(pkg.workout_templates.name)}</span>}
               {heroDayNum&&<span style={{background:"rgba(0,0,0,0.25)",borderRadius:20,padding:"4px 11px",color:C.white,fontSize:11,fontWeight:800}}>Day {heroDayNum}</span>}
             </div>
@@ -1253,7 +1236,7 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
               <div style={{color:C.green,fontSize:16,fontWeight:900,fontFamily:"'Oswald',sans-serif"}}>✅ Session Complete</div>
               {todayActiveDay!=null
                 ?<span style={{background:C.green+"33",borderRadius:20,padding:"4px 11px",color:C.green,fontSize:11,fontWeight:800}}>Day {todayActiveDay}</span>
-                :isPilates(myBookedSlot)&&<span style={{background:C.green+"33",borderRadius:20,padding:"4px 11px",color:C.green,fontSize:11,fontWeight:800}}>Pilates</span>}
+                :isPilates(myBookedSlot)&&<span style={{background:C.green+"33",borderRadius:20,padding:"4px 11px",color:C.green,fontSize:11,fontWeight:800}}>Move Well</span>}
             </div>
             <div style={{color:C.muted,fontSize:12,lineHeight:1.5,marginBottom:todayActiveDay!=null&&pkg?.workout_templates?10:0}}>Great work today! Rest and recover 💪</div>
             {todayActiveDay!=null&&pkg?.workout_templates&&(
@@ -1261,31 +1244,6 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
                 <span>📋</span> View Today's Program — Day {todayActiveDay}
               </button>
             )}
-          </div>
-        </div>
-      ):pkg&&weekFull?(
-        <div style={{padding:"14px 20px 0"}}>
-          <div style={{background:C.green+"18",border:`1px solid ${C.green}44`,borderRadius:14,padding:"16px 18px"}}>
-            <div style={{color:C.green,fontSize:15,fontWeight:800,marginBottom:8}}>Week Complete 💪</div>
-            <div style={{color:C.muted,fontSize:12,marginBottom:10,lineHeight:1.5}}>All {spw} sessions booked for this week. Rest up!</div>
-            {/* Show each booked day this week */}
-            <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
-              {[...(()=>{
-                const all=[
-                  ...thisWeekSessions.map(s=>({date:s.session_date,min:s.start_time_min})),
-                  ...(myWeekBooks||[]).map(b=>({date:b.book_date,min:b.schedule_slots?.start_time_min})),
-                ];
-                const seen=new Set();
-                return all.filter(x=>{if(seen.has(x.date))return false;seen.add(x.date);return true;});
-              })()].sort((a,b)=>a.date.localeCompare(b.date)).map((d,i)=>(
-                <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{background:C.green+"33",border:`1px solid ${C.green}55`,borderRadius:20,padding:"2px 9px",color:C.green,fontSize:11,fontWeight:800}}>Day {completedCount+i>0?(completedCount+i)%spw+1:i+1}</span>
-                  <span style={{color:C.white,fontSize:12,fontWeight:700}}>{weekDayShort(d.date)} {fmtDate(d.date)}{d.min!=null?` · ${toTime(d.min)}`:""}</span>
-                  <span style={{color:C.green,fontSize:11}}>✓</span>
-                </div>
-              ))}
-            </div>
-            <button onClick={doBookNav} style={{width:"100%",background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:10,padding:"10px",color:C.green,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🗓 Book Day {nextBookDayNum}{nextBookNavLabel?` · ${nextBookNavLabel}`:` → Next Week`} →</button>
           </div>
         </div>
       ):pkg&&left>0?(
@@ -1316,7 +1274,7 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                     {dn
                       ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>
-                      :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Pilates</span>}
+                      :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Move Well</span>}
                     <StatusBadge status={statusMap[s.id]}/>
                   </div>
                   <div style={{color:C.white,fontSize:14,fontWeight:700}}>{weekDayShort(s.session_date)} · {fmtDate(s.session_date)} · {toTime(s.start_time_min)}</div>
@@ -1344,9 +1302,9 @@ const HomeScreen=({profile,pkg,sessions,reservedCount,onNav,onNavSchedule,onOpen
       {/* Secondary Book CTA — shown when hero exists and still have days to book */}
       {heroItem&&pkg&&left>0&&(
         <div style={{padding:"14px 20px 0"}}>
-          <button onClick={doBookNav} style={{width:"100%",background:"none",border:`2px solid ${weekFull?C.green:C.cyan}`,borderRadius:14,padding:"14px 18px",color:weekFull?C.green:C.cyan,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          <button onClick={doBookNav} style={{width:"100%",background:"none",border:`2px solid ${C.cyan}`,borderRadius:14,padding:"14px 18px",color:C.cyan,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
             <span>🗓</span>
-            <span>Book Day {nextBookDayNum}{nextBookNavLabel?` · ${nextBookNavLabel}`:weekFull?" → Next Week":""} →</span>
+            <span>Book Day {nextBookDayNum}{nextBookNavLabel?` · ${nextBookNavLabel}`:""} →</span>
           </button>
         </div>
       )}
@@ -1406,12 +1364,10 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   const [counts,setCounts]=useState({});
   const [myBooks,setMyB]=useState([]);
   const [myWaitlist,setMyWaitlist]=useState([]);
-  const [myWeekBookDates,setMyWeekBookDates]=useState(new Set());
   const [loading,setLoad]=useState(false);
   const [toast,setToast]=useState(null);
   const [schedErrToast,setSchedErrToast]=useState(null);
   const showSchedErr=(msg,ok=false)=>{setSchedErrToast({msg,ok});setTimeout(()=>setSchedErrToast(null),3500);};
-  const [weekMsgVisible,setWeekMsgVisible]=useState(false);
   const [activeSession,setAS]=useState(null);
   const [showCustom,setShowC]=useState(false);
   const [pickH,setPickH]=useState(null);
@@ -1437,13 +1393,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   const isPastDay=selDay.iso<todayStr;
   const isCurrentWeek=weekOffset===0;
 
-  const thisWeekSessionDates=new Set(sessions.filter(s=>
-    (s.status==="booked"||s.status==="completed")&&
-    s.session_date>=WDATES_BASE[0].iso&&s.session_date<=WDATES_BASE[6].iso
-  ).map(s=>s.session_date));
-  const combinedWeekDates=new Set([...thisWeekSessionDates,...myWeekBookDates]);
-  const currentWeekFull=isCurrentWeek&&!!pkg&&combinedWeekDates.size>=spw;
-
   const [weekBookDates,setWeekBookDates]=useState(new Set());
   const sessionDaySet=new Set([
     ...sessions.filter(s=>s.status==="completed"||s.status==="booked").map(s=>s.session_date),
@@ -1451,9 +1400,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
   ]);
 
   useEffect(()=>{
-    const ws=WDATES_BASE[0].iso,we=WDATES_BASE[6].iso;
-    dbGet("bookings",`client_id=eq.${userId}&book_date=gte.${ws}&book_date=lte.${we}&status=eq.booked&select=book_date`,token)
-      .then(r=>setMyWeekBookDates(new Set((r||[]).map(b=>b.book_date)))).catch(()=>{});
     getActivePeriodForToday(token).then(p=>setActivePeriod(p||null)).catch(()=>{});
     // Fetch ALL future bookings once for global day# computation
     const todayIso=todayISO();
@@ -1532,7 +1478,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
       }
       setMyB(p=>p.filter(b=>b.id!==already.id));
       setCounts(p=>({...p,[slot.id]:Math.max((p[slot.id]||1)-1,0)}));
-      if(isCurrentWeek) setMyWeekBookDates(p=>{ const n=new Set(p); n.delete(selDay.iso); return n; });
       setWeekBookDates(p=>{ const n=new Set(p); n.delete(selDay.iso); return n; });
       // No package session change — a future booking was never charged (charge at completion).
       const waitlist=await getSlotWaitlist(slot.id,selDay.iso,token).catch(()=>[]);
@@ -1572,17 +1517,12 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
       showSchedErr("You've used all sessions in your package. Contact your trainer to renew.");
       return;
     }
-    // Week-full check (applies to ALL viewed weeks)
-    if(!!pkg&&weekBookDates.size>=spw){
-      setWeekMsgVisible(true); setTimeout(()=>setWeekMsgVisible(false),3000); return;
-    }
     const cnt=counts[slot.id]||0;
     if(cnt>=GYM_CAP){ const next=slots.find(s=>s.id!==slot.id&&(counts[s.id]||0)<GYM_CAP); setToast({slot,next}); return; }
     try{
       const bk=await bookSlot(slot.id,userId,selDay.iso,token); const created=Array.isArray(bk)?bk[0]:bk;
       if(created){
         setMyB(p=>[...p,created]); setCounts(p=>({...p,[slot.id]:(p[slot.id]||0)+1}));
-        if(isCurrentWeek) setMyWeekBookDates(p=>new Set(p).add(selDay.iso));
         setWeekBookDates(p=>new Set(p).add(selDay.iso));
         // Booking reserves the slot but does NOT charge the package — it's charged when the
         // session actually happens (charge at completion).
@@ -1731,11 +1671,6 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
 
   return(
     <div style={{paddingBottom:80}}>
-      {weekMsgVisible&&(
-        <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.amber}66`,borderRadius:14,padding:"14px 16px",zIndex:200,textAlign:"center"}}>
-          <div style={{color:C.amber,fontWeight:700,fontSize:14}}>Week quota reached — rest up! Contact trainer for extras.</div>
-        </div>
-      )}
       {toast&&(
         <div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390,background:C.surface2,border:`1px solid ${C.pink}66`,borderRadius:14,padding:"16px",zIndex:200}}>
           <div style={{color:C.white,fontWeight:700,fontSize:14,marginBottom:6}}>⚠️ That slot is full ({GYM_CAP}/{GYM_CAP})</div>
@@ -1822,7 +1757,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
                       <div style={{width:36,height:36,borderRadius:10,background:C.cyan+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>💪</div>
                       <div style={{minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Pilates":sessLabel(pkg?.workout_templates?.name)}</div>
+                          <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Move Well":sessLabel(pkg?.workout_templates?.name)}</div>
                           {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>}
                           <StatusBadge status={s.status}/>
                         </div>
@@ -1849,7 +1784,7 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
                       <div style={{width:36,height:36,borderRadius:10,background:C.pink+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>🏋️</div>
                       <div style={{minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
-                          <span style={{color:C.white,fontSize:14,fontWeight:700}}>{isPilates(s)?"Pilates":sessLabel(pkg?.workout_templates?.name)}</span>
+                          <span style={{color:C.white,fontSize:14,fontWeight:700}}>{isPilates(s)?"Move Well":sessLabel(pkg?.workout_templates?.name)}</span>
                           {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>}
                         </div>
                         <div style={{color:C.muted,fontSize:12}}>{toTime(s.start_time_min)} · Scheduled by trainer</div>
@@ -1913,62 +1848,18 @@ const ScheduleScreen=({userId,token,sessions,pkg,lastProgram,reservedCount,onPkg
 // "schedule" case in renderScreen(). Day rotation reuses calcDayNum (the same function
 // in-person sessions use), the program text reuses getDayNote (the same Notes the
 // trainer writes for in-person programs) — this screen is glue, not new business logic.
-const fmtStopwatch=(sec)=>{ const m=Math.floor(sec/60),s=sec%60; return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`; };
-
-const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
+const RemoteProgramScreen=({token,pkg,sessions,onReload})=>{
   const spw=pkg?.sessions_per_week||3;
   const nextDay=calcDayNum(pkg?.sessions_used||0,spw);
   const programName=pkg?.workout_templates?.name;
   const note=pkg?.workout_templates?.exercises?getDayNote(pkg.workout_templates.exercises,nextDay,spw):"";
-  const lines=useMemo(()=>(note||"").split("\n").map(l=>l.trim()).filter(Boolean),[note]);
 
   const today=todayISO();
   const alreadyLoggedToday=(sessions||[]).some(s=>s.session_date===today&&s.status!=="cancelled");
-  const draftKey=`ua_remote_draft_${userId}_${today}`;
 
-  const [checked,setChecked]=useState(()=>{
-    try{ const d=JSON.parse(localStorage.getItem(draftKey)||"null"); return new Set(d?.checked||[]); }catch{ return new Set(); }
-  });
-  const [running,setRunning]=useState(false);
-  const [hasStarted,setHasStarted]=useState(()=>{
-    try{ const d=JSON.parse(localStorage.getItem(draftKey)||"null"); return !!d?.hasStarted; }catch{ return false; }
-  });
-  const [elapsedSec,setElapsedSec]=useState(()=>{
-    try{ const d=JSON.parse(localStorage.getItem(draftKey)||"null"); return d?.elapsedSec||0; }catch{ return 0; }
-  });
-  const [startClockMin,setStartClockMin]=useState(()=>{
-    try{ const d=JSON.parse(localStorage.getItem(draftKey)||"null"); return d?.startClockMin??null; }catch{ return null; }
-  });
   const [saving,setSaving]=useState(false);
   const [toast,setToast]=useState(null);
   const showToast=(msg,ok=false)=>{setToast({msg,ok});setTimeout(()=>setToast(null),3000);};
-
-  // Persist the in-progress draft so a reload mid-workout doesn't lose checklist/timer state.
-  useEffect(()=>{
-    if(alreadyLoggedToday) return;
-    localStorage.setItem(draftKey,JSON.stringify({checked:[...checked],hasStarted,elapsedSec,startClockMin}));
-  },[checked,hasStarted,elapsedSec,startClockMin,alreadyLoggedToday,draftKey]);
-
-  useEffect(()=>{
-    if(!running) return;
-    const t=setInterval(()=>setElapsedSec(s=>s+1),1000);
-    return ()=>clearInterval(t);
-  },[running]);
-
-  const toggleLine=(i)=>setChecked(p=>{ const n=new Set(p); n.has(i)?n.delete(i):n.add(i); return n; });
-
-  const toggleTimer=()=>{
-    if(!running){
-      setRunning(true);
-      if(!hasStarted){
-        setHasStarted(true);
-        const now=new Date();
-        setStartClockMin(now.getHours()*60+now.getMinutes());
-      }
-    } else {
-      setRunning(false);
-    }
-  };
 
   const finish=async()=>{
     if(saving||!pkg) return;
@@ -1976,6 +1867,7 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
     let ok=false;
     let res=null;
     try{
+      const n=new Date();
       res=await fetch('/api/log-remote-workout',{
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
@@ -1983,9 +1875,7 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
           package_id:pkg.id,
           day_num:nextDay,
           session_date:today,
-          start_time_min:startClockMin??(()=>{const n=new Date();return n.getHours()*60+n.getMinutes();})(),
-          duration_sec:elapsedSec,
-          checklist:lines.map((name,i)=>({name,done:checked.has(i)})),
+          start_time_min:n.getHours()*60+n.getMinutes(),
         }),
       });
     }catch(networkErr){
@@ -2007,8 +1897,6 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
       }
     }
     if(ok){
-      localStorage.removeItem(draftKey);
-      setRunning(false);
       showToast('✅ Workout logged!',true);
       getTrainerProfile(token).then(trainer=>{
         if(!trainer) return;
@@ -2045,35 +1933,17 @@ const RemoteProgramScreen=({userId,token,pkg,sessions,onReload})=>{
         <div style={{color:C.white,fontSize:22,fontWeight:900,fontFamily:"'Oswald',sans-serif",letterSpacing:0.5}}>{sessLabel(programName)}</div>
       </div>
 
-      <Card style={{marginBottom:14,textAlign:"center"}}>
-        <div style={{color:C.muted,fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Workout Timer</div>
-        <div style={{color:C.white,fontSize:38,fontWeight:900,fontFamily:"'Oswald',sans-serif",marginBottom:12,fontVariantNumeric:"tabular-nums"}}>{fmtStopwatch(elapsedSec)}</div>
-        <div style={{display:"flex",gap:8}}>
-          <GBtn label={running?"⏸ Pause":hasStarted?"▶ Resume":"▶ Start"} onClick={toggleTimer} style={{flex:1}}/>
-          <GBtn label={saving?"Saving…":"⏹ End"} onClick={finish} disabled={saving||!hasStarted} style={{flex:1}}/>
-        </div>
-        {!hasStarted&&<div style={{color:C.muted,fontSize:11,marginTop:8}}>Start the timer to enable End.</div>}
-      </Card>
-
       <Card style={{marginBottom:14}}>
         <SL>Today's Program</SL>
-        {lines.length===0
-          ?<Empty msg={`No program text set for Day ${nextDay} yet`}/>
-          :<div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {lines.map((line,i)=>{
-              const done=checked.has(i);
-              return (
-                <button key={i} onClick={()=>toggleLine(i)} style={{display:"flex",alignItems:"flex-start",gap:10,textAlign:"left",background:done?C.green+"14":"rgba(255,255,255,0.04)",border:`1px solid ${done?C.green+"44":C.border}`,borderRadius:10,padding:"11px 13px",cursor:"pointer",fontFamily:"inherit"}}>
-                  <span style={{flexShrink:0,width:20,height:20,borderRadius:6,border:`2px solid ${done?C.green:C.border}`,background:done?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",marginTop:1}}>
-                    {done&&<span style={{color:"#000",fontSize:13,fontWeight:900,lineHeight:1}}>✓</span>}
-                  </span>
-                  <span style={{color:done?C.muted:C.white,fontSize:14,lineHeight:1.5,textDecoration:done?"line-through":"none"}}>{line}</span>
-                </button>
-              );
-            })}
-          </div>
+        {note&&note.trim()
+          ? <div style={{whiteSpace:"pre-wrap",wordBreak:"break-word",color:C.white,fontSize:14,lineHeight:1.7}}>{note}</div>
+          : <Empty msg={`No program text set for Day ${nextDay} yet`}/>
         }
       </Card>
+
+      <div style={{marginBottom:14}}>
+        <GBtn label={saving?"Saving…":"✓ Done"} onClick={finish} disabled={saving} style={{width:"100%"}}/>
+      </div>
 
       <ProgramPreview pkg={pkg} spw={spw} nextDay={nextDay}/>
 
@@ -2585,7 +2455,7 @@ const ProfileScreen=({profile,pkg,sessions,reservedCount,allBooks,prs:initPRs,us
                 <button key={i} onClick={()=>setOpenSess(s)}
                   style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${C.border}`,padding:"12px 0",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
                   <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",minWidth:0}}>
-                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Pilates":sessLabel(pkg?.workout_templates?.name)}</div>
+                    <div style={{color:C.white,fontSize:14,fontWeight:600}}>{isPilates(s)?"Move Well":sessLabel(pkg?.workout_templates?.name)}</div>
                     {dn&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>}
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
@@ -3000,7 +2870,7 @@ function AppInner(){
     switch(screen){
       case "home": return <HomeScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} onNav={handleNav} onNavSchedule={handleNavSchedule} onOpenSession={setOpenSess} token={auth.token} userId={auth.userId} onOpenNotif={()=>setShowNotifPanel(true)} notifCount={notifications.length} bookingsVer={bookingsVer}/>;
       case "schedule": return auth.pkg?.delivery_mode==='remote'
-        ? <RemoteProgramScreen userId={auth.userId} token={auth.token} pkg={auth.pkg} sessions={auth.sessions} onReload={()=>loadData(auth.token,auth.userId)}/>
+        ? <RemoteProgramScreen token={auth.token} pkg={auth.pkg} sessions={auth.sessions} onReload={()=>loadData(auth.token,auth.userId)}/>
         : <ScheduleScreen userId={auth.userId} token={auth.token} sessions={auth.sessions} pkg={auth.pkg} lastProgram={auth.lastProgram} reservedCount={auth.reservedCount} onPkgUpdate={updPkg=>setAuth(p=>({...p,pkg:updPkg}))} profile={auth.profile} initialWeekOffset={scheduleInitWeek} initialDayIdx={scheduleInitDay} bookingsVer={bookingsVer}/>;
       case "announcements": return <AnnouncementsScreen token={auth.token} priorSeenAt={priorAnnSeenAt}/>;
       case "profile": return <ProfileScreen profile={auth.profile} pkg={auth.pkg} sessions={auth.sessions} reservedCount={auth.reservedCount} allBooks={auth.allBooks} prs={auth.prs} userId={auth.userId} token={auth.token} onLogout={handleLogout} onAvatarChange={url=>setAuth(p=>({...p,profile:{...p.profile,avatar_url:url}}))}/>;
