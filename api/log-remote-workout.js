@@ -37,7 +37,7 @@ export default async function handler(req, res) {
   // stops an in-person client from using this endpoint to charge themselves a session
   // without going through the booking flow.
   const pkgRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/packages?id=eq.${package_id}&select=id,client_id,delivery_mode,is_active`,
+    `${SUPABASE_URL}/rest/v1/packages?id=eq.${package_id}&select=id,client_id,delivery_mode,is_active,program_id`,
     { headers: { apikey: svcKey, Authorization: `Bearer ${svcKey}` } }
   );
   if (!pkgRes.ok) return res.status(502).json({ error: 'Could not verify package' });
@@ -46,6 +46,9 @@ export default async function handler(req, res) {
   if (!pkg || pkg.client_id !== callerUser.id) return res.status(403).json({ error: 'Package not found or not yours' });
   if (pkg.delivery_mode !== 'remote') return res.status(403).json({ error: 'Not a remote package' });
   if (!pkg.is_active) return res.status(403).json({ error: 'Package is not active' });
+  if (!pkg.program_id) return res.status(400).json({ error: 'No program assigned' });
+  // day_num is the absolute program day the client picked (4 = W2D1, see src/remoteProgram.js)
+  if (!Number.isInteger(day_num) || day_num < 1) return res.status(400).json({ error: 'Invalid day_num' });
 
   // Single-trainer gym assumption already used elsewhere in this app (see getTrainerProfile).
   const trainerRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?role=eq.trainer&select=id&limit=1`, {
@@ -82,6 +85,7 @@ export default async function handler(req, res) {
       session_date,
       start_time_min: start_time_min ?? 0,
       day_num,
+      program_id: pkg.program_id,
       status: 'completed',
       duration_sec: duration_sec ?? null,
     }),

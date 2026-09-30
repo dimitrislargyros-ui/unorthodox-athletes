@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
 import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates } from "./sessionsMath.js";
+import { wdLabel, weekDays, remoteDayNote, remoteProgress } from "./remoteProgram.js";
 
 // Paid/Unpaid tracking and payment-reminder notifications are temporarily off — the
 // trainer now invoices clients directly (μπλοκάκι) outside the app. Code stays in place,
@@ -265,6 +266,8 @@ const todayISO= ()    => localISO();
 const todayDow= ()    => { const d=new Date().getDay(); return d===0?6:d-1; };
 
 // Day num: (count of all client sessions up to date) % spw + 1
+// Badge text for a session: remote sessions carry their program day (W1D2), in-person ones "Day N".
+const dayTag=(item,dn)=>item?.program_id&&item.day_num?wdLabel(item.day_num):dn?`Day ${dn}`:null;
 const calcDayNum = async (clientId, date, tk, spw=3) => {
   // Only count non-cancelled, non-Pilates sessions — Pilates sits outside the PT
   // Day 1/2/3 rotation and shouldn't skew it (see isPilates in sessionsMath.js).
@@ -372,7 +375,7 @@ const computeStatusMap=(items,now)=>{
 };
 // ── Trainer Notification Panel ──
 const typeIcon=(type)=>{
-  const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳",remote_workout_logged:"📍"};
+  const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳",remote_workout_logged:"📍",remote_program_needed:"✍️",slot_over_capacity:"⚠️"};
   return m[type]||"🔔";
 };
 const TrainerNotifPanel=({userId,token,count,onClose,onDecideSlotReq})=>{
@@ -536,7 +539,7 @@ const SessionEditor=({session,spw,token,trainerId,onClose,onSaved,onDeleted})=>{
             <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
               <div style={{color:C.white,fontSize:18,fontWeight:800}}>Session Log</div>
               {dn
-                ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {dn}</span>
+                ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>{dayTag(session,dn)}</span>
                 :isPilates(session)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Move Well</span>}
             </div>
             <div style={{color:C.muted,fontSize:13,marginTop:2}}>{fmtDate(session.session_date)} · {toTime(session.start_time_min)}</div>
@@ -668,6 +671,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
   const [loading,setLoad]=useState(true);
   const [announcements,setAnn]=useState([]);
   const [showAnnForm,setShowAnnForm]=useState(false);
+  const [annCollapsed,setAnnCollapsed]=useState(()=>localStorage.getItem("ua_ann_collapsed")==="1");
   const [annTitle,setAnnTitle]=useState("");
   const [annBody,setAnnBody]=useState("");
   const [annPosting,setAnnPosting]=useState(false);
@@ -801,10 +805,14 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
       {/* Announcements — kept at the very top so posting a new one never requires
           scrolling past Today's Sessions/Alerts */}
       <div style={{padding:"14px 20px 0"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <SL style={{marginBottom:0}}>Announcements</SL>
-          <button onClick={()=>setShowAnnForm(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showAnnForm?"▲ Cancel":"+ Post"}</button>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:annCollapsed?0:10}}>
+          <button onClick={()=>setAnnCollapsed(p=>{const n=!p;localStorage.setItem("ua_ann_collapsed",n?"1":"0");return n;})} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>
+            <SL style={{marginBottom:0}}>Announcements</SL>
+            <span style={{color:C.muted,fontSize:11}}>{annCollapsed?"▼":"▲"}</span>
+          </button>
+          {!annCollapsed&&<button onClick={()=>setShowAnnForm(p=>!p)} style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:8,padding:"6px 14px",color:C.white,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{showAnnForm?"▲ Cancel":"+ Post"}</button>}
         </div>
+        {!annCollapsed&&(<>
         {showAnnForm&&(
           <Card style={{marginBottom:10}}>
             <input value={annTitle} onChange={e=>setAnnTitle(e.target.value)} placeholder="Title" style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:8}}/>
@@ -829,6 +837,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
             </Card>
           ))
         }
+        </>)}
       </div>
 
       {/* Summary */}
@@ -904,7 +913,7 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
                       <div>
                         <div style={{color:C.white,fontSize:13,fontWeight:600}}>{cp?.name||"Unknown"}</div>
                         {dn
-                          ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>Day {dn}</span>
+                          ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>{dayTag(s,dn)}</span>
                           :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:9,fontWeight:800,padding:"1px 6px",borderRadius:10}}>Move Well</span>}
                       </div>
                     </div>
@@ -941,7 +950,7 @@ const ClientsScreen=({clients,onViewClient})=>{
         {filtered.length===0?<Empty msg="No clients found"/>:filtered.map(c=>{
           const pkg=c._pkg; const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
           const pct=pkg?(pkg.sessions_used/pkg.sessions_total)*100:0; const isLow=left!=null&&left<=2;
-          const spw=pkg?.sessions_per_week||3; const currentDay=pkg?((pkg.sessions_used||0)%spw)+1:null;
+          const spw=pkg?.sessions_per_week||3; const currentDay=pkg&&pkg.delivery_mode!=='remote'?((pkg.sessions_used||0)%spw)+1:null;
           return(<button key={c.id} onClick={()=>onViewClient(c)} style={{background:C.surface,border:`1px solid ${isLow?C.pink+"44":C.border}`,borderRadius:14,padding:"16px",cursor:"pointer",textAlign:"left",width:"100%"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:pkg?12:0}}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -1067,6 +1076,49 @@ const MonthlyReportModal=({client,timeline,statusMap,pkg,allPkgs,prs,spw,onClose
 };
 
 // ── Client Detail ──
+// Trainer's read-only view of a remote client's weeks — same W/D grid and ticks the
+// client sees (src/remoteProgram.js), so the trainer knows what's done and what to write.
+const RemoteWeekCard=({program,sessions})=>{
+  const {done,currentWeek}=remoteProgress(sessions,program?.id);
+  const [week,setWeek]=useState(currentWeek);
+  const [openDay,setOpenDay]=useState(null);
+  useEffect(()=>{ setWeek(currentWeek); },[currentWeek]);
+  if(!program) return null;
+  // Allow browsing one week past the client's current one, so the trainer can check what's written ahead
+  const maxWeek=currentWeek+1;
+  return(
+    <div style={{padding:"14px 20px 0"}}>
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8}}>
+          <div>
+            <SL style={{marginBottom:2}}>📍 Remote Program</SL>
+            <div style={{color:C.white,fontSize:16,fontWeight:800}}>Week {week}{week===currentWeek?" · current":""}</div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            {[[-1,"‹"],[1,"›"]].map(([dir,ch])=>{
+              const t=week+dir; const en=t>=1&&t<=maxWeek;
+              return <button key={dir} onClick={()=>{if(en){setWeek(t);setOpenDay(null);}}} disabled={!en} style={{width:34,height:34,borderRadius:8,border:`1px solid ${en?C.cyan:C.border}`,background:en?`${C.cyan}18`:"transparent",color:en?C.cyan:C.border,fontSize:18,fontWeight:800,cursor:en?"pointer":"default",fontFamily:"inherit"}}>{ch}</button>;
+            })}
+          </div>
+        </div>
+        {weekDays(week).map(d=>{
+          const sess=done.get(d); const note=remoteDayNote(program.exercises,d); const open=openDay===d;
+          const [col,txt]=sess?[C.green,`✓ ${fmtDate(sess.session_date)}`]:note?[C.cyan,"Written"]:[C.amber,"⚠ Not written"];
+          return(
+            <div key={d} style={{background:C.surface2,borderRadius:10,padding:"10px 12px",marginBottom:6}}>
+              <button onClick={()=>setOpenDay(open?null:d)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit"}}>
+                <span style={{color:C.white,fontSize:14,fontWeight:800}}>{wdLabel(d)}</span>
+                <span style={{color:col,fontSize:11,fontWeight:800}}>{txt} {open?"▲":"▼"}</span>
+              </button>
+              {open&&<div style={{whiteSpace:"pre-wrap",wordBreak:"break-word",color:note?C.white:C.muted,fontSize:13,lineHeight:1.6,marginTop:8}}>{note||`Nothing written for ${wdLabel(d)} yet — add it in Programs → ${program.name}.`}</div>}
+            </div>
+          );
+        })}
+      </Card>
+    </div>
+  );
+};
+
 const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDeleted})=>{
   const [sessions,setSessions]=useState([]);
   const [clientBooks,setClientBooks]=useState([]);
@@ -1852,6 +1904,8 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
         );
       })()}
 
+      {pkg?.delivery_mode==='remote'&&<RemoteWeekCard program={programs.find(p=>p.id===pkg.program_id)} sessions={sessions}/>}
+
       {/* Sessions */}
       <div style={{padding:"14px 20px 0"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -1904,7 +1958,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
                     <div>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
                         {s._dayNum
-                          ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {s._dayNum}</span>
+                          ?<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>{dayTag(s,s._dayNum)}</span>
                           :isPilates(s)&&<span style={{background:`${C.pink}33`,color:C.pink,fontSize:10,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Move Well</span>}
                         <span style={{color:C.muted,fontSize:10,fontWeight:700,whiteSpace:"nowrap",flexShrink:0}}>{s._sessionNum}/{timeline.length}</span>
                         <StatusBadge status={badgeStatus}/>
@@ -2752,7 +2806,8 @@ const exToDet=(ex)=>{
   return {type:"weighted",sets:ex.sets||"3",reps:ex.reps||"10",vol:w.replace(/[a-z]+$/i,""),unit:"kg"};
 };
 
-const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
+const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,isRemote})=>{
+  const dayName=d=>isRemote?wdLabel(d):`Day ${d}`;
   // numDays is dynamic — trainer can add/remove days
   const initNumDays=(()=>{
     const raw=prog.exercises||[];
@@ -2969,7 +3024,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
               return(
                 <button key={d.day} onClick={()=>{setActiveDay(d.day);setPasteText(d.note||"");setStep("list");}}
                   style={{flexShrink:0,minWidth:56,padding:"7px 6px",borderRadius:10,border:`1px solid ${active?C.cyan:C.border}`,background:active?`${C.cyan}22`:"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
-                  <div style={{color:active?C.cyan:C.muted,fontSize:12,fontWeight:800}}>Day {d.day}</div>
+                  <div style={{color:active?C.cyan:C.muted,fontSize:12,fontWeight:800}}>{dayName(d.day)}</div>
                   <div style={{color:active?C.cyan+"99":C.border,fontSize:10,fontWeight:600,marginTop:1}}>{hasNote?"📝":""}{cnt>0?` ${cnt} ex`:hasNote?"":"empty"}</div>
                 </button>
               );
@@ -2995,7 +3050,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
                 day's note (see the prevActiveDayRef effect above). */}
             <div style={{marginBottom:16}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <SL style={{marginBottom:0}}>📝 Day {activeDay} Program</SL>
+                <SL style={{marginBottom:0}}>📝 {dayName(activeDay)} Program</SL>
                 {saving&&<span style={{color:C.muted,fontSize:11}}>Saving…</span>}
               </div>
               <textarea
@@ -3018,7 +3073,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
             </button>
             {showStructured&&(<>
             {exs.length===0
-              ? <Empty msg={`No exercises for Day ${activeDay} yet`}/>
+              ? <Empty msg={`No exercises for ${dayName(activeDay)} yet`}/>
               : (()=>{
                   // Group consecutive exercises that share a supersetGroup
                   const SS_COLORS={"A":C.cyan,"B":C.amber,"C":C.pink,"D":C.green,"E":"#9B5DE5","F":"#F15BB5"};
@@ -3096,7 +3151,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
             {/* exercise name badge */}
             <div style={{background:editIdx!==null?`${C.amber}15`:`${C.cyan}15`,borderRadius:12,padding:"12px 16px",border:`1px solid ${editIdx!==null?C.amber:C.cyan}44`}}>
               <div style={{color:editIdx!==null?C.amber:C.cyan,fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:3}}>
-                {editIdx!==null?"Editing":"Adding to"} Day {activeDay}
+                {editIdx!==null?"Editing":"Adding to"} {dayName(activeDay)}
               </div>
               <div style={{color:C.white,fontSize:17,fontWeight:800}}>{pickedName}</div>
             </div>
@@ -3186,7 +3241,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate})=>{
                 </div>
                 {det.supersetGroup&&(
                   <div style={{marginTop:8,color:C.muted,fontSize:11}}>
-                    This exercise will be grouped in ⚡ Superset {det.supersetGroup} on Day {activeDay}.
+                    This exercise will be grouped in ⚡ Superset {det.supersetGroup} on {dayName(activeDay)}.
                   </div>
                 )}
               </div>
@@ -3217,10 +3272,13 @@ const ProgramsScreen=({trainerId,token})=>{
   const [showLib,setShowLib]=useState(false);     // library sheet
   const [delDlg,setDelDlg]=useState(null);
   const [progToast,setProgToast]=useState(null);
+  const [remoteProgIds,setRemoteProgIds]=useState(new Set()); // programs assigned to remote clients → W/D labels
   const showProgToast=(msg,ok=false)=>{setProgToast({msg,ok});setTimeout(()=>setProgToast(null),3500);};
 
   useEffect(()=>{
     getTemplates(trainerId,token).then(r=>setPrograms(r||[])).catch(()=>{}).finally(()=>setLoad(false));
+    dbGet("packages","delivery_mode=eq.remote&is_active=eq.true&program_id=not.is.null&select=program_id",token)
+      .then(r=>setRemoteProgIds(new Set((r||[]).map(x=>x.program_id)))).catch(()=>{});
   },[]);
 
   const handleCreate=async(nameOverride)=>{
@@ -3310,7 +3368,7 @@ const ProgramsScreen=({trainerId,token})=>{
               <Card key={prog.id} style={{marginBottom:10,cursor:"pointer"}} onClick={()=>setEditProg(prog)}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{color:C.white,fontSize:15,fontWeight:700}}>{prog.name}</div>
+                    <div style={{color:C.white,fontSize:15,fontWeight:700}}>{prog.name}{remoteProgIds.has(prog.id)&&<span style={{color:C.pink,fontSize:10,fontWeight:800,marginLeft:8}}>📍 REMOTE</span>}</div>
                     <div style={{color:C.muted,fontSize:12,marginTop:3}}>
                       {exs.length===0?"No exercises yet":`${exs.length} exercise${exs.length!==1?"s":""}`}
                       {exs.length>0&&(
@@ -3342,6 +3400,7 @@ const ProgramsScreen=({trainerId,token})=>{
           token={token}
           onClose={()=>setEditProg(null)}
           onUpdate={handleUpdate}
+          isRemote={remoteProgIds.has(editProg.id)}
         />
       )}
 
