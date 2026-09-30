@@ -2862,6 +2862,9 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,isRemote})=>{
 
   const exs=days.find(d=>d.day===activeDay)?.exercises||[];
   const dayNote=days.find(d=>d.day===activeDay)?.note||"";
+  // Bring the active tab into view (a just-added day lands at the end of a long W/D strip)
+  const activeTabRef=useRef(null);
+  useEffect(()=>{ activeTabRef.current?.scrollIntoView({block:"nearest",inline:"nearest"}); },[activeDay,numDays]);
   // Sync pasteText when switching days
   const prevActiveDayRef=useRef(activeDay);
   if(prevActiveDayRef.current!==activeDay){prevActiveDayRef.current=activeDay;setPasteText(dayNote);}
@@ -3028,7 +3031,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,isRemote})=>{
               const hasNote=!!(d.note&&d.note.trim());
               const active=activeDay===d.day;
               return(
-                <button key={d.day} onClick={()=>{setActiveDay(d.day);setPasteText(d.note||"");setStep("list");}}
+                <button key={d.day} ref={active?activeTabRef:undefined} onClick={()=>{setActiveDay(d.day);setPasteText(d.note||"");setStep("list");}}
                   style={{flexShrink:0,minWidth:56,padding:"7px 6px",borderRadius:10,border:`1px solid ${active?C.cyan:C.border}`,background:active?`${C.cyan}22`:"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
                   <div style={{color:active?C.cyan:C.muted,fontSize:12,fontWeight:800}}>{dayName(d.day)}</div>
                   <div style={{color:active?C.cyan+"99":C.border,fontSize:10,fontWeight:600,marginTop:1}}>{hasNote?"📝":""}{cnt>0?` ${cnt} ex`:hasNote?"":"empty"}</div>
