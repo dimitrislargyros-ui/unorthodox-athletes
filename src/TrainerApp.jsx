@@ -2807,7 +2807,12 @@ const exToDet=(ex)=>{
 };
 
 const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,isRemote})=>{
-  const dayName=d=>isRemote?wdLabel(d):`Day ${d}`;
+  // Weeks view (W1D1..) is automatic once the program is on a remote package; before that the
+  // trainer can switch it on while writing a new remote program. Labels only — data is the same.
+  const weeksKey=`ua_prog_weeks_${prog.id}`;
+  const [weeksView,setWeeksView]=useState(()=>isRemote||localStorage.getItem(weeksKey)==="1");
+  const toggleWeeks=()=>setWeeksView(p=>{const n=!p;try{localStorage.setItem(weeksKey,n?"1":"0");}catch{}return n;});
+  const dayName=d=>weeksView?wdLabel(d):`Day ${d}`;
   // numDays is dynamic — trainer can add/remove days
   const initNumDays=(()=>{
     const raw=prog.exercises||[];
@@ -3012,6 +3017,7 @@ const ProgramEditorModal=({prog,trainerId,token,onClose,onUpdate,isRemote})=>{
             }
             <div style={{color:C.muted,fontSize:12,marginTop:1}}>{exs.length} exercise{exs.length!==1?"s":""}{saving?" · saving…":""}</div>
           </div>
+          <button onClick={toggleWeeks} title="Show days as weeks (remote clients)" style={{flexShrink:0,background:weeksView?`${C.pink}22`:C.surface2,border:`1px solid ${weeksView?C.pink:C.border}`,borderRadius:10,padding:"7px 11px",color:weeksView?C.pink:C.muted,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{weeksView?"📍 Weeks":"Days"}</button>
         </div>
 
         {/* ── Day Tabs ── */}
