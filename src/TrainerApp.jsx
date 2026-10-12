@@ -180,7 +180,13 @@ const getDayBookings = (date,tk) => dbGet("bookings",`book_date=eq.${date}&statu
 const createSession  = (d,tk)    => dbPost("sessions",d,tk);
 const createPkg      = (d,tk)    => dbPost("packages",d,tk);
 const deactivatePkgs = (uid,tk)  => dbPatch("packages",`client_id=eq.${uid}&is_active=eq.true`,{is_active:false},tk);
-const addSlot        = (d,tk)    => dbPost("schedule_slots",d,tk);
+// removeSlot only soft-deletes (old bookings FK the row), so the unique day+time row is
+// still there — re-adding the same time must reactivate it, not INSERT a duplicate.
+const addSlot        = async (d,tk) => {
+  const old=await dbGet("schedule_slots",`day_of_week=eq.${d.day_of_week}&start_time_min=eq.${d.start_time_min}&is_active=eq.false&limit=1`,tk);
+  if(old?.length) return dbPatch("schedule_slots",`id=eq.${old[0].id}`,{is_public:true,class_name:null,duration_min:SESS_MIN,...d,is_active:true},tk);
+  return dbPost("schedule_slots",d,tk);
+};
 const removeSlot     = (id,tk)   => dbPatch("schedule_slots",`id=eq.${id}`,{is_active:false},tk);
 
 const saveTrainerNote = async (sessId,note,tk) => {
@@ -2597,7 +2603,7 @@ const ScheduleScreen=({trainerId,token,onPendingChange,clients=[],onViewClient,o
               const res=await addSlot({trainer_id:trainerId,day_of_week:stdDayIdx,start_time_min:stdPickStart},token);
               const c=Array.isArray(res)?res[0]:res;
               if(c){
-                setStdDaySlots(p=>[...p,c].sort((a,b)=>a.start_time_min-b.start_time_min));
+                setStdDaySlots(p=>[...p.filter(s=>s.id!==c.id),c].sort((a,b)=>a.start_time_min-b.start_time_min));
                 if(!activePeriod) reloadDay();
               }
               setStdPickH(null); setStdPickM(0);
