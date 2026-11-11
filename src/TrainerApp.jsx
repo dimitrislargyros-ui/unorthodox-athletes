@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates, dayNumByDate } from "./sessionsMath.js";
 import { wdLabel, weekDays, remoteDayNote, remoteProgress } from "./remoteProgram.js";
 
 // Paid/Unpaid tracking and payment-reminder notifications are temporarily off — the
@@ -172,6 +172,8 @@ const dbDelete   = (tbl,q,tk)   => sb(`/rest/v1/${tbl}?${q}`,"DELETE",null,tk,"r
 const getProfile     = (uid,tk)  => dbGet("profiles",`id=eq.${uid}&select=*`,tk).then(r=>r?.[0]);
 const getClients     = (tk)      => dbGet("profiles","role=eq.client&order=name.asc",tk);
 const getAllPkgs      = (tk)      => dbGet("packages","is_active=eq.true&select=*,workout_templates(id,name)",tk);
+// Packages closed by api/package-expiry.js — newest first, for the "N sessions lost" note
+const getExpiredPkgs  = (tk)      => dbGet("packages","deactivation_reason=eq.expired&select=client_id,sessions_total,sessions_used,start_date,end_date&order=end_date.desc",tk);
 const getTodayBooks  = (date,tk) => dbGet("bookings",`book_date=eq.${date}&status=eq.booked&select=*,schedule_slots(start_time_min),profiles(id,name,initials)`,tk);
 const getClientSess  = (uid,tk)  => dbGet("sessions",`client_id=eq.${uid}&order=session_date.desc&select=*,session_notes(*),exercises(*)`,tk);
 const getSlots       = (dow,tk)  => dbGet("schedule_slots",`day_of_week=eq.${dow}&is_active=eq.true&order=start_time_min.asc`,tk);
@@ -275,11 +277,14 @@ const todayDow= ()    => { const d=new Date().getDay(); return d===0?6:d-1; };
 // Badge text for a session: remote sessions carry their program day (W1D2), in-person ones "Day N".
 const dayTag=(item,dn)=>item?.program_id&&item.day_num?wdLabel(item.day_num):dn?`Day ${dn}`:null;
 const calcDayNum = async (clientId, date, tk, spw=3) => {
-  // Only count non-cancelled, non-Pilates sessions — Pilates sits outside the PT
-  // Day 1/2/3 rotation and shouldn't skew it (see isPilates in sessionsMath.js).
-  const all = await dbGet("sessions", `client_id=eq.${clientId}&session_date=lte.${date}&status=neq.cancelled`, tk).catch(()=>[]);
-  const nonPilates=(all||[]).filter(s=>!isPilates(s));
-  return (nonPilates.length % spw) + 1;
+  // Same numbering the client app shows (dayNumByDate: sessions + bookings, deduped by
+  // date, no Pilates, global across packages) — counting sessions only used to disagree
+  // with the client's Home/Schedule whenever a day was self-booked.
+  const [sess,books] = await Promise.all([
+    dbGet("sessions", `client_id=eq.${clientId}&session_date=lte.${date}&status=neq.cancelled&select=session_date,start_time_min,status`, tk).catch(()=>[]),
+    dbGet("bookings", `client_id=eq.${clientId}&book_date=lte.${date}&status=eq.booked&select=book_date,schedule_slots(start_time_min)`, tk).catch(()=>[]),
+  ]);
+  return dayNumByDate([...(sess||[]),{session_date:date,status:"completed"}],books||[],spw).get(date);
 };
 
 const WDAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
@@ -381,7 +386,7 @@ const computeStatusMap=(items,now)=>{
 };
 // ── Trainer Notification Panel ──
 const typeIcon=(type)=>{
-  const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳",remote_workout_logged:"📍",remote_program_needed:"✍️",slot_over_capacity:"⚠️"};
+  const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳",remote_workout_logged:"📍",remote_program_needed:"✍️",slot_over_capacity:"⚠️",package_expiring:"⏳",package_expired:"❌"};
   return m[type]||"🔔";
 };
 const TrainerNotifPanel=({userId,token,count,onClose,onDecideSlotReq})=>{
@@ -968,6 +973,7 @@ const ClientsScreen=({clients,onViewClient})=>{
                     {pkg?.delivery_mode==='remote'&&<span style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,color:C.pink,fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:20,letterSpacing:0.5,whiteSpace:"nowrap",flexShrink:0}}>📍 REMOTE</span>}
                   </div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{pkg?`${pkg.sessions_total}-Session · ${pkg.sessions_per_week||3}x/week · ends ${fmtDate(pkg.end_date)}`:"No active package"}</div>
+                  {!pkg&&c._lostPkg&&c._lostPkg.sessions_total-(c._lostPkg.sessions_used||0)>0&&<div style={{color:C.pink,fontSize:11,fontWeight:700,marginTop:2}}>❌ {new Date(c._lostPkg.start_date+"T12:00:00").toLocaleString("en-GB",{month:"short"})} package expired: {c._lostPkg.sessions_total-(c._lostPkg.sessions_used||0)} session{c._lostPkg.sessions_total-(c._lostPkg.sessions_used||0)===1?"":"s"} lost</div>}
                   {pkg?.has_injury&&<div style={{color:C.amber,fontSize:11,marginTop:2}}>⚠️ {pkg.injury_notes}</div>}
                   {pkg?.package_notes&&<div style={{color:C.cyan,fontSize:11,marginTop:2}}>📋 {pkg.package_notes}</div>}
                 </div>
@@ -1256,8 +1262,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
         }
         const total=parseInt(newPkgTotal),spwNum=parseInt(newSpw)||3;
         const weeks=customWeeks?(parseInt(customWeeks)||weeksForPackage(total,spwNum)):weeksForPackage(total,spwNum);
-        const end=new Date(); end.setDate(end.getDate()+weeks*7);
-        const res=await createPkg({client_id:client.id,sessions_total:total,sessions_used:0,sessions_per_week:spwNum,weeks,start_date:startDate,end_date:localISO(end),has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null,delivery_mode:newPkgDeliveryMode},token);
+        // The package lasts exactly `weeks` from its start date (last valid day = end_date);
+        // api/package-expiry.js closes it the day after, sessions left or not.
+        const endDate=addDays(startDate,weeks*7-1);
+        const res=await createPkg({client_id:client.id,sessions_total:total,sessions_used:0,sessions_per_week:spwNum,weeks,start_date:startDate,end_date:endDate,has_injury:hasInjury,injury_notes:injuryNotes,package_notes:pkgNotes,program_id:newPkgProgramId||null,delivery_mode:newPkgDeliveryMode},token);
         const created=Array.isArray(res)?res[0]:res;
         created.workout_templates=programs.find(p=>p.id===newPkgProgramId)||null;
         setPkg(created); setShowPkg(false); setCustomTotal(""); setCustomSpw(""); setCustomWeeks("");
@@ -1740,7 +1748,15 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
               <div style={{display:"flex",gap:8,marginBottom:8}}>
                 {[1,2,3,4].map(n=><button key={n} onClick={()=>setNSpw(String(n))} style={{flex:1,background:newSpw===String(n)?C.cyan+"33":C.surface2,border:`1px solid ${newSpw===String(n)?C.cyan:C.border}`,borderRadius:8,padding:"10px",color:newSpw===String(n)?C.cyan:C.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{n}x</button>)}
               </div>
-              <div style={{color:C.muted,fontSize:11,marginBottom:12}}>Duration: <span style={{color:C.cyan,fontWeight:700}}>{weeksForPackage(parseInt(newPkgTotal),parseInt(newSpw)||3)} weeks</span></div>
+              {(()=>{const w=parseInt(customWeeks)||weeksForPackage(parseInt(newPkgTotal),parseInt(newSpw)||3);const btn={background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,width:34,height:30,color:C.cyan,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",lineHeight:1};return(
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                  <span style={{color:C.muted,fontSize:11,fontWeight:600}}>Duration (package ends after)</span>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <button onClick={()=>setCustomWeeks(String(Math.max(1,w-1)))} style={btn}>−</button>
+                    <span style={{color:C.cyan,fontWeight:800,fontSize:14,minWidth:62,textAlign:"center"}}>{w} week{w===1?"":"s"}</span>
+                    <button onClick={()=>setCustomWeeks(String(Math.min(52,w+1)))} style={btn}>+</button>
+                  </div>
+                </div>);})()}
             </>)}
             {/* --- Custom package section --- */}
             {(customTotal||customSpw)?(
@@ -1882,7 +1898,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
           <div style={{padding:"14px 20px 0"}}>
             <SL>Package History</SL>
             {shown.map((p,i)=>{
-              const reasonLabel=p.deactivation_reason==="renewed"?"Renewed":p.deactivation_reason==="cancelled"?"Cancelled":p.deactivation_reason==="completed"?"Completed":p.deactivation_reason||"Ended";
+              const reasonLabel=p.deactivation_reason==="expired"?"Expired":p.deactivation_reason==="renewed"?"Renewed":p.deactivation_reason==="cancelled"?"Cancelled":p.deactivation_reason==="completed"?"Completed":p.deactivation_reason||"Ended";
               const usedAt=p.sessions_used??"-";
               return(
                 <div key={p.id||i} onClick={()=>{setSelectedPastPkg(p);setPastPkgPaid(!!p.paid);setPastPkgNotes(p.package_notes||"");}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer"}}>
@@ -1892,6 +1908,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
                       {p.workout_templates?.name&&<div style={{color:C.cyan,fontSize:11,fontWeight:700,marginTop:2}}>🏋️ {p.workout_templates.name}</div>}
                       <div style={{color:C.muted,fontSize:11,marginTop:3}}>{fmtDate(p.start_date)} → {fmtDate(p.end_date)}</div>
                       {p.deactivated_at&&<div style={{color:C.muted,fontSize:10,marginTop:2}}>Closed: {fmtDate(p.deactivated_at.split("T")[0])}</div>}
+                      {p.deactivation_reason==="expired"&&p.sessions_total-(p.sessions_used||0)>0&&<div style={{color:C.pink,fontSize:11,fontWeight:700,marginTop:3}}>❌ {p.sessions_total-(p.sessions_used||0)} session{p.sessions_total-(p.sessions_used||0)===1?"":"s"} lost (expired)</div>}
                       {p.package_notes&&<div style={{color:C.cyan,fontSize:11,marginTop:3}}>📋 {p.package_notes}</div>}
                     </div>
                     <div style={{textAlign:"right"}}>
@@ -3565,7 +3582,7 @@ function AppInner(){
 
   const loadData=async(token,userId)=>{
     try{
-      const [profile,allClients,pkgs]=await Promise.all([getProfile(userId,token),getClients(token),getAllPkgs(token)]);
+      const [profile,allClients,pkgs,expired]=await Promise.all([getProfile(userId,token),getClients(token),getAllPkgs(token),getExpiredPkgs(token).catch(()=>[])]);
       if(profile?.role!=="trainer"){ localStorage.removeItem(UA_TRAINER_AUTH_KEY); setAuth({loading:false,token:null,userId:null,profile:null}); return; }
       // Auto-deactivate packages that are BOTH past their end_date AND fully used.
       // end_date is only an estimate (weeks*sessions_per_week from creation), not a
@@ -3583,7 +3600,7 @@ function AppInner(){
         await Promise.allSettled(expiredPkgs.map(p=>dbPatch("packages",`id=eq.${p.id}`,{is_active:false,deactivated_at:closedAt,deactivation_reason:"completed"},token)));
       }
       const activePkgIds=new Set(expiredPkgs.map(p=>p.id));
-      const enriched=(allClients||[]).map(c=>({...c,_pkg:(pkgs||[]).find(p=>p.client_id===c.id&&!activePkgIds.has(p.id))||null}));
+      const enriched=(allClients||[]).map(c=>({...c,_pkg:(pkgs||[]).find(p=>p.client_id===c.id&&!activePkgIds.has(p.id))||null,_lostPkg:(expired||[]).find(p=>p.client_id===c.id)||null}));
       setClients(enriched);
       setAuth({loading:false,token,userId,profile});
       // Load trainer's notifications

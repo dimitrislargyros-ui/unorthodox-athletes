@@ -298,3 +298,23 @@ popup όπως το πρόβλημα με τα low-sessions/slot-requests που
 λήξης, ή διόρθωση του "used".
 
 **Αρχεία:** `src/TrainerApp.jsx` (handleEditPkg), `src/ClientApp.jsx` (typeIcon)
+
+---
+
+## 11. Day N δεν ταίριαζε ανάμεσα σε Home και Schedule (2026-11-11)
+
+**Αναφορά:** Η αρχική έγραφε "Day 2" για τη σημερινή προπόνηση, ενώ το Schedule έδειχνε
+ότι χθες ήταν D3 (άρα σήμερα έπρεπε να είναι D1).
+
+**Αιτία:** Κάθε οθόνη μετρούσε το Day N με δικό της τρόπο. Η Home έκανε "completed
+sessions + 1", οπότε μόλις η σημερινή προπόνηση γινόταν completed, μετριόταν δύο φορές και
+έβγαζε +1. Το Schedule strip μετρούσε completed+booked ημερομηνίες μαζί με το Pilates. Το
+SessionSheet και ο trainer (μόνο από τα sessions, χωρίς bookings) μετρούσαν άλλο ένα τρίτο
+τρόπο.
+
+**Διόρθωση:** Μία κοινή συνάρτηση `dayNumByDate` (`src/sessionsMath.js`) δίνει το Day N
+ανά ημερομηνία: sessions + bookings, μία φορά ανά ημέρα, χωρίς cancelled και Pilates,
+συνεχόμενα και ανάμεσα σε πακέτα. Τη χρησιμοποιούν όλες οι οθόνες και στις δύο εφαρμογές,
+καθώς και το `calcDayNum` του trainer.
+
+**Αρχεία:** `src/sessionsMath.js` (+ tests), `src/ClientApp.jsx`, `src/TrainerApp.jsx`

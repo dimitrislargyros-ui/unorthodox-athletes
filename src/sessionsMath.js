@@ -82,3 +82,25 @@ export function computeReservedCount(pkg, sessions, bookings) {
   (bookings || []).forEach(b => { add(b.book_date); });
   return Object.keys(byDate).length;
 }
+
+// Day 1/2/3 label per date — the ONE source every Day N badge must read from (Home hero,
+// next sessions, "Book Day N", Schedule strip, session sheet). Each screen used to count
+// its own way (completed-only vs completed+booked, with or without Pilates, with or without
+// bookings), so the same date showed different Day numbers on Home vs Schedule.
+// Global across packages (owner's call: the rotation continues on renewal, never resets),
+// one entry per distinct non-cancelled, non-Pilates date, past and future.
+export function dayNumByDate(sessions, bookings, spw = 3) {
+  const dates = new Set();
+  (sessions || []).forEach(s => { if (s.status !== "cancelled" && !isPilates(s)) dates.add(s.session_date); });
+  (bookings || []).forEach(b => { if (b.status !== "cancelled" && !isPilates(b)) dates.add(b.book_date); });
+  const map = new Map();
+  [...dates].sort().forEach((d, i) => map.set(d, (i % spw) + 1));
+  return map;
+}
+
+// Packages last exactly their `weeks` (end_date = last valid day) and are closed the day
+// after, sessions left or not — but only those created from this date on. Older packages
+// had end_date as a loose estimate (from creation day, not start), so hard-expiring them
+// would silently close live packages the moment this shipped.
+export const HARD_EXPIRY_FROM = "2026-11-11";
+export const isHardExpiry = (pkg) => !!pkg?.end_date && String(pkg.created_at || "").slice(0, 10) >= HARD_EXPIRY_FROM;

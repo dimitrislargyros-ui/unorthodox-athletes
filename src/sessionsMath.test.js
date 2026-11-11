@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, dayNumByDate } from "./sessionsMath.js";
 
 const pkg = { id: "p1", sessions_total: 8, start_date: "2026-01-01" };
 const NOW = new Date(2026, 0, 15, 12, 0, 0).getTime(); // 2026-01-15 12:00 local
@@ -112,5 +112,32 @@ describe("computeCompletedUsed / computeReservedCount", () => {
       status: "completed",
     }));
     expect(computeReservedCount(pkg, sessions, [])).toBe(10);
+  });
+});
+
+describe("dayNumByDate", () => {
+  it("numbers the user's reported case consistently: yesterday D3 -> today D1, whatever today's status", () => {
+    const sessions = [
+      { session_date: "2026-01-12", start_time_min: 600, status: "completed" },
+      { session_date: "2026-01-13", start_time_min: 600, status: "completed" },
+      { session_date: "2026-01-14", start_time_min: 600, status: "completed" },
+      { session_date: "2026-01-15", start_time_min: 600, status: "completed" },
+    ];
+    const m = dayNumByDate(sessions, [{ book_date: "2026-01-15", schedule_slots: { start_time_min: 600 } }], 3);
+    expect([...m.values()]).toEqual([1, 2, 3, 1]);
+  });
+
+  it("skips cancelled and Pilates (Sat 10:45), merges bookings by date", () => {
+    const sessions = [
+      { session_date: "2026-01-12", start_time_min: 600, status: "completed" },
+      { session_date: "2026-01-13", start_time_min: 600, status: "cancelled" },
+      { session_date: "2026-01-17", start_time_min: 645, status: "completed" }, // Saturday Pilates
+    ];
+    const bookings = [{ book_date: "2026-01-14", schedule_slots: { start_time_min: 600 } }];
+    const m = dayNumByDate(sessions, bookings, 3);
+    expect(m.get("2026-01-12")).toBe(1);
+    expect(m.get("2026-01-13")).toBeUndefined();
+    expect(m.get("2026-01-14")).toBe(2);
+    expect(m.get("2026-01-17")).toBeUndefined();
   });
 });

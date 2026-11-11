@@ -95,7 +95,7 @@ function makeVapidJwt(endpoint) {
 }
 
 // ── Send one push ────────────────────────────────────────────
-async function sendOnePush(sub, pushPayload) {
+export async function sendOnePush(sub, pushPayload) {
   const jwt  = makeVapidJwt(sub.endpoint);
   const auth = `vapid t=${jwt},k=${VAPID_PUBLIC_KEY}`;
 
