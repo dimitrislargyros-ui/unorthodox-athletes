@@ -104,7 +104,16 @@ export function dayNumByDate(sessions, bookings, spw = 3) {
 // would silently close live packages the moment this shipped.
 export const HARD_EXPIRY_FROM = "2026-11-11";
 // Remote packages never expire by date (owner's rule) — only by running out of sessions.
-export const isHardExpiry = (pkg) => !!pkg?.end_date && pkg.delivery_mode !== "remote" && String(pkg.created_at || "").slice(0, 10) >= HARD_EXPIRY_FROM;
+// A frozen package (frozen_at set) is on hold, not expired — its end_date moves on unfreeze.
+export const isHardExpiry = (pkg) => !!pkg?.end_date && !pkg.frozen_at && pkg.delivery_mode !== "remote" && String(pkg.created_at || "").slice(0, 10) >= HARD_EXPIRY_FROM;
+
+// End date after unfreezing: the client keeps the days they had left on the day it was
+// frozen (0 if it had already run out by then), counted from `today`.
+export function unfreezeEndDate(pkg, today) {
+  const day = 86400000, t = (iso) => Date.parse(iso + "T00:00:00Z");
+  const leftDays = Math.max(0, Math.round((t(pkg.end_date) - t(pkg.frozen_at)) / day));
+  return new Date(t(today) + leftDays * day).toISOString().slice(0, 10);
+}
 
 // Messages for the "sessions running out" alerts (both apps fire them on settle, once per
 // threshold). At 2/1 left the trainer is told NOT to renew yet: renewing deactivates the

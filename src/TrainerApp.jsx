@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates, dayNumByDate, sessionsLeftNotice } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates, dayNumByDate, sessionsLeftNotice, unfreezeEndDate } from "./sessionsMath.js";
 import { wdLabel, weekDays, remoteDayNote, remoteProgress } from "./remoteProgram.js";
 
 // Paid/Unpaid tracking and payment-reminder notifications are temporarily off — the
@@ -1014,6 +1014,7 @@ const ClientsScreen=({clients,onViewClient,token})=>{
                   <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     <div style={{color:C.white,fontSize:15,fontWeight:700}}>{c.name}</div>
                     {currentDay&&<span style={{background:`linear-gradient(135deg,${C.cyan},${C.pink})`,color:C.white,fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap",flexShrink:0}}>Day {currentDay}</span>}
+                    {pkg?.frozen_at&&<span style={{background:C.cyan+"22",border:`1px solid ${C.cyan}44`,color:C.cyan,fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap"}}>❄️ FROZEN</span>}
                     {pkg?.delivery_mode==='remote'&&<span style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,color:C.pink,fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:20,letterSpacing:0.5,whiteSpace:"nowrap",flexShrink:0}}>📍 REMOTE</span>}
                   </div>
                   <div style={{color:C.muted,fontSize:12,marginTop:2}}>{pkg?`${pkg.sessions_total}-Session · ${pkg.sessions_per_week||3}x/week ${pkg.delivery_mode==='remote'?"":` · ends ${fmtDate(pkg.end_date)}`}`:"No active package"}</div>
@@ -1188,6 +1189,10 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
   const [showLog,setShowLog]=useState(false);
   const [newPkgTotal,setNPT]=useState("10");
   const [showEditPkg,setShowEditPkg]=useState(false);
+  const [showFreeze,setShowFreeze]=useState(false);
+  const [freezeReason,setFreezeReason]=useState("");
+  const [freezeFrom,setFreezeFrom]=useState("");
+  const [unfreezeEnd,setUnfreezeEnd]=useState("");
   const [showAssignProgram,setShowAssignProgram]=useState(false);
   const [editAddSessions,setEditAddSessions]=useState(0);
   const [editUsedOverride,setEditUsedOverride]=useState("");
@@ -1425,6 +1430,25 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
       await postNotification({client_id:client.id,type:"payment_reminder",message:`💳 Payment reminder from your trainer: Please confirm payment for your ${pkg.workout_templates?.name||""}${pkg.workout_templates?.name?" ":""}${pkg.sessions_total}-session package.`},token);
       showUaToast("Payment reminder sent!",true);
     }catch(e){ showUaToast("Error: "+e.message); }
+  };
+
+  // Freeze = package on hold (injury, travel...). Unfreeze moves end_date so the client
+  // keeps the days they had left when it was frozen (see unfreezeEndDate).
+  const savePkgPatch=async(patch,message)=>{
+    try{
+      await dbPatch("packages",`id=eq.${pkg.id}`,patch,token);
+      const upd={...pkg,...patch};
+      setPkg(upd); onClientUpdated({...client,_pkg:upd}); setShowFreeze(false);
+      postNotification({client_id:client.id,type:"package_updated",message},token).catch(()=>{});
+    }catch(e){ showUaToast("Error: "+e.message); }
+  };
+  const handleFreeze=()=>{
+    if(!freezeReason.trim()){ showUaToast("Write the reason for the freeze"); return; }
+    savePkgPatch({frozen_at:freezeFrom||todayISO(),freeze_reason:freezeReason.trim()},`❄️ Your package is on hold: ${freezeReason.trim()}. Your remaining time is kept and continues when it's unfrozen.`);
+  };
+  const handleUnfreeze=()=>{
+    const end=unfreezeEnd||unfreezeEndDate(pkg,todayISO());
+    savePkgPatch({frozen_at:null,freeze_reason:null,end_date:end},`☀️ Your package is active again! It now ends ${fmtDate(end)}.`);
   };
 
   const handleEditPkg=async()=>{
@@ -1874,6 +1898,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
                 {pkg.workout_templates?.name&&<div style={{color:C.bg,fontSize:11,fontWeight:700,marginTop:4}}>🏋️ {pkg.workout_templates.name}</div>}
                 {pkg.package_notes&&<div style={{color:C.bg,fontSize:11,opacity:0.8,marginTop:4}}>📋 {pkg.package_notes}</div>}
                 {pkg.has_injury&&<div style={{color:"rgba(0,0,0,0.7)",fontSize:11,marginTop:4}}>⚠️ {pkg.injury_notes}</div>}
+                {pkg.frozen_at&&<div style={{color:C.bg,fontSize:12,fontWeight:800,marginTop:6}}>❄️ Frozen since {fmtDate(pkg.frozen_at)}: {pkg.freeze_reason}</div>}
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{color:C.bg,fontSize:11,opacity:0.8}}>Remaining</div>
@@ -1890,6 +1915,7 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
               {SHOW_PAYMENT_TRACKING&&<button onClick={handleSendPaymentReminder} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>💳 Payment Reminder</button>}
               <button onClick={()=>setShowAssignProgram(p=>!p)} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>🏋️ {pkg.workout_templates?.name?"Change":"Assign"} Program</button>
               <button onClick={()=>{setShowEditPkg(p=>!p);setEditAddSessions(0);setEditUsedOverride("");setEditEndDate(pkg?.end_date||"");}} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✏️ Adjust</button>
+              <button onClick={()=>{setShowFreeze(p=>!p);setFreezeReason("");setFreezeFrom(todayISO());setUnfreezeEnd(pkg.frozen_at?unfreezeEndDate(pkg,todayISO()):"");}} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRadius:8,padding:"8px 14px",color:C.bg,fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>{pkg.frozen_at?"☀️ Unfreeze":"❄️ Freeze"}</button>
             </div>
             {showAssignProgram&&(
               <div style={{background:"rgba(0,0,0,0.25)",borderRadius:10,padding:12,marginTop:10}}>
@@ -1905,6 +1931,26 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
           </div>
         ):<Card><Empty msg="No active package"/></Card>}
       </div>
+      {/* Freeze / unfreeze panel */}
+        {pkg&&showFreeze&&(
+          <Card style={{marginTop:10,border:`1px solid ${C.cyan}44`}}>
+            {pkg.frozen_at?(<>
+              <SL>Unfreeze Package</SL>
+              <div style={{color:C.muted,fontSize:12,marginBottom:12,lineHeight:1.5}}>Frozen since {fmtDate(pkg.frozen_at)} ({pkg.freeze_reason}). It was due to end {fmtDate(pkg.end_date)}, so the days left then are added from today.</div>
+              <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>New end date</div>
+              <input type="date" value={unfreezeEnd} onChange={e=>setUnfreezeEnd(e.target.value)} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,fontFamily:"inherit",boxSizing:"border-box",marginBottom:12,colorScheme:"dark"}}/>
+              <GBtn label="☀️ Unfreeze" onClick={handleUnfreeze} style={{width:"100%"}}/>
+            </>):(<>
+              <SL>Freeze Package</SL>
+              <div style={{color:C.muted,fontSize:12,marginBottom:12,lineHeight:1.5}}>While frozen the client can't book and the package doesn't expire. When you unfreeze, they get back the time they had left.</div>
+              <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Reason</div>
+              <input value={freezeReason} onChange={e=>setFreezeReason(e.target.value)} placeholder="e.g. injury, travelling..." style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box",marginBottom:10}}/>
+              <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Frozen since</div>
+              <input type="date" value={freezeFrom} onChange={e=>setFreezeFrom(e.target.value)} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,fontFamily:"inherit",boxSizing:"border-box",marginBottom:12,colorScheme:"dark"}}/>
+              <GBtn label="❄️ Freeze" onClick={handleFreeze} style={{width:"100%"}}/>
+            </>)}
+          </Card>
+        )}
       {/* Package quick-edit panel */}
         {pkg&&showEditPkg&&(
           <Card style={{marginTop:10,border:`1px solid ${C.cyan}44`}}>

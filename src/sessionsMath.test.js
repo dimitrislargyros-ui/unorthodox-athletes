@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, dayNumByDate, isHardExpiry, sessionsLeftNotice } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, dayNumByDate, isHardExpiry, sessionsLeftNotice, unfreezeEndDate } from "./sessionsMath.js";
 
 const pkg = { id: "p1", sessions_total: 8, start_date: "2026-01-01" };
 const NOW = new Date(2026, 0, 15, 12, 0, 0).getTime(); // 2026-01-15 12:00 local
@@ -158,5 +158,18 @@ describe("sessionsLeftNotice", () => {
     expect(sessionsLeftNotice(0, "Anna").trainer).toMatch(/Time to renew/);
     expect(sessionsLeftNotice(1, "Anna").trainer).toMatch(/1 session left.*once it's completed/);
     expect(sessionsLeftNotice(2, "Anna").client).toMatch(/2 sessions left/);
+  });
+});
+
+describe("freeze", () => {
+  it("4-week package frozen after week 1 has 3 weeks left on unfreeze", () => {
+    const pkg = { start_date: "2026-11-02", end_date: "2026-11-29", frozen_at: "2026-11-09" };
+    expect(unfreezeEndDate(pkg, "2026-12-07")).toBe("2026-12-27"); // 20 days kept: Dec 7 + 20
+  });
+  it("frozen after it already ran out keeps nothing", () => {
+    expect(unfreezeEndDate({ end_date: "2026-10-05", frozen_at: "2026-10-23" }, "2026-11-11")).toBe("2026-11-11");
+  });
+  it("a frozen package never hard-expires", () => {
+    expect(isHardExpiry({ end_date: "2026-12-01", created_at: "2026-11-12T09:00:00Z", frozen_at: "2026-11-20" })).toBe(false);
   });
 });

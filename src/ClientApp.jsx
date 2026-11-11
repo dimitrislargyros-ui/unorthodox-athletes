@@ -1251,6 +1251,13 @@ const HomeScreen=({profile,pkg,sessions,allBooks,prs,reservedCount,onNav,onNavSc
             )}
           </div>
         </div>
+      ):pkg?.frozen_at?(
+        <div style={{padding:"14px 20px 0"}}>
+          <div style={{background:C.cyan+"14",border:`1px solid ${C.cyan}44`,borderRadius:14,padding:"16px 18px"}}>
+            <div style={{color:C.cyan,fontSize:15,fontWeight:800,marginBottom:6}}>❄️ Package on hold</div>
+            <div style={{color:C.muted,fontSize:13,lineHeight:1.5}}>{pkg.freeze_reason?`${pkg.freeze_reason}. `:""}Your remaining time is kept and continues when your trainer unfreezes it.</div>
+          </div>
+        </div>
       ):pkg&&left>0?(
         <div style={{padding:"14px 20px 0"}}>
           <button onClick={doBookNav} style={{width:"100%",background:`linear-gradient(135deg,${C.cyan},${C.pink})`,border:"none",borderRadius:18,padding:"22px 20px",color:C.white,fontSize:18,fontWeight:900,cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
@@ -1305,7 +1312,7 @@ const HomeScreen=({profile,pkg,sessions,allBooks,prs,reservedCount,onNav,onNavSc
       )}
 
       {/* Secondary Book CTA — shown when hero exists and still have days to book */}
-      {heroItem&&pkg&&left>0&&(
+      {heroItem&&pkg&&left>0&&!pkg.frozen_at&&(
         <div style={{padding:"14px 20px 0"}}>
           <button onClick={doBookNav} style={{width:"100%",background:"none",border:`2px solid ${C.cyan}`,borderRadius:14,padding:"14px 18px",color:C.cyan,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"'Oswald',sans-serif",letterSpacing:1.5,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
             <span>🗓</span>
@@ -1558,6 +1565,10 @@ const ScheduleScreen=({userId,token,sessions,allBooks,pkg,lastProgram,reservedCo
       showSchedErr("You don't have an active package yet. Contact your trainer to get one set up, then you can book.");
       return;
     }
+    if(pkg.frozen_at){
+      showSchedErr("Your package is on hold. Booking opens again when your trainer unfreezes it.");
+      return;
+    }
     if(isHardExpiry(pkg)&&selDay.iso>pkg.end_date){
       showSchedErr(`Your package ends on ${fmtDate(pkg.end_date)}. Talk to your trainer about renewing to book after that.`);
       return;
@@ -1678,6 +1689,7 @@ const ScheduleScreen=({userId,token,sessions,allBooks,pkg,lastProgram,reservedCo
   const showCompletedDay=isPastDay||todayHasCompleted;
   // A day after the package's last valid day: no slots, no custom request, just say why
   const afterPkgEnd=isHardExpiry(pkg)&&selDay.iso>pkg.end_date;
+  const pkgFrozen=!!pkg?.frozen_at&&!isPastDay;
   const weekLabel=weekOffset===0?"This week":`Week of ${fmtDate(weekDates[0].iso)}`;
 
   // Day# per date for the strip — same shared numbering as Home (see dayNumByDate)
@@ -1756,6 +1768,8 @@ const ScheduleScreen=({userId,token,sessions,allBooks,pkg,lastProgram,reservedCo
       <div style={{padding:"0 20px"}}>
         {isSun
           ?<Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>😴</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Rest Day</div><div style={{color:C.muted,fontSize:14,marginTop:6}}>Gym closed Sundays. See you Monday!</div></Card>
+          :pkgFrozen&&!todayHasCompleted
+          ?<Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>❄️</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Your package is on hold</div><div style={{color:C.muted,fontSize:14,marginTop:6,lineHeight:1.5}}>{pkg.freeze_reason?`${pkg.freeze_reason}. `:""}Booking opens again when your trainer unfreezes it. Your remaining time is kept.</div></Card>
           :afterPkgEnd
           ?<Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>📦</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Your package ends {fmtDate(pkg.end_date)}</div><div style={{color:C.muted,fontSize:14,marginTop:6,lineHeight:1.5}}>You can't book this day with your current package. Talk to your trainer about renewing.</div></Card>
           :showCompletedDay
@@ -1823,7 +1837,7 @@ const ScheduleScreen=({userId,token,sessions,allBooks,pkg,lastProgram,reservedCo
             </div>
           </div>
         )}
-        {!isSun&&!isPastDay&&!afterPkgEnd&&!myPendingReq&&(
+        {!isSun&&!isPastDay&&!afterPkgEnd&&!pkgFrozen&&!myPendingReq&&(
           <>
             <button onClick={()=>setShowC(p=>!p)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:12,padding:"12px",color:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:10,fontFamily:"inherit"}}>
               {showCustom?"▲ Hide":"+ Request custom time"}
