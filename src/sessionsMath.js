@@ -104,3 +104,21 @@ export function dayNumByDate(sessions, bookings, spw = 3) {
 // would silently close live packages the moment this shipped.
 export const HARD_EXPIRY_FROM = "2026-11-11";
 export const isHardExpiry = (pkg) => !!pkg?.end_date && String(pkg.created_at || "").slice(0, 10) >= HARD_EXPIRY_FROM;
+
+// Messages for the "sessions running out" alerts (both apps fire them on settle, once per
+// threshold). At 2/1 left the trainer is told NOT to renew yet: renewing deactivates the
+// current package, so any session still left in it is lost. At 0 the package is complete
+// and that's the cue to renew.
+export function sessionsLeftNotice(left, clientName = "A client") {
+  if (left === 0) return {
+    type: "package_completed",
+    client: "🎉 You've completed all sessions in your package! Talk to your trainer to renew.",
+    trainer: `✅ ${clientName} has completed all sessions in their package. Time to renew.`,
+  };
+  const n = `${left} session${left === 1 ? "" : "s"}`;
+  return {
+    type: "low_sessions",
+    client: `You have ${n} left in your package. Make ${left === 1 ? "it" : "them"} count 💪`,
+    trainer: `${clientName} has ${n} left in their package. Renew once it's completed so none are lost.`,
+  };
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, dayNumByDate, isHardExpiry } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, dayNumByDate, isHardExpiry, sessionsLeftNotice } from "./sessionsMath.js";
 
 const pkg = { id: "p1", sessions_total: 8, start_date: "2026-01-01" };
 const NOW = new Date(2026, 0, 15, 12, 0, 0).getTime(); // 2026-01-15 12:00 local
@@ -148,5 +148,14 @@ describe("isHardExpiry", () => {
     expect(isHardExpiry({ end_date: "2026-12-01", created_at: "2026-11-10T23:00:00Z" })).toBe(false);
     expect(isHardExpiry({ created_at: "2026-11-12T09:00:00Z" })).toBe(false);
     expect(isHardExpiry(null)).toBe(false);
+  });
+});
+
+describe("sessionsLeftNotice", () => {
+  it("tells the trainer to renew only once the package is completed", () => {
+    expect(sessionsLeftNotice(0, "Anna").type).toBe("package_completed");
+    expect(sessionsLeftNotice(0, "Anna").trainer).toMatch(/Time to renew/);
+    expect(sessionsLeftNotice(1, "Anna").trainer).toMatch(/1 session left.*once it's completed/);
+    expect(sessionsLeftNotice(2, "Anna").client).toMatch(/2 sessions left/);
   });
 });

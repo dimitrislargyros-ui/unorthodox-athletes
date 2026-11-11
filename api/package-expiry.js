@@ -69,6 +69,7 @@ export default async function handler(req, res) {
     const left = Math.max(0, p.sessions_total - used);
     const name = nameOf(p.client_id);
 
+    if (p.end_date >= today && left === 0) continue; // already got "completed, renew"
     if (p.end_date === in7) {
       await notify(p.client_id, 'package_expiring', `⏳ Your package expires in 1 week (${fmt(p.end_date)}). You have ${plural(left)} left — book them in!`, true);
       await notify(trainerId, 'package_expiring', `⏳ ${name}'s package expires in 1 week (${fmt(p.end_date)}) with ${plural(left)} left.`, true);

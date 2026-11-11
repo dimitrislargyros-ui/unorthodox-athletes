@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
 import { EXERCISE_LIST } from "./exerciseList.js";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates, dayNumByDate } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates, dayNumByDate, sessionsLeftNotice } from "./sessionsMath.js";
 import { wdLabel, weekDays, remoteDayNote, remoteProgress } from "./remoteProgram.js";
 
 // Paid/Unpaid tracking and payment-reminder notifications are temporarily off — the
@@ -395,7 +395,7 @@ const computeStatusMap=(items,now)=>{
 };
 // ── Trainer Notification Panel ──
 const typeIcon=(type)=>{
-  const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳",remote_workout_logged:"📍",remote_program_needed:"✍️",slot_over_capacity:"⚠️",package_expiring:"⏳",package_expired:"❌"};
+  const m={booking_made:"🗓",cancel_request:"🙏",cancel_accepted:"✅",cancel_declined:"🚫",slot_request:"🕐",new_client:"🆕",low_sessions_trainer:"⚠️",session_scheduled:"📋",payment_confirmed:"✅",payment_reminder:"💳",remote_workout_logged:"📍",remote_program_needed:"✍️",slot_over_capacity:"⚠️",package_expiring:"⏳",package_expired:"❌",package_completed_trainer:"✅"};
   return m[type]||"🔔";
 };
 const TrainerNotifPanel=({userId,token,count,onClose,onDecideSlotReq})=>{
@@ -1575,14 +1575,18 @@ const ClientDetail=({client,trainerId,token,onBack,onClientUpdated,onClientDelet
     // matches zero rows and stays silent. Gated on newLeft<prevLeft so a downward
     // correction to sessions_used can't look like a new depletion.
     const alreadyAlerted=(pkg.low_sessions_alert_level??99)<=newLeft;
-    const shouldAlert=!alreadyAlerted&&newLeft<prevLeft&&(newLeft===2||newLeft===1);
+    const shouldAlert=!alreadyAlerted&&newLeft<prevLeft&&newLeft>=0&&newLeft<=2;
     if(shouldAlert){
       dbPatch("packages",
         `id=eq.${pkg.id}&or=(low_sessions_alert_level.is.null,low_sessions_alert_level.gt.${newLeft})`,
         {low_sessions_alert_level:newLeft},token
       ).then(claimed=>{
         if(!claimed||!claimed.length) return; // another caller already claimed this threshold
-        postNotification({client_id:client.id,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+        const n=sessionsLeftNotice(newLeft,client.name);
+        postNotification({client_id:client.id,type:n.type,message:n.client},token).catch(()=>{});
+        // The trainer is looking at this client right now, but "completed → renew" must
+        // still land in their notifications so it isn't forgotten.
+        if(newLeft===0&&trainerId) postNotification({client_id:trainerId,type:"package_completed_trainer",message:n.trainer},token).catch(()=>{});
       }).catch(()=>{});
     }
   },[reconciledUsed,loading]); // eslint-disable-line react-hooks/exhaustive-deps

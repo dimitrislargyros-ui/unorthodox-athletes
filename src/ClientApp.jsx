@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, Component } from "react";
 import ExercisePicker from "./ExercisePicker.jsx";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates, dayNumByDate, isHardExpiry } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, isPilates, dayNumByDate, isHardExpiry, sessionsLeftNotice } from "./sessionsMath.js";
 import { REMOTE_PER_WEEK, wdLabel, weekDays, remoteDayNote, remoteProgress, missingDays } from "./remoteProgram.js";
 
 // ── Premium Design System (injected once) ──
@@ -626,7 +626,7 @@ const SwipeNotifRow=({n,onDelete})=>{
   const [gone,setGone]=useState(false);
   const startX=useRef(null);
   const THRESHOLD=75; // px to snap open
-  const typeIcon=n.type==="session_scheduled"?"🗓":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":n.type==="program_assigned"?"🏋️":n.type==="package_renewed"?"🎯":n.type==="package_updated"?"📦":n.type==="package_expiring"?"⏳":n.type==="package_expired"?"❌":n.type==="slot_request_approved"?"✅":n.type==="slot_request_rejected"?"🚫":"🔔";
+  const typeIcon=n.type==="session_scheduled"?"🗓":n.type==="session_cancelled"?"🚫":n.type==="payment_confirmed"?"✅":n.type==="payment_reminder"?"💳":n.type==="low_sessions"?"⚠️":n.type==="waitlist_promoted"?"🎉":n.type==="cancel_request"?"⚠️":n.type==="cancel_accepted"?"✅":n.type==="cancel_declined"?"🚫":n.type==="program_assigned"?"🏋️":n.type==="package_renewed"?"🎯":n.type==="package_updated"?"📦":n.type==="package_expiring"?"⏳":n.type==="package_expired"?"❌":n.type==="package_completed"?"🎉":n.type==="slot_request_approved"?"✅":n.type==="slot_request_rejected"?"🚫":"🔔";
 
   const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; setDragging(true); };
   const onTouchMove=(e)=>{
@@ -1676,6 +1676,8 @@ const ScheduleScreen=({userId,token,sessions,allBooks,pkg,lastProgram,reservedCo
   // (isPastDay is strictly "before today"), i.e. nothing at all for today's tap.
   const todayHasCompleted=selDay.iso===todayStr&&pastDaySessions.some(s=>s.status==="completed");
   const showCompletedDay=isPastDay||todayHasCompleted;
+  // A day after the package's last valid day: no slots, no custom request, just say why
+  const afterPkgEnd=isHardExpiry(pkg)&&selDay.iso>pkg.end_date;
   const weekLabel=weekOffset===0?"This week":`Week of ${fmtDate(weekDates[0].iso)}`;
 
   // Day# per date for the strip — same shared numbering as Home (see dayNumByDate)
@@ -1754,6 +1756,8 @@ const ScheduleScreen=({userId,token,sessions,allBooks,pkg,lastProgram,reservedCo
       <div style={{padding:"0 20px"}}>
         {isSun
           ?<Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>😴</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Rest Day</div><div style={{color:C.muted,fontSize:14,marginTop:6}}>Gym closed Sundays. See you Monday!</div></Card>
+          :afterPkgEnd
+          ?<Card style={{textAlign:"center",padding:"32px 20px"}}><div style={{fontSize:32,marginBottom:12}}>📦</div><div style={{color:C.white,fontSize:18,fontWeight:800}}>Your package ends {fmtDate(pkg.end_date)}</div><div style={{color:C.muted,fontSize:14,marginTop:6,lineHeight:1.5}}>You can't book this day with your current package. Talk to your trainer about renewing.</div></Card>
           :showCompletedDay
             ?pastDaySessions.length===0
               ?<Empty msg="No session on this day"/>
@@ -1819,7 +1823,7 @@ const ScheduleScreen=({userId,token,sessions,allBooks,pkg,lastProgram,reservedCo
             </div>
           </div>
         )}
-        {!isSun&&!isPastDay&&!myPendingReq&&(
+        {!isSun&&!isPastDay&&!afterPkgEnd&&!myPendingReq&&(
           <>
             <button onClick={()=>setShowC(p=>!p)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:12,padding:"12px",color:C.muted,fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:10,fontFamily:"inherit"}}>
               {showCustom?"▲ Hide":"+ Request custom time"}
@@ -2623,7 +2627,7 @@ function AppInner(){
           // clause), and only notify if THIS call's UPDATE actually matched a row — any
           // other caller racing the same threshold will match zero rows and stay silent.
           const alreadyAlerted=(pkg.low_sessions_alert_level??99)<=newLeft;
-          const shouldAlert=!alreadyAlerted&&newLeft<prevLeft&&(newLeft===2||newLeft===1);
+          const shouldAlert=!alreadyAlerted&&newLeft<prevLeft&&newLeft>=0&&newLeft<=2;
           if(shouldAlert){
             dbPatch("packages",
               `id=eq.${pkg.id}&or=(low_sessions_alert_level.is.null,low_sessions_alert_level.gt.${newLeft})`,
@@ -2633,10 +2637,11 @@ function AppInner(){
               // Mirror TrainerApp's auto-settle notification — the trainer's app only fires this
               // when THEY open the client panel, which might not happen promptly. This covers
               // the case where the client's own session-completion is what crosses the threshold.
-              postNotification({client_id:userId,type:"low_sessions",message:`You have ${newLeft} session${newLeft>1?"s":""} left in your package. Talk to your trainer about renewing.`},token).catch(()=>{});
+              const n=sessionsLeftNotice(newLeft,profile?.name||"A client");
+              postNotification({client_id:userId,type:n.type,message:n.client},token).catch(()=>{});
               getTrainerProfile(token).then(trainer=>{
                 if(!trainer) return;
-                postNotification({client_id:trainer.id,type:"low_sessions_trainer",message:`${profile?.name||"A client"} has only ${newLeft} session${newLeft>1?"s":""} left in their package. Consider renewing.`},token).catch(()=>{});
+                postNotification({client_id:trainer.id,type:newLeft===0?"package_completed_trainer":"low_sessions_trainer",message:n.trainer},token).catch(()=>{});
               }).catch(()=>{});
             }).catch(()=>{});
           }
