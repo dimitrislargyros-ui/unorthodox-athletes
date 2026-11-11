@@ -678,6 +678,7 @@ const LoginScreen=({onLogin})=>{
 
 // ── Today ──
 const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNameUpdated,notifCount,onOpenNotif})=>{
+  const [todayDayNum,setTodayDayNum]=useState({}); // client_id -> Day N today
   const [sessions,setSessions]=useState([]);
   const [loading,setLoad]=useState(true);
   const [announcements,setAnn]=useState([]);
@@ -707,8 +708,22 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
         .filter(b=>b.schedule_slots)
         .map(b=>({id:`bk_${b.id}`,_type:"booking",session_date:today,start_time_min:b.schedule_slots.start_time_min,client_id:b.client_id,status:"booked",profiles:b.profiles}))
         .filter(b=>!sessArr.some(s=>s.client_id===b.client_id));
-      setSessions([...sessArr,...bkItems]);
+      const all=[...sessArr,...bkItems];
+      setSessions(all);
       setAnn(anns||[]);
+      // Day N per client for today, from their full history — same numbering the client sees
+      const ids=[...new Set(all.map(x=>x.client_id||x.profiles?.id).filter(Boolean))];
+      if(ids.length) Promise.all([
+        dbGet("sessions",`client_id=in.(${ids.join(",")})&session_date=lte.${today}&status=neq.cancelled&select=client_id,session_date,start_time_min,status`,token).catch(()=>[]),
+        dbGet("bookings",`client_id=in.(${ids.join(",")})&book_date=lte.${today}&status=eq.booked&select=client_id,book_date,schedule_slots(start_time_min)`,token).catch(()=>[]),
+      ]).then(([hs,hb])=>{
+        const m={};
+        ids.forEach(id=>{
+          const spw=clients.find(c=>c.id===id)?._pkg?.sessions_per_week||3;
+          m[id]=dayNumByDate((hs||[]).filter(x=>x.client_id===id),(hb||[]).filter(x=>x.client_id===id),spw).get(today)||null;
+        });
+        setTodayDayNum(m);
+      });
     }).finally(()=>setLoad(false));
   },[]);
 
@@ -723,6 +738,8 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
 
   const getDayNumForItem=(item,clients)=>{
     if(isPilates(item)) return null;
+    const fromHistory=todayDayNum[item.client_id||item.profiles?.id];
+    if(fromHistory) return fromHistory;
     if(item.day_num) return item.day_num;
     const cl=clients.find(c=>c.id===item.client_id||c.id===item.profiles?.id);
     if(!cl?._pkg) return null;

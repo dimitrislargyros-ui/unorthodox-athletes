@@ -1558,6 +1558,10 @@ const ScheduleScreen=({userId,token,sessions,allBooks,pkg,lastProgram,reservedCo
       showSchedErr("You don't have an active package yet. Contact your trainer to get one set up, then you can book.");
       return;
     }
+    if(isHardExpiry(pkg)&&selDay.iso>pkg.end_date){
+      showSchedErr(`Your package ends on ${fmtDate(pkg.end_date)}. Talk to your trainer about renewing to book after that.`);
+      return;
+    }
     if(pkg&&reservedCount>=pkg.sessions_total){
       showSchedErr("You've booked all sessions in your package. Contact your trainer to renew.");
       return;

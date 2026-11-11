@@ -318,3 +318,15 @@ SessionSheet και ο trainer (μόνο από τα sessions, χωρίς bookin
 καθώς και το `calcDayNum` του trainer.
 
 **Αρχεία:** `src/sessionsMath.js` (+ tests), `src/ClientApp.jsx`, `src/TrainerApp.jsx`
+
+---
+
+## 12. Offline έλεγχος μετά τη λήξη πακέτων / Day N (2026-11-11)
+
+- **Κράτηση μετά τη λήξη:** Το Schedule άφηνε τον πελάτη να κλείσει ραντεβού μετά το
+  `end_date` ενός πακέτου με σκληρή λήξη. Τώρα το μπλοκάρει με μήνυμα (`handleBook`).
+- **Day N στο Today του trainer:** Έπαιρνε το Day από το `day_num` που αποθηκεύτηκε τη
+  στιγμή του log ή από το `sessions_used % spw` του πακέτου, οπότε διέφερε από αυτό που
+  έβλεπε ο πελάτης. Τώρα υπολογίζεται από το πλήρες ιστορικό με το `dayNumByDate`.
+
+**Αρχεία:** `src/ClientApp.jsx`, `src/TrainerApp.jsx`, `src/sessionsMath.test.js`

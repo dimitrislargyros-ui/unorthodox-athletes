@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, dayNumByDate } from "./sessionsMath.js";
+import { computeCompletedUsed, computeReservedCount, COMPLETION_GRACE_MS, completedItems, dayNumByDate, isHardExpiry } from "./sessionsMath.js";
 
 const pkg = { id: "p1", sessions_total: 8, start_date: "2026-01-01" };
 const NOW = new Date(2026, 0, 15, 12, 0, 0).getTime(); // 2026-01-15 12:00 local
@@ -139,5 +139,14 @@ describe("dayNumByDate", () => {
     expect(m.get("2026-01-13")).toBeUndefined();
     expect(m.get("2026-01-14")).toBe(2);
     expect(m.get("2026-01-17")).toBeUndefined();
+  });
+});
+
+describe("isHardExpiry", () => {
+  it("only packages created from the cutoff on expire by date", () => {
+    expect(isHardExpiry({ end_date: "2026-12-01", created_at: "2026-11-11T09:00:00Z" })).toBe(true);
+    expect(isHardExpiry({ end_date: "2026-12-01", created_at: "2026-11-10T23:00:00Z" })).toBe(false);
+    expect(isHardExpiry({ created_at: "2026-11-12T09:00:00Z" })).toBe(false);
+    expect(isHardExpiry(null)).toBe(false);
   });
 });
