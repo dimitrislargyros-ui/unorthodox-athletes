@@ -7,7 +7,7 @@
 // Nobody has to open the app for any of this, hence a cron and not the client/trainer loads.
 //
 // Only Vercel Cron may call this: it sends `Authorization: Bearer $CRON_SECRET`.
-import { computeCompletedUsed, HARD_EXPIRY_FROM } from '../src/sessionsMath.js';
+import { computeCompletedUsed, HARD_EXPIRY_FROM, isHardExpiry } from '../src/sessionsMath.js';
 import { sendOnePush } from './send-push.js';
 
 const SUPABASE_URL = 'https://hxyqvryuniqmvpjljrry.supabase.co';
@@ -32,7 +32,7 @@ export default async function handler(req, res) {
   const since = new Date(now - 20 * 3600000).toISOString(); // dedupe window for a re-run the same morning
 
   const pkgs = await get(`packages?is_active=eq.true&created_at=gte.${HARD_EXPIRY_FROM}&end_date=lte.${in7}&select=*`);
-  const due = pkgs.filter(p => p.end_date === in7 || p.end_date <= today);
+  const due = pkgs.filter(p => isHardExpiry(p) && (p.end_date === in7 || p.end_date <= today));
   if (!due.length) return res.status(200).json({ checked: pkgs.length, acted: 0 });
 
   const ids = [...new Set(due.map(p => p.client_id))].join(',');

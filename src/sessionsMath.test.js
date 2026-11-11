@@ -148,6 +148,7 @@ describe("isHardExpiry", () => {
     expect(isHardExpiry({ end_date: "2026-12-01", created_at: "2026-11-10T23:00:00Z" })).toBe(false);
     expect(isHardExpiry({ created_at: "2026-11-12T09:00:00Z" })).toBe(false);
     expect(isHardExpiry(null)).toBe(false);
+    expect(isHardExpiry({ end_date: "2026-12-01", created_at: "2026-11-12T09:00:00Z", delivery_mode: "remote" })).toBe(false);
   });
 });
 

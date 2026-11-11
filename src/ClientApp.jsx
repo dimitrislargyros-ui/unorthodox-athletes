@@ -1333,7 +1333,7 @@ const HomeScreen=({profile,pkg,sessions,allBooks,prs,reservedCount,onNav,onNavSc
               <div>
                 {pkg.workout_templates?.name&&<div style={{color:C.cyan,fontSize:13,fontWeight:800,letterSpacing:1,fontFamily:"'Oswald',sans-serif",textTransform:"uppercase",marginBottom:2}}>{pkg.workout_templates.name}</div>}
                 <div style={{color:C.white,fontSize:14,fontWeight:700}}>{pkg.sessions_total}-Session Pack · {spw}x/week</div>
-                <div style={{color:C.muted,fontSize:12,marginTop:3}}>Expires {fmtDate(pkg.end_date)}</div>
+                {pkg.delivery_mode!=='remote'&&<div style={{color:C.muted,fontSize:12,marginTop:3}}>Expires {fmtDate(pkg.end_date)}</div>}
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{color:left<=2?C.pink:C.cyan,fontSize:26,fontWeight:900,lineHeight:1}}>{left}</div>

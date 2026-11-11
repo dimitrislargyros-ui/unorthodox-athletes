@@ -103,7 +103,8 @@ export function dayNumByDate(sessions, bookings, spw = 3) {
 // had end_date as a loose estimate (from creation day, not start), so hard-expiring them
 // would silently close live packages the moment this shipped.
 export const HARD_EXPIRY_FROM = "2026-11-11";
-export const isHardExpiry = (pkg) => !!pkg?.end_date && String(pkg.created_at || "").slice(0, 10) >= HARD_EXPIRY_FROM;
+// Remote packages never expire by date (owner's rule) — only by running out of sessions.
+export const isHardExpiry = (pkg) => !!pkg?.end_date && pkg.delivery_mode !== "remote" && String(pkg.created_at || "").slice(0, 10) >= HARD_EXPIRY_FROM;
 
 // Messages for the "sessions running out" alerts (both apps fire them on settle, once per
 // threshold). At 2/1 left the trainer is told NOT to renew yet: renewing deactivates the
