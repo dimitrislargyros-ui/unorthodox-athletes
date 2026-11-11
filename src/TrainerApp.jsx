@@ -171,6 +171,15 @@ const dbDelete   = (tbl,q,tk)   => sb(`/rest/v1/${tbl}?${q}`,"DELETE",null,tk,"r
 // ── Data helpers ──
 const getProfile     = (uid,tk)  => dbGet("profiles",`id=eq.${uid}&select=*`,tk).then(r=>r?.[0]);
 const getClients     = (tk)      => dbGet("profiles","role=eq.client&order=name.asc",tk);
+// Every row of a query, 1000 at a time (Supabase caps a single response at 1000 rows).
+const dbGetAll = async (tbl,q,tk) => {
+  const out=[];
+  for(let off=0;;off+=1000){
+    const page=await dbGet(tbl,`${q}&limit=1000&offset=${off}`,tk)||[];
+    out.push(...page);
+    if(page.length<1000) return out;
+  }
+};
 const getAllPkgs      = (tk)      => dbGet("packages","is_active=eq.true&select=*,workout_templates(id,name)",tk);
 // Packages closed by api/package-expiry.js — newest first, for the "N sessions lost" note
 const getExpiredPkgs  = (tk)      => dbGet("packages","deactivation_reason=eq.expired&select=client_id,sessions_total,sessions_used,start_date,end_date&order=end_date.desc",tk);
@@ -963,7 +972,25 @@ const TodayScreen=({trainerName,trainerId,token,clients,onViewClient,onTrainerNa
 };
 
 // ── Clients List ──
-const ClientsScreen=({clients,onViewClient})=>{
+const ClientsScreen=({clients,onViewClient,token})=>{
+  // client_id -> Day N of their next session (or the next one they'll book) — the same
+  // number the client sees on Home, from full history across packages (dayNumByDate).
+  const [nextDay,setNextDay]=useState({});
+  useEffect(()=>{
+    Promise.all([
+      dbGetAll("sessions","status=neq.cancelled&select=client_id,session_date,start_time_min,status&order=id.asc",token),
+      dbGetAll("bookings","status=eq.booked&select=client_id,book_date,schedule_slots(start_time_min)&order=id.asc",token),
+    ]).then(([ss,bs])=>{
+      const today=todayISO(),m={};
+      clients.forEach(c=>{
+        if(!c._pkg||c._pkg.delivery_mode==='remote') return;
+        const map=dayNumByDate(ss.filter(x=>x.client_id===c.id),bs.filter(x=>x.client_id===c.id),c._pkg.sessions_per_week||3);
+        const next=[...map.keys()].sort().find(d=>d>=today);
+        m[c.id]=next?map.get(next):map.size%(c._pkg.sessions_per_week||3)+1;
+      });
+      setNextDay(m);
+    }).catch(()=>{});
+  },[token,clients.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const [search,setSearch]=useState("");
   const filtered=clients.filter(c=>c.name?.toLowerCase().includes(search.toLowerCase()));
   return(
@@ -978,7 +1005,7 @@ const ClientsScreen=({clients,onViewClient})=>{
         {filtered.length===0?<Empty msg="No clients found"/>:filtered.map(c=>{
           const pkg=c._pkg; const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
           const pct=pkg?(pkg.sessions_used/pkg.sessions_total)*100:0; const isLow=left!=null&&left<=2;
-          const spw=pkg?.sessions_per_week||3; const currentDay=pkg&&pkg.delivery_mode!=='remote'?((pkg.sessions_used||0)%spw)+1:null;
+          const currentDay=pkg&&pkg.delivery_mode!=='remote'?nextDay[c.id]||null:null;
           return(<button key={c.id} onClick={()=>onViewClient(c)} style={{background:C.surface,border:`1px solid ${isLow?C.pink+"44":C.border}`,borderRadius:14,padding:"16px",cursor:"pointer",textAlign:"left",width:"100%"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:pkg?12:0}}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -3556,7 +3583,7 @@ function AppInner(){
     rt.subscribe('bookings','*',null,(row)=>{
       // Trigger a lightweight refresh of client list to keep pkg counts updated
       getClients(auth.token).then(allClients=>{
-        setClients(prev=>prev.map(c=>{ const fresh=allClients?.find(a=>a.id===c.id); return fresh?{...fresh,_pkg:c._pkg}:c; }));
+        setClients(prev=>prev.map(c=>{ const fresh=allClients?.find(a=>a.id===c.id); return fresh?{...c,...fresh}:c; }));
       }).catch(()=>{});
     });
 
@@ -3668,7 +3695,7 @@ function AppInner(){
     if(selClient) return <ClientDetail client={selClient} trainerId={auth.userId} token={auth.token} onBack={()=>setSel(null)} onClientUpdated={handleClientUpdated} onClientDeleted={handleClientDeleted}/>;
     switch(screen){
       case "today":    return <TodayScreen trainerName={auth.profile?.name} trainerId={auth.userId} token={auth.token} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onTrainerNameUpdated={name=>setAuth(p=>({...p,profile:{...p.profile,name}}))} notifCount={trainerNotifs.filter(n=>n.read===false).length} onOpenNotif={()=>{ setShowNotifPanel(true); setTrainerNotifs(p=>p.map(n=>({...n,read:true}))); dbPatch("notifications",`client_id=eq.${auth.userId}&read=eq.false`,{read:true},auth.token).catch(()=>{}); }}/>;
-      case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel}/>;
+      case "clients":  return <ClientsScreen clients={clients} onViewClient={setSel} token={auth.token}/>;
       case "schedule": return <ScheduleScreen trainerId={auth.userId} token={auth.token} onPendingChange={setScheduleBadge} clients={clients} onViewClient={c=>{setSel(c);setScreen("clients");}} onClientUpdated={handleClientUpdated}/>;
       case "programs": return <ProgramsScreen trainerId={auth.userId} token={auth.token}/>;
       default: return null;
