@@ -3561,6 +3561,98 @@ class ErrorBoundary extends Component {
   }
 }
 
+// ── Package review — one pop-up per in-person package past its end date that is still open
+// (old packages aren't auto-closed by api/package-expiry.js). The trainer picks: extend it,
+// freeze it, or close it as expired (remaining sessions are lost). "Later" asks again next open.
+function PackageReview({clients,token,onUpdated}){
+  const today=todayISO();
+  const [skipped,setSkipped]=useState(()=>new Set());
+  const [info,setInfo]=useState(null);
+  const [mode,setMode]=useState(null);
+  const [date,setDate]=useState("");
+  const [reason,setReason]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState("");
+  const due=clients.filter(c=>c._pkg?.end_date&&c._pkg.end_date<today&&c._pkg.delivery_mode!=="remote"&&!c._pkg.frozen_at&&!skipped.has(c._pkg.id));
+  const c=due[0], pkg=c?._pkg;
+  useEffect(()=>{
+    if(!pkg) return;
+    setInfo(null); setMode(null); setReason(""); setErr("");
+    Promise.all([
+      dbGet("sessions",`client_id=eq.${c.id}&select=session_date,start_time_min,status`,token),
+      dbGet("bookings",`client_id=eq.${c.id}&status=eq.booked&select=book_date,schedule_slots(start_time_min)`,token),
+    ]).then(([sess,books])=>{
+      const used=computeCompletedUsed(pkg,sess||[],books||[],Date.now());
+      const last=(sess||[]).filter(x=>x.status!=="cancelled").map(x=>x.session_date).sort().pop()||null;
+      const next=(books||[]).map(b=>b.book_date).filter(d=>d>=today).sort()[0]||null;
+      setInfo({used,left:Math.max(0,pkg.sessions_total-used),last,next});
+    }).catch(()=>setInfo({used:pkg.sessions_used||0,left:pkg.sessions_total-(pkg.sessions_used||0),last:null,next:null}));
+  },[pkg?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  if(!pkg) return null;
+
+  const pick=(m)=>{
+    setMode(m);
+    if(m==="extend") setDate(addDays(today,Math.max(1,Math.ceil((info?.left||1)/(pkg.sessions_per_week||2)))*7-1));
+    if(m==="freeze") setDate(info?.last?addDays(info.last,1):today);
+  };
+  const save=async(patch,message,type="package_updated")=>{
+    setBusy(true);
+    try{
+      await dbPatch("packages",`id=eq.${pkg.id}`,patch,token);
+      if(message) postNotification({client_id:c.id,type,message},token).catch(()=>{});
+      onUpdated(patch.is_active===false?{...c,_pkg:null,_lostPkg:{...pkg,...patch}}:{...c,_pkg:{...pkg,...patch}});
+    }catch(e){ setErr(e.message); }
+    setBusy(false);
+  };
+  const confirm=()=>{
+    if(mode==="extend") save({end_date:date},`📅 Your package now ends ${fmtDate(date)}.`);
+    if(mode==="freeze"){
+      if(!reason.trim()) return;
+      save({frozen_at:date,freeze_reason:reason.trim()},`❄️ Your package is on hold: ${reason.trim()}. Your remaining time is kept and continues when it's unfrozen.`);
+    }
+    if(mode==="close") save({is_active:false,deactivated_at:new Date().toISOString(),deactivation_reason:"expired",sessions_used:info.used},`Your package has ended. Talk to your trainer about renewing 💪`,"package_expired");
+  };
+  const inp={width:"100%",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.white,fontSize:14,fontFamily:"inherit",boxSizing:"border-box",marginBottom:12,colorScheme:"dark"};
+  const row=(k,v)=>(<div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"5px 0",borderBottom:`1px solid ${C.border}`}}><span style={{color:C.muted}}>{k}</span><span style={{color:C.white,fontWeight:700}}>{v}</span></div>);
+
+  return(
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
+      <Card style={{width:"100%",maxWidth:400,maxHeight:"90dvh",overflowY:"auto"}}>
+        <SL>Package check · {due.length} left</SL>
+        <div style={{color:C.white,fontSize:19,fontWeight:800,marginBottom:4}}>{c.name}</div>
+        <div style={{color:C.pink,fontSize:13,fontWeight:700,marginBottom:12}}>Package ended {fmtDate(pkg.end_date)} but is still open</div>
+        {row("Started",fmtDate(pkg.start_date))}
+        {row("Sessions",info?`${info.used}/${pkg.sessions_total} used · ${info.left} left`:"…")}
+        {row("Last session",info?(info.last?fmtDate(info.last):"none"):"…")}
+        {row("Next booking",info?(info.next?fmtDate(info.next):"none"):"…")}
+        <div style={{height:14}}/>
+        {!mode&&(<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <GBtn label="📅 Keep it — set a new end date" onClick={()=>pick("extend")} disabled={!info}/>
+          <GBtn ghost label="❄️ Freeze (on hold)" onClick={()=>pick("freeze")} disabled={!info}/>
+          <GBtn ghost color={C.pink} label={`❌ Close it${info?.left?` — ${info.left} session${info.left===1?"":"s"} lost`:""}`} onClick={()=>pick("close")} disabled={!info}/>
+          <button onClick={()=>setSkipped(s=>new Set(s).add(pkg.id))} style={{background:"none",border:"none",color:C.muted,fontSize:13,padding:8,cursor:"pointer",fontFamily:"inherit"}}>Later</button>
+        </div>)}
+        {mode==="extend"&&(<>
+          <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>New end date</div>
+          <input type="date" min={today} value={date} onChange={e=>setDate(e.target.value)} style={inp}/>
+        </>)}
+        {mode==="freeze"&&(<>
+          <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Reason</div>
+          <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="e.g. injury, travelling..." style={inp}/>
+          <div style={{color:C.muted,fontSize:11,fontWeight:600,marginBottom:5}}>Frozen since</div>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={inp}/>
+        </>)}
+        {mode==="close"&&<div style={{color:C.muted,fontSize:13,lineHeight:1.5,marginBottom:12}}>The package closes as expired{info?.left?` and the ${info.left} remaining session${info.left===1?" is":"s are"} lost`:""}. You can renew them any time from their profile.</div>}
+        {err&&<div style={{color:C.pink,fontSize:12,marginBottom:10}}>Error: {err}</div>}
+        {mode&&(<div style={{display:"flex",gap:8}}>
+          <GBtn ghost label="Back" onClick={()=>setMode(null)} style={{flex:1}}/>
+          <GBtn label={busy?"…":"Confirm"} onClick={confirm} disabled={busy||!date&&mode!=="close"||mode==="freeze"&&!reason.trim()} style={{flex:2}}/>
+        </div>)}
+      </Card>
+    </div>
+  );
+}
+
 function AppInner(){
   const [auth,setAuth]=useState({loading:true,token:null,userId:null,profile:null});
   const [clients,setClients]=useState([]);
@@ -3812,6 +3904,7 @@ function AppInner(){
         </div>
         <BottomNav active={screen} onNav={handleNav} scheduleBadge={scheduleBadge}/>
       </div>
+      <PackageReview clients={clients} token={auth.token} onUpdated={u=>setClients(p=>p.map(c=>c.id===u.id?u:c))}/>
       {showNotifPanel&&<TrainerNotifPanel userId={auth.userId} token={auth.token} count={trainerNotifs.length} onDecideSlotReq={()=>handleNav("schedule")} onClose={()=>setShowNotifPanel(false)}/>}
       {/* Slot Request Banner — tappable, navigates to Schedule */}
       {slotReqBanner&&(
