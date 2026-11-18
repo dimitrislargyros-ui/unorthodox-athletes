@@ -1006,7 +1006,7 @@ const ClientsScreen=({clients,onViewClient,token})=>{
           const pkg=c._pkg; const left=pkg?(pkg.sessions_total-pkg.sessions_used):null;
           const pct=pkg?(pkg.sessions_used/pkg.sessions_total)*100:0; const isLow=left!=null&&left<=2;
           const currentDay=pkg&&pkg.delivery_mode!=='remote'?nextDay[c.id]||null:null;
-          return(<button key={c.id} onClick={()=>onViewClient(c)} style={{background:C.surface,border:`1px solid ${isLow?C.pink+"44":C.border}`,borderRadius:14,padding:"16px",cursor:"pointer",textAlign:"left",width:"100%"}}>
+          return(<button key={c.id} onClick={()=>onViewClient(c)} style={{background:C.surface,border:`1px solid ${pkg?.frozen_at?C.cyan+"88":isLow?C.pink+"44":C.border}`,borderRadius:14,padding:"16px",cursor:"pointer",textAlign:"left",width:"100%"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:pkg?12:0}}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <Avatar initials={c.initials} avatarUrl={c.avatar_url}/>
@@ -1017,7 +1017,8 @@ const ClientsScreen=({clients,onViewClient,token})=>{
                     {pkg?.frozen_at&&<span style={{background:C.cyan+"22",border:`1px solid ${C.cyan}44`,color:C.cyan,fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:20,whiteSpace:"nowrap"}}>❄️ FROZEN</span>}
                     {pkg?.delivery_mode==='remote'&&<span style={{background:C.pink+"22",border:`1px solid ${C.pink}44`,color:C.pink,fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:20,letterSpacing:0.5,whiteSpace:"nowrap",flexShrink:0}}>📍 REMOTE</span>}
                   </div>
-                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{pkg?`${pkg.sessions_total}-Session · ${pkg.sessions_per_week||3}x/week ${pkg.delivery_mode==='remote'?"":` · ends ${fmtDate(pkg.end_date)}`}`:"No active package"}</div>
+                  <div style={{color:C.muted,fontSize:12,marginTop:2}}>{pkg?`${pkg.sessions_total}-Session · ${pkg.sessions_per_week||3}x/week ${pkg.delivery_mode==='remote'||pkg.frozen_at?"":` · ends ${fmtDate(pkg.end_date)}`}`:"No active package"}</div>
+                  {pkg?.frozen_at&&<div style={{color:C.cyan,fontSize:11,fontWeight:700,marginTop:2}}>❄️ Frozen since {fmtDate(pkg.frozen_at)}{pkg.freeze_reason?` · ${pkg.freeze_reason}`:""}</div>}
                   {!pkg&&c._lostPkg&&c._lostPkg.sessions_total-(c._lostPkg.sessions_used||0)>0&&<div style={{color:C.pink,fontSize:11,fontWeight:700,marginTop:2}}>❌ {new Date(c._lostPkg.start_date+"T12:00:00").toLocaleString("en-GB",{month:"short"})} package expired: {c._lostPkg.sessions_total-(c._lostPkg.sessions_used||0)} session{c._lostPkg.sessions_total-(c._lostPkg.sessions_used||0)===1?"":"s"} lost</div>}
                   {pkg?.has_injury&&<div style={{color:C.amber,fontSize:11,marginTop:2}}>⚠️ {pkg.injury_notes}</div>}
                   {pkg?.package_notes&&<div style={{color:C.cyan,fontSize:11,marginTop:2}}>📋 {pkg.package_notes}</div>}
