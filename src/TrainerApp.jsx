@@ -3616,7 +3616,7 @@ function PackageReview({clients,token,onUpdated}){
   const row=(k,v)=>(<div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"5px 0",borderBottom:`1px solid ${C.border}`}}><span style={{color:C.muted}}>{k}</span><span style={{color:C.white,fontWeight:700}}>{v}</span></div>);
 
   return(
-    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px"}}>
+    <div className="ua-sheet-backdrop" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 20px",fontFamily:"'Inter',-apple-system,sans-serif"}}>
       <Card style={{width:"100%",maxWidth:400,maxHeight:"90dvh",overflowY:"auto"}}>
         <SL>Package check · {due.length} left</SL>
         <div style={{color:C.white,fontSize:19,fontWeight:800,marginBottom:4}}>{c.name}</div>
